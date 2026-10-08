@@ -1,7 +1,7 @@
 name: Windows build and portable publish
 on:
   push:
-    branches: [main, 'feature/**']
+    branches: [main, 'feature/**', 'cez/**']
   pull_request:
   workflow_dispatch:
 permissions:
@@ -23,6 +23,8 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
+      - name: Verify SDK on PATH
+        run: dotnet --info
       - name: Validate WPF design contract
         run: python tools/ux-contract.py --check
       - name: Restore
@@ -41,7 +43,7 @@ jobs:
             throw 'Portable publish must contain exactly EucLens.exe'
           }
           $app = Start-Process artifacts/win-x64/EucLens.exe -ArgumentList '--smoke-test' -PassThru
-          if (-not $app.WaitForExit(60000)) {
+          if (-not $app.WaitForExit(180000)) {
             $app.Kill()
             throw 'WPF smoke test timed out'
           }
@@ -62,6 +64,7 @@ jobs:
           path: |
             TestResults/*.trx
             artifacts/win-x64/smoke-result.txt
+            artifacts/win-x64/visual-evidence/
           if-no-files-found: warn
       - name: Upload portable application
         uses: actions/upload-artifact@v7

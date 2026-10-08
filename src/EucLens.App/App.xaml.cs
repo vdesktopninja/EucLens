@@ -80,6 +80,7 @@ public partial class App : Application
         vm.SelectedPage = vm.Pages[0];
         await Task.Delay(500);
         vm.IsDark = true;
+        await DesktopValidation.RunAsync(MainWindow, vm);
         var recorder = services!.GetRequiredService<ISessionRecorder>();
         var directory = Path.Combine(Path.GetTempPath(), "EucLens-smoke-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -91,7 +92,7 @@ public partial class App : Application
         }
         finally { Directory.Delete(directory, true); }
         if (errors.Errors.Count > 0) throw new InvalidOperationException("WPF binding errors: " + string.Join("\n", errors.Errors));
-        await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"), "PASS: startup, sampling, all five views, themes, recording, JSON/CSV export, no WPF binding errors.");
+        await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"), "PASS: startup, sampling, all five views, themes, recording, JSON/CSV export, themed charts, navigation/resize layout matrix, WPF client captures, no WPF binding errors. Actual Windows DPI changes require manual acceptance.");
         await StopAsync();
         closing = true;
         Shutdown(0);

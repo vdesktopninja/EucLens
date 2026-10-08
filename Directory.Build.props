@@ -5,6 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Deterministic>true</Deterministic>
+    <!-- Only the desktop executable is a shipping publish target; libraries still build and tests still run. -->
+    <IsPublishable>false</IsPublishable>
     <DebugType>embedded</DebugType>
   </PropertyGroup>
 </Project>
