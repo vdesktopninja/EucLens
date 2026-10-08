@@ -8,7 +8,7 @@ WPF on .NET 10 with MVVM; native controls, Segoe MDL2 icons and LiveCharts2 2.0.
 
 The authoritative resource sources are `src/EucLens.App/Themes/Light.xaml`, `Dark.xaml`, `Foundations.xaml` and `Controls.xaml`. Colors use semantic `Color` resources for Skia conversion and paired brushes for WPF. Shared colors must use `DynamicResource` in controls so switching themes takes effect. Dimensions/fonts use `StaticResource`. Both themes must expose identical keys.
 
-Screen examples in `contract.json` are the existing five views, not completed redesigns. `MetricTemplate`/`MetricGrid` remain compatibility resources; new structured details should use `MetricRows`. `Card` remains an alias-compatible compact surface; use `Panel` for new sections. No tokens came from scratch/generated files: extraction reads only the four maintained theme dictionaries.
+Screen examples in `contract.json` are the five implemented views; Windows visual acceptance remains pending. `MetricTemplate`/`MetricGrid` remain compatibility resources; new structured details should use `MetricRows`. `Card` remains an alias-compatible compact surface; use `Panel` for new sections. No tokens came from scratch/generated files: extraction reads only the four maintained theme dictionaries.
 
 ## Manual rules
 

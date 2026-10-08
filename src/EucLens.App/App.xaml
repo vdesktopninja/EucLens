@@ -2,7 +2,7 @@
  <Application.Resources>
   <ResourceDictionary>
    <ResourceDictionary.MergedDictionaries>
-    <ResourceDictionary Source="Themes/Dark.xaml" />
+    <ResourceDictionary Source="Themes/Light.xaml" />
     <ResourceDictionary Source="Themes/Foundations.xaml" />
     <ResourceDictionary Source="Themes/Controls.xaml" />
    </ResourceDictionary.MergedDictionaries>

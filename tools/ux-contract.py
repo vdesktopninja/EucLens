@@ -43,7 +43,7 @@ def extract():
         source = f'src/EucLens.App/Views/{name}View.xaml'
         ET.parse(ROOT / source)
         components.append({'name': f'{name}View', 'file': source, 'root': 'src/EucLens.App/Views', 'kind': 'UserControl'})
-        archetypes.append({'kind': kind, 'count': 1, 'examples': [source], 'state': 'existing; layout redesign pending'})
+        archetypes.append({'kind': kind, 'count': 1, 'examples': [source], 'state': 'implemented; Windows visual acceptance pending'})
     components.append({'name': 'MainWindow', 'file': 'src/EucLens.App/MainWindow.xaml', 'root': 'src/EucLens.App', 'kind': 'Window'})
     contract = {
         'version': 1, 'generatedBy': 'tools/ux-contract.py (WPF adapter; uxproof@0.3.1 shape)',

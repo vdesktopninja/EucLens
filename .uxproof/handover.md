@@ -1,5 +1,7 @@
 # Step 1 handover — design contract and shared WPF foundations
 
+**Subsequent status:** Step 2 has implemented the shell, five views, responsive panes and chart theme adapter. See [implementation.md](implementation.md) for current evidence and step 3 Windows acceptance. The remainder below records step 1 history.
+
 Step 1 is complete. The overall redesign is not complete: step 2 implements the shell/views/chart presentation, and step 3 owns Windows runtime, publish and visual acceptance. The audit was explicitly requested by the operator in addition to the setup workflow.
 
 ## Extracted and implemented

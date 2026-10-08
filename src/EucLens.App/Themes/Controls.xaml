@@ -38,17 +38,25 @@
  <Style TargetType="ToolTip"><Setter Property="Background" Value="{DynamicResource SurfaceBrush}" /><Setter Property="Foreground" Value="{DynamicResource TextBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" /><Setter Property="BorderThickness" Value="{StaticResource Hairline}" /><Setter Property="Padding" Value="8" /></Style>
  <DataTemplate x:Key="MetricRowTemplate">
   <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,4" ToolTip="{Binding Detail}">
-   <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+   <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
     <TextBlock Text="{Binding Label}" Style="{StaticResource Muted}" Margin="0,0,8,0" VerticalAlignment="Center" />
-    <TextBlock Grid.Column="1" Text="{Binding Value}" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" VerticalAlignment="Center" />
+    <TextBlock Grid.Column="1" Text="{Binding Value}" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" VerticalAlignment="Center" TextWrapping="Wrap" HorizontalAlignment="Right" TextAlignment="Right" />
    </Grid>
   </Border>
  </DataTemplate>
  <Style x:Key="MetricRows" TargetType="ItemsControl"><Setter Property="ItemTemplate" Value="{StaticResource MetricRowTemplate}" /></Style>
  <DataTemplate x:Key="MetricStripTemplate">
-  <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0" Padding="12,8">
-   <StackPanel><TextBlock Text="{Binding Label}" Style="{StaticResource Muted}" /><TextBlock Text="{Binding Value}" Style="{StaticResource MetricValue}" /><TextBlock Text="{Binding Detail}" Style="{StaticResource Muted}" /></StackPanel>
+  <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0" Padding="8" ToolTip="{Binding Detail}">
+   <StackPanel><TextBlock Text="{Binding Label}" Style="{StaticResource Muted}" /><TextBlock Text="{Binding Value}" Style="{StaticResource MetricValue}" TextWrapping="Wrap" /></StackPanel>
   </Border>
  </DataTemplate>
  <Style x:Key="MetricStrip" TargetType="ItemsControl"><Setter Property="ItemTemplate" Value="{StaticResource MetricStripTemplate}" /><Setter Property="ItemsPanel"><Setter.Value><ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate></Setter.Value></Setter></Style>
+ <Style x:Key="HealthText" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+  <Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+  <Style.Triggers>
+   <DataTrigger Binding="{Binding Monitor.Health}" Value="Healthy"><Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" /></DataTrigger>
+   <DataTrigger Binding="{Binding Monitor.Health}" Value="Warning"><Setter Property="Foreground" Value="{DynamicResource WarningBrush}" /></DataTrigger>
+   <DataTrigger Binding="{Binding Monitor.Health}" Value="Critical"><Setter Property="Foreground" Value="{DynamicResource CriticalBrush}" /></DataTrigger>
+  </Style.Triggers>
+ </Style>
 </ResourceDictionary>

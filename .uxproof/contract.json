@@ -80,7 +80,7 @@
       "examples": [
         "src/EucLens.App/Views/DashboardView.xaml"
       ],
-      "state": "existing; layout redesign pending"
+      "state": "implemented; Windows visual acceptance pending"
     },
     {
       "kind": "diagnostic-evidence",
@@ -88,7 +88,7 @@
       "examples": [
         "src/EucLens.App/Views/DiagnosticsView.xaml"
       ],
-      "state": "existing; layout redesign pending"
+      "state": "implemented; Windows visual acceptance pending"
     },
     {
       "kind": "recording-and-export",
@@ -96,7 +96,7 @@
       "examples": [
         "src/EucLens.App/Views/RecorderView.xaml"
       ],
-      "state": "existing; layout redesign pending"
+      "state": "implemented; Windows visual acceptance pending"
     },
     {
       "kind": "technical-inventory",
@@ -104,7 +104,7 @@
       "examples": [
         "src/EucLens.App/Views/SystemView.xaml"
       ],
-      "state": "existing; layout redesign pending"
+      "state": "implemented; Windows visual acceptance pending"
     },
     {
       "kind": "preferences",
@@ -112,14 +112,14 @@
       "examples": [
         "src/EucLens.App/Views/SettingsView.xaml"
       ],
-      "state": "existing; layout redesign pending"
+      "state": "implemented; Windows visual acceptance pending"
     }
   ],
   "warnings": [],
   "counts": {
     "tokens": 78,
     "colorTokens": 54,
-    "components": 28,
+    "components": 29,
     "proposedColors": 0
   },
   "evidenceLimits": [

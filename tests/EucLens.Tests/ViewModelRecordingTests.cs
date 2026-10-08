@@ -91,6 +91,31 @@ public sealed class ViewModelRecordingTests
         Assert.True(vm.ExportJsonCommand.CanExecute(null));
         Assert.Contains("Export failed", vm.Status);
     }
+    [Fact]
+    public async Task OverviewUsesCurrentBandwidthAndSampleSessionIdentity()
+    {
+        await using var provider = new MockMetricsProvider();
+        var recorder = new SessionRecorder();
+        var vm = Create(provider, recorder);
+        await vm.InitializeAsync(default);
+        vm.SelectedProtocol = vm.Protocols[1];
+        vm.StartRecordingCommand.Execute(null);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        vm.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(vm.UpdatedAt)) cancellation.Cancel();
+        };
+        await vm.RunAsync(cancellation.Token);
+        var sample = Assert.Single(recorder.Samples);
+        Assert.Equal(new[] { "RTT", "FPS", "BANDWIDTH", "GPU", "CPU" }, vm.OverviewCards.Select(card => card.Label));
+        Assert.Equal(sample.Connection.BandwidthConsumption.Display, vm.OverviewCards[2].Value);
+        Assert.Contains("Mbps", vm.OverviewCards[2].Value);
+        Assert.Contains("Omnissa Blast", vm.SessionIdentity);
+        Assert.Contains(sample.Session.Transport, vm.SessionIdentity);
+        Assert.Contains($"Session {sample.Session.SessionId}", vm.SessionIdentity);
+        Assert.Equal(sample.Connection.RoundTripTime.Display, vm.NetworkReadout);
+        Assert.Equal(sample.Graphics.FramesPerSecond.Display, vm.GraphicsReadout);
+    }
     private static MainViewModel Create(IDemoMetricsProvider provider, ISessionRecorder recorder) =>
         new(provider, new DiagnosticEngine([]), recorder, new FakeDesktop(), NullLogger<MainViewModel>.Instance);
     private sealed class FakeDesktop : IDesktopServices

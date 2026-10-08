@@ -154,6 +154,13 @@
     "targetType": "ItemsControl"
   },
   {
+    "name": "HealthText",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "TextBlock"
+  },
+  {
     "name": "DashboardView",
     "file": "src/EucLens.App/Views/DashboardView.xaml",
     "root": "src/EucLens.App/Views",
