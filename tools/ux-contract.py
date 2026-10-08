@@ -73,9 +73,15 @@ def main():
     # Parse the complete app XAML tree and resolve house resource references.
     trees = [ET.parse(p) for p in sorted(APP.rglob('*.xaml'))]
     keys = {node.get(X + 'Key') for tree in trees for node in tree.iter() if node.get(X + 'Key')}
+    resource_types = {node.get(X + 'Key'): node.tag.split('}')[-1]
+                      for tree in trees for node in tree.iter() if node.get(X + 'Key')}
     import re
     for tree in trees:
         for node in tree.iter():
+            dimension = {'ColumnDefinition': 'Width', 'RowDefinition': 'Height'}.get(node.tag.split('}')[-1])
+            reference = re.fullmatch(r'\{(?:StaticResource|DynamicResource) ([A-Za-z][\w]*)\}', node.get(dimension, '') if dimension else '')
+            if reference and resource_types.get(reference[1]) != 'GridLength':
+                raise SystemExit(f'Grid dimension requires a GridLength resource: {reference[1]}')
             for value in node.attrib.values():
                 for key in re.findall(r'\{(?:StaticResource|DynamicResource) ([A-Za-z][\w]*)\}', value):
                     if key not in keys:
