@@ -1,0 +1,192 @@
+[
+  {
+    "name": "ImplicitWindowStyle",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "Window"
+  },
+  {
+    "name": "ImplicitTextBlockStyle",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "TextBlock"
+  },
+  {
+    "name": "Muted",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "TextBlock"
+  },
+  {
+    "name": "Heading",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "TextBlock"
+  },
+  {
+    "name": "Section",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "TextBlock"
+  },
+  {
+    "name": "Card",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "Border"
+  },
+  {
+    "name": "ImplicitButtonStyle",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "Button"
+  },
+  {
+    "name": "PrimaryButton",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "Button"
+  },
+  {
+    "name": "ImplicitComboBoxItemStyle",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "ComboBoxItem"
+  },
+  {
+    "name": "ImplicitComboBoxStyle",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "ComboBox"
+  },
+  {
+    "name": "ImplicitCheckBoxStyle",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "CheckBox"
+  },
+  {
+    "name": "MetricTemplate",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "DataTemplate",
+    "targetType": null
+  },
+  {
+    "name": "MetricGrid",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "ItemsControl"
+  },
+  {
+    "name": "NavigationItem",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "ListBoxItem"
+  },
+  {
+    "name": "MetricValue",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "TextBlock"
+  },
+  {
+    "name": "Panel",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "Border"
+  },
+  {
+    "name": "ChartSurface",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "Border"
+  },
+  {
+    "name": "ImplicitToolTipStyle",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "ToolTip"
+  },
+  {
+    "name": "MetricRowTemplate",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "DataTemplate",
+    "targetType": null
+  },
+  {
+    "name": "MetricRows",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "ItemsControl"
+  },
+  {
+    "name": "MetricStripTemplate",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "DataTemplate",
+    "targetType": null
+  },
+  {
+    "name": "MetricStrip",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "ItemsControl"
+  },
+  {
+    "name": "DashboardView",
+    "file": "src/EucLens.App/Views/DashboardView.xaml",
+    "root": "src/EucLens.App/Views",
+    "kind": "UserControl"
+  },
+  {
+    "name": "DiagnosticsView",
+    "file": "src/EucLens.App/Views/DiagnosticsView.xaml",
+    "root": "src/EucLens.App/Views",
+    "kind": "UserControl"
+  },
+  {
+    "name": "RecorderView",
+    "file": "src/EucLens.App/Views/RecorderView.xaml",
+    "root": "src/EucLens.App/Views",
+    "kind": "UserControl"
+  },
+  {
+    "name": "SystemView",
+    "file": "src/EucLens.App/Views/SystemView.xaml",
+    "root": "src/EucLens.App/Views",
+    "kind": "UserControl"
+  },
+  {
+    "name": "SettingsView",
+    "file": "src/EucLens.App/Views/SettingsView.xaml",
+    "root": "src/EucLens.App/Views",
+    "kind": "UserControl"
+  },
+  {
+    "name": "MainWindow",
+    "file": "src/EucLens.App/MainWindow.xaml",
+    "root": "src/EucLens.App",
+    "kind": "Window"
+  }
+]

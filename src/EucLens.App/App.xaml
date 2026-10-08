@@ -3,6 +3,7 @@
   <ResourceDictionary>
    <ResourceDictionary.MergedDictionaries>
     <ResourceDictionary Source="Themes/Dark.xaml" />
+    <ResourceDictionary Source="Themes/Foundations.xaml" />
     <ResourceDictionary Source="Themes/Controls.xaml" />
    </ResourceDictionary.MergedDictionaries>
    <DataTemplate DataType="{x:Type vm:DashboardPage}"><views:DashboardView /></DataTemplate>

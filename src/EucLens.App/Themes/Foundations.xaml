@@ -1,0 +1,27 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:sys="clr-namespace:System;assembly=System.Runtime">
+ <!-- All dimensions are WPF device-independent pixels (DIPs). -->
+ <FontFamily x:Key="BodyFont">Segoe UI</FontFamily>
+ <FontFamily x:Key="IconFont">Segoe MDL2 Assets</FontFamily>
+ <sys:Double x:Key="LabelFontSize">12</sys:Double>
+ <sys:Double x:Key="BodyFontSize">13</sys:Double>
+ <sys:Double x:Key="SectionFontSize">14</sys:Double>
+ <sys:Double x:Key="HeadingFontSize">18</sys:Double>
+ <sys:Double x:Key="MetricFontSize">22</sys:Double>
+ <sys:Double x:Key="Space4">4</sys:Double>
+ <sys:Double x:Key="Space8">8</sys:Double>
+ <sys:Double x:Key="Space12">12</sys:Double>
+ <sys:Double x:Key="Space16">16</sys:Double>
+ <sys:Double x:Key="Space24">24</sys:Double>
+ <sys:Double x:Key="ControlHeight">32</sys:Double>
+ <sys:Double x:Key="NavigationWidth">184</sys:Double>
+ <sys:Double x:Key="ChartHeight">176</sys:Double>
+ <Thickness x:Key="Hairline">1</Thickness>
+ <Thickness x:Key="PanelPadding">12</Thickness>
+ <Thickness x:Key="ControlPadding">12,4</Thickness>
+ <Thickness x:Key="PagePadding">16</Thickness>
+ <Thickness x:Key="SectionMargin">0,16,0,8</Thickness>
+ <Thickness x:Key="PanelMargin">0,0,8,8</Thickness>
+ <CornerRadius x:Key="ControlRadius">4</CornerRadius>
+ <CornerRadius x:Key="PanelRadius">4</CornerRadius>
+ <CornerRadius x:Key="PopupRadius">6</CornerRadius>
+</ResourceDictionary>
