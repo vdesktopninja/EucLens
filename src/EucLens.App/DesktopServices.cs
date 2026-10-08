@@ -6,15 +6,6 @@ using Microsoft.Win32;
 
 namespace EucLens.App;
 
-public interface IDesktopServices
-{
-    string? SelectExportPath(bool json);
-    bool ConfirmNewRecording();
-    void ApplyTheme(bool dark);
-    Task SavePreferencesAsync(Preferences preferences);
-    Task<Preferences?> LoadPreferencesAsync();
-}
-public sealed record Preferences(bool Dark, RemoteProtocol Protocol, DemoScenario Scenario, WorkloadContext Workload);
 public sealed class DesktopServices : IDesktopServices
 {
     public static string DataDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EucLens");

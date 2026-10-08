@@ -28,6 +28,7 @@ public sealed class MainViewModel : ObservableObject
     private bool ready;
     private bool collectionFailed;
     private int exportedSamples;
+    private long recordingGeneration;
     private int configurationVersion;
     public bool HasUnexportedSamples => recorder.SampleCount > exportedSamples;
     public IReadOnlyList<Choice<RemoteProtocol>> Protocols { get; } = [new(RemoteProtocol.CitrixHdx, "Citrix HDX"), new(RemoteProtocol.OmnissaBlast, "Omnissa Blast"), new(RemoteProtocol.MicrosoftRdp, "Microsoft RDP")];
@@ -192,7 +193,7 @@ public sealed class MainViewModel : ObservableObject
     private void StartRecording()
     {
         if (recorder.SampleCount > 0 && !desktop.ConfirmNewRecording()) return;
-        recorder.Start(); exportedSamples = 0; recordedPoints.Clear(); Status = "Recording demo metrics. Export locally to save them."; RefreshRecorder();
+        recorder.Start(); recordingGeneration++; exportedSamples = 0; recordedPoints.Clear(); Status = "Recording demo metrics. Export locally to save them."; RefreshRecorder();
     }
     private void RefreshRecorder()
     {
@@ -206,9 +207,12 @@ public sealed class MainViewModel : ObservableObject
             var path = desktop.SelectExportPath(json);
             if (path is null) return;
             var count = recorder.SampleCount;
+            var generation = recordingGeneration;
             if (json) await recorder.ExportJsonAsync(path); else await recorder.ExportCsvAsync(path);
-            exportedSamples = count;
-            Status = $"Exported demo recording to {path}";
+            if (generation == recordingGeneration) exportedSamples = Math.Max(exportedSamples, count);
+            Status = generation == recordingGeneration
+                ? $"Exported demo recording to {path}"
+                : $"Exported a previous demo recording to {path}. Current recording still needs export.";
         }
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or System.Security.SecurityException)
         { logger.LogError(ex, "Recording export failed."); Status = $"Export failed: {ex.Message}"; }

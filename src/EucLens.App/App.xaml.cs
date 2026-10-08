@@ -39,9 +39,6 @@ public partial class App : Application
             registrations.AddSingleton<MainViewModel>();
             services = registrations.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
             var vm = services.GetRequiredService<MainViewModel>();
-            var window = new MainWindow { DataContext = vm };
-            MainWindow = window;
-            window.Closing += WindowClosing;
             BindingErrorListener? bindingErrors = null;
             if (smoke)
             {
@@ -49,6 +46,9 @@ public partial class App : Application
                 PresentationTraceSources.DataBindingSource.Listeners.Add(bindingErrors);
                 PresentationTraceSources.DataBindingSource.Switch.Level = SourceLevels.Error;
             }
+            var window = new MainWindow { DataContext = vm };
+            MainWindow = window;
+            window.Closing += WindowClosing;
             window.Show();
             await vm.InitializeAsync(cancellation.Token);
             sampling = vm.RunAsync(cancellation.Token);

@@ -16,7 +16,9 @@ an in-memory local recorder with atomic JSON/CSV exports. `Providers` contains
 the seeded mock simulator and four unavailable vendor adapter boundaries.
 `Diagnostics` contains the engine and individually testable rules.
 `App` owns WPF views, viewmodels, resource themes, desktop file dialogs,
-preferences, logging, charts and the composition root. `Tests` is cross-platform.
+preferences, logging, charts and the composition root. `Tests` is cross-platform. It links the actual platform-neutral app viewmodel,
+commands and desktop contracts for export-race regression tests, referencing
+chart DTOs without executing WPF or native rendering.
 There are no vendor SDK dependencies in views or viewmodels.
 
 The app's DI composition root chooses `IDemoMetricsProvider` for this milestone.
@@ -34,7 +36,9 @@ initializes it off the UI thread, then starts a cancellable `PeriodicTimer`
 collection loop. Initialization and collection run on a worker thread even when
 a provider returns synchronous work inside its task. Await resumes on the WPF
 dispatcher; only that thread updates bound properties, series and recording
-state. No synchronous dispatcher wait or `.Result` is used. Calls never overlap.
+state. Export completion records the generation and captured sample count so an
+old export cannot mark a new recording as saved; concurrent successful exports
+only advance the current recording’s saved watermark. No synchronous dispatcher wait or `.Result` is used. Calls never overlap.
 Configuration has a generation number; results collected during a configuration
 change are discarded. Protocol changes reset the simulated connected time.
 Live charts reset when protocol, scenario or workload changes; recordings keep
