@@ -28,6 +28,14 @@ internal static class DesktopValidation
         var client = (FrameworkElement)window.Content;
         var chromeWidth = window.ActualWidth - client.ActualWidth;
         var chromeHeight = window.ActualHeight - client.ActualHeight;
+        var originalWidth = client.Width;
+        var originalHeight = client.Height;
+        // Canvas measures children at their requested size, independent of the host's
+        // native window cap. Keep the real client attached so charts remain loaded.
+        var viewportHost = new Canvas { DataContext = vm };
+        window.Content = null;
+        viewportHost.Children.Add(client);
+        window.Content = viewportHost;
         var cases = new[] { (1366, 768), (1536, 864), (1920, 1080), (2560, 1440) };
         foreach (var dark in new[] { false, true })
         {
@@ -37,6 +45,9 @@ internal static class DesktopValidation
             {
                 window.Width = width / scale;
                 window.Height = height / scale;
+                var viewport = new Size(width / scale - chromeWidth, height / scale - chromeHeight);
+                client.Width = viewport.Width;
+                client.Height = viewport.Height;
                 foreach (var page in vm.Pages)
                 {
                     // Exercise navigation through the actual selector binding.
@@ -46,27 +57,23 @@ internal static class DesktopValidation
                     if (vm.SelectedPage != page) throw new InvalidOperationException("Navigation binding did not select the page.");
                     if (!Descendants<UserControl>(window).Any(view => view.IsLoaded))
                         throw new InvalidOperationException($"No loaded view for {page.Name}.");
-                    // Hosted runners can cap top-level windows to their virtual desktop.
-                    // Arrange the same live client visual at the exact requested viewport for
-                    // layout evidence, independent of that cap (native chrome remains excluded).
-                    var visual = (FrameworkElement)window.Content;
-                    var viewport = new Size(width / scale - chromeWidth, height / scale - chromeHeight);
-                    visual.Measure(viewport);
-                    visual.Arrange(new Rect(viewport));
-                    visual.UpdateLayout();
-                    if (Math.Abs(visual.ActualWidth - viewport.Width) > 1 || Math.Abs(visual.ActualHeight - viewport.Height) > 1)
-                        throw new InvalidOperationException("Client viewport did not match the requested layout dimensions.");
+                    if (Math.Abs(client.ActualWidth - viewport.Width) > 1 || Math.Abs(client.ActualHeight - viewport.Height) > 1)
+                        throw new InvalidOperationException($"Client viewport {client.ActualWidth}×{client.ActualHeight} did not match requested {viewport.Width}×{viewport.Height}.");
                     CheckCharts(window, page);
                     CheckPanes(window);
-                    report.AppendLine($"PASS: {(dark ? "dark" : "light")} | {width}×{height} | {scale:P0} available-space simulation | {page.Name} | client viewport {visual.ActualWidth:0}×{visual.ActualHeight:0} DIP; host window {window.ActualWidth:0}×{window.ActualHeight:0} DIP");
+                    report.AppendLine($"PASS: {(dark ? "dark" : "light")} | {width}×{height} | {scale:P0} available-space simulation | {page.Name} | client viewport {client.ActualWidth:0}×{client.ActualHeight:0} DIP; host window {window.ActualWidth:0}×{window.ActualHeight:0} DIP");
                     if (scale == 1 && (width == 1366 || width == 1920))
                     {
-                        Capture(window, Path.Combine(directory, $"{width}x{height}-{(dark ? "dark" : "light")}-{page.GetType().Name}.png"));
+                        Capture(window, client, Path.Combine(directory, $"{width}x{height}-{(dark ? "dark" : "light")}-{page.GetType().Name}.png"));
                     }
                 }
             }
         }
         await File.WriteAllTextAsync(Path.Combine(directory, "layout-results.txt"), report.ToString());
+        viewportHost.Children.Remove(client);
+        client.Width = originalWidth;
+        client.Height = originalHeight;
+        window.Content = client;
     }
     private static void CheckCharts(Window window, PageViewModel page)
     {
@@ -115,10 +122,9 @@ internal static class DesktopValidation
             }
         }
     }
-    private static void Capture(Window window, string path)
+    private static void Capture(Window window, FrameworkElement visual, string path)
     {
         // Capture the actual WPF client visual. Native window chrome is excluded.
-        var visual = (FrameworkElement)window.Content;
         var bitmap = new RenderTargetBitmap((int)Math.Ceiling(visual.ActualWidth),
             (int)Math.Ceiling(visual.ActualHeight), 96, 96, PixelFormats.Pbgra32);
         // Window.Background belongs to the native presentation root, outside the
