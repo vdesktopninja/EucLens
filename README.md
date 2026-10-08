@@ -72,7 +72,9 @@ and the [LiveCharts2 WPF installation guide](https://livecharts.dev/docs/wpf/2.0
 The Windows GitHub Actions workflow restores, builds with warnings as errors,
 tests, publishes, asserts a single EXE, runs a WPF startup/binding smoke test
 and uploads the application plus test evidence. A CI artifact is created only
-when the workflow runs; local cross-publishing cannot verify Windows execution.
+when the workflow runs; local cross-publishing cannot verify Windows execution. Windows CI has now
+validated startup, all five views, sampling, themes, recording and exports;
+see [validation evidence](docs/VALIDATION.md).
 
 ## Using the demo
 

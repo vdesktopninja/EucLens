@@ -54,7 +54,7 @@ jobs:
           }
       - name: Upload test and smoke evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: validation-results
           path: |
@@ -62,7 +62,7 @@ jobs:
             artifacts/win-x64/smoke-result.txt
           if-no-files-found: warn
       - name: Upload portable application
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: EucLens-win-x64
           path: artifacts/win-x64/EucLens.exe

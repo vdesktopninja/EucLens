@@ -14,5 +14,6 @@ smoke-tests the published application before uploading artifacts. MIT licensing,
 build instructions, architecture, research gates and acceptance checks are included.
 
 Validation: full solution cross-build with zero warnings/errors; 44 xUnit tests
-pass; single EXE cross-publish succeeds. Actual Windows execution and visual VDI
-acceptance remain pending. See VALIDATION.md. No changes have been pushed.
+pass; single EXE cross-publish succeeds. Windows CI also passes all tests and the published WPF startup/binding smoke
+check. Interactive visual VDI acceptance remains pending. The feature branch
+is pushed; main has not been merged or modified. See VALIDATION.md.

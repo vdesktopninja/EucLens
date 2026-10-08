@@ -58,14 +58,27 @@ additional samples during export, out-of-order export completion and failed
 export. All pass. The binding-error listener now attaches before constructing
 the smoke-test window. No other confirmed blocker was reported.
 
-## Windows verification still required
+## Windows CI verification
 
-The Windows GitHub workflow is committed but was not executed from this session;
-no branch was pushed. Its published-EXE smoke mode loads all five views, samples,
-changes themes, records, exports and checks WPF binding errors. This Linux host
-cannot execute WPF. Manual VDI/DPI/accessibility/file-dialog testing remains
-pending under [WINDOWS_ACCEPTANCE.md](WINDOWS_ACCEPTANCE.md).
+On 2026-10-08 the branch was pushed, with user authorization, and
+[Windows CI run 37803672588](https://github.com/vdesktopninja/RDA/actions/runs/37803672588)
+passed at commit `02c69b9`. Runner: Windows Server 2025 (10.0.26100), image
+`windows-2025-vs2026` 20260925.250.1, SDK 10.0.401.
 
-The MVP is ready for source review and Windows validation, not a claim of a
-Windows-tested release. Vendor integration research, import/playback,
+- Restore/build: passed, zero compiler warnings/errors.
+- Tests: 44 executed and passed; zero failed, skipped, aborted or timed out.
+- Portable publish: passed; output asserted to contain exactly `EucLens.exe`.
+- Published WPF EXE smoke: exited successfully; report states
+  `PASS: startup, sampling, all five views, themes, recording, JSON/CSV export, no WPF binding errors.`
+- Application and TRX/smoke evidence artifacts uploaded successfully.
+
+The initial run emitted an action-runtime deprecation notice for the old
+artifact upload action. The workflow now uses the maintained v7 action; the
+final revision will run the same Windows checks again. The downloaded Windows
+artifact and evidence are retained locally under `artifacts/windows-ci`.
+
+This validates Windows startup and automated UI paths, not interactive visual
+acceptance in every VDI platform. Manual DPI/accessibility/file-dialog and
+Citrix/Horizon/RDP graphics checks remain under
+[WINDOWS_ACCEPTANCE.md](WINDOWS_ACCEPTANCE.md). Vendor research, import/playback,
 sustained diagnostics, signing and measured performance benchmarks are next.
