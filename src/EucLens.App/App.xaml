@@ -1,0 +1,15 @@
+<Application x:Class="EucLens.App.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:vm="clr-namespace:EucLens.App.ViewModels" xmlns:views="clr-namespace:EucLens.App.Views">
+ <Application.Resources>
+  <ResourceDictionary>
+   <ResourceDictionary.MergedDictionaries>
+    <ResourceDictionary Source="Themes/Dark.xaml" />
+    <ResourceDictionary Source="Themes/Controls.xaml" />
+   </ResourceDictionary.MergedDictionaries>
+   <DataTemplate DataType="{x:Type vm:DashboardPage}"><views:DashboardView /></DataTemplate>
+   <DataTemplate DataType="{x:Type vm:DiagnosticsPage}"><views:DiagnosticsView /></DataTemplate>
+   <DataTemplate DataType="{x:Type vm:RecorderPage}"><views:RecorderView /></DataTemplate>
+   <DataTemplate DataType="{x:Type vm:SystemPage}"><views:SystemView /></DataTemplate>
+   <DataTemplate DataType="{x:Type vm:SettingsPage}"><views:SettingsView /></DataTemplate>
+  </ResourceDictionary>
+ </Application.Resources>
+</Application>
