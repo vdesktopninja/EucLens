@@ -1,0 +1,69 @@
+name: Windows build and portable publish
+on:
+  push:
+    branches: [main, 'feature/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore
+        run: dotnet restore EucLens.sln
+      - name: Build
+        run: dotnet build EucLens.sln -c Release --no-restore
+      - name: Test
+        run: dotnet test tests/EucLens.Tests/EucLens.Tests.csproj -c Release --no-build --logger "trx;LogFileName=tests.trx" --results-directory TestResults
+      - name: Publish portable EXE
+        run: dotnet publish src/EucLens.App/EucLens.App.csproj -p:PublishProfile=Portable -o artifacts/win-x64
+      - name: Verify single EXE and run Windows smoke test
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem artifacts/win-x64 -File)
+          if ($files.Count -ne 1 -or $files[0].Name -ne 'EucLens.exe') {
+            throw 'Portable publish must contain exactly EucLens.exe'
+          }
+          $app = Start-Process artifacts/win-x64/EucLens.exe -ArgumentList '--smoke-test' -PassThru
+          if (-not $app.WaitForExit(60000)) {
+            $app.Kill()
+            throw 'WPF smoke test timed out'
+          }
+          $app.Refresh()
+          if (Test-Path artifacts/win-x64/smoke-result.txt) {
+            Get-Content artifacts/win-x64/smoke-result.txt
+          }
+          if ($app.ExitCode -ne 0) { throw "WPF smoke test failed ($($app.ExitCode))" }
+          if (-not (Test-Path artifacts/win-x64/smoke-result.txt)) { throw 'Missing smoke result' }
+          if (-not ((Get-Content artifacts/win-x64/smoke-result.txt -Raw).StartsWith('PASS:'))) {
+            throw 'WPF smoke result did not pass'
+          }
+      - name: Upload test and smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-results
+          path: |
+            TestResults/*.trx
+            artifacts/win-x64/smoke-result.txt
+          if-no-files-found: warn
+      - name: Upload portable application
+        uses: actions/upload-artifact@v4
+        with:
+          name: EucLens-win-x64
+          path: artifacts/win-x64/EucLens.exe
+          if-no-files-found: error
