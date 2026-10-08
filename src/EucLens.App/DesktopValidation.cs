@@ -25,6 +25,9 @@ internal static class DesktopValidation
         var dpi = VisualTreeHelper.GetDpi(window);
         report.AppendLine($"Host DPI: {dpi.PixelsPerInchX:0} × {dpi.PixelsPerInchY:0}. Other scale cases below simulate available DIP space; they do not change Windows DPI.");
         var navigation = Descendants<ListBox>(window).Single(list => list.Items.Count == 5);
+        var client = (FrameworkElement)window.Content;
+        var chromeWidth = window.ActualWidth - client.ActualWidth;
+        var chromeHeight = window.ActualHeight - client.ActualHeight;
         var cases = new[] { (1366, 768), (1536, 864), (1920, 1080), (2560, 1440) };
         foreach (var dark in new[] { false, true })
         {
@@ -43,9 +46,19 @@ internal static class DesktopValidation
                     if (vm.SelectedPage != page) throw new InvalidOperationException("Navigation binding did not select the page.");
                     if (!Descendants<UserControl>(window).Any(view => view.IsLoaded))
                         throw new InvalidOperationException($"No loaded view for {page.Name}.");
+                    // Hosted runners can cap top-level windows to their virtual desktop.
+                    // Arrange the same live client visual at the exact requested viewport for
+                    // layout evidence, independent of that cap (native chrome remains excluded).
+                    var visual = (FrameworkElement)window.Content;
+                    var viewport = new Size(width / scale - chromeWidth, height / scale - chromeHeight);
+                    visual.Measure(viewport);
+                    visual.Arrange(new Rect(viewport));
+                    visual.UpdateLayout();
+                    if (Math.Abs(visual.ActualWidth - viewport.Width) > 1 || Math.Abs(visual.ActualHeight - viewport.Height) > 1)
+                        throw new InvalidOperationException("Client viewport did not match the requested layout dimensions.");
                     CheckCharts(window, page);
                     CheckPanes(window);
-                    report.AppendLine($"PASS: {(dark ? "dark" : "light")} | {width}×{height} | {scale:P0} available-space simulation | {page.Name} | actual window {window.ActualWidth:0}×{window.ActualHeight:0} DIP");
+                    report.AppendLine($"PASS: {(dark ? "dark" : "light")} | {width}×{height} | {scale:P0} available-space simulation | {page.Name} | client viewport {visual.ActualWidth:0}×{visual.ActualHeight:0} DIP; host window {window.ActualWidth:0}×{window.ActualHeight:0} DIP");
                     if (scale == 1 && (width == 1366 || width == 1920))
                     {
                         Capture(window, Path.Combine(directory, $"{width}x{height}-{(dark ? "dark" : "light")}-{page.GetType().Name}.png"));
@@ -108,7 +121,17 @@ internal static class DesktopValidation
         var visual = (FrameworkElement)window.Content;
         var bitmap = new RenderTargetBitmap((int)Math.Ceiling(visual.ActualWidth),
             (int)Math.Ceiling(visual.ActualHeight), 96, 96, PixelFormats.Pbgra32);
-        bitmap.Render(visual);
+        // Window.Background belongs to the native presentation root, outside the
+        // captured client visual. Composite it explicitly instead of emitting transparent gaps.
+        var drawing = new DrawingVisual();
+        using (var context = drawing.RenderOpen())
+        {
+            var bounds = new Rect(0, 0, visual.ActualWidth, visual.ActualHeight);
+            context.DrawRectangle(window.Background, null, bounds);
+            context.DrawRectangle(new VisualBrush(visual) { Stretch = Stretch.None,
+                AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top }, null, bounds);
+        }
+        bitmap.Render(drawing);
         var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(bitmap));
         using var stream = File.Create(path);

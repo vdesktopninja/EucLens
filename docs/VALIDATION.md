@@ -132,3 +132,35 @@ Manual DPI changes, keyboard/focus and pixel/text inspection remain in
 `WINDOWS_ACCEPTANCE.md`. At this point no Windows CI execution, runtime pass or
 actual PNG from the redesigned revision is claimed: the feature branch is still
 local and the operator's Guard requires approval before its remote push.
+
+### Windows runtime follow-up
+
+With user authorization, `cez/30c36cd6` was pushed. The first redesign run,
+[37810980268](https://github.com/vdesktopninja/RDA/actions/runs/37810980268), passed
+build, 45 tests and publish, then detected a genuine startup exception:
+`NavigationWidth` was a Double used as `ColumnDefinition.Width` (GridLength).
+Commit `476cbfc` changes only that token's type and adds a contract gate rejecting
+wrong grid-sizing resource types. It preserves the 184-DIP navigation layout.
+
+[Windows run 37811451477](https://github.com/vdesktopninja/RDA/actions/runs/37811451477)
+passed at `476cbfc`, including startup, sampling, navigation binding, both themes,
+all five views, chart paint assertions, adaptive-pane bounds/overlap, recording,
+JSON/CSV export and no WPF binding errors. Actual host DPI was 96×96. The EXE
+and all 20 WPF client captures were downloaded; inspection of the overview
+capture exposed the limitations below.
+
+Evidence inspection detected that the hosted desktop capped native windows at
+1044 DIPs wide. Those first captures therefore do not validate 1366/1920-wide
+layouts, even though the corresponding window sizes were requested. Transparent
+client areas also appeared black because Window.Background was outside the
+captured visual. The validation helper now arranges the same live WPF client
+at the exact requested viewport (subtracting native chrome) independently of
+that host cap, asserts those actual dimensions, and composites the active
+Window.Background into PNGs. This changes only validation/capture behavior.
+The resulting captures are real WPF client renders, excluding native chrome;
+they are not full desktop screenshots. Final CI must pass on the corrected
+helper before those exact-size captures are accepted.
+
+Actual changes of Windows display DPI and mixed-monitor transitions remain
+manual acceptance; the CI report explicitly separates host DPI from available
+DIP-space simulation at 100/125/150%.
