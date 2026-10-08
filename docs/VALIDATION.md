@@ -164,3 +164,18 @@ helper before those exact-size captures are accepted.
 Actual changes of Windows display DPI and mixed-monitor transitions remain
 manual acceptance; the CI report explicitly separates host DPI from available
 DIP-space simulation at 100/125/150%.
+
+The viewport harness now hosts the same loaded client in a smoke-only Canvas
+so native desktop constraints cannot override its requested size. Run
+[37812865544](https://github.com/vdesktopninja/RDA/actions/runs/37812865544) passed
+at `5e6d1c1`: 45/45 Windows tests, published EXE smoke, all 120 layout cases and
+20 real WPF client renders. Dimensions verified from PNG headers are 1350×729
+and 1904×1041 pixels (requested 1366×768 and 1920×1080 minus native chrome).
+
+Pixel inspection then found a product theme issue rather than a capture issue:
+MainWindow did not explicitly apply the implicit base Window style, leaving its
+background at the system white brush while dark-theme text changed to light.
+The existing shared Window style is now applied explicitly; no new design or
+palette was introduced. Windows smoke asserts the actual window background
+matches WindowBrush in each theme and layout rounding is enabled. The final
+revision must pass this additional assertion and its captures must be inspected.

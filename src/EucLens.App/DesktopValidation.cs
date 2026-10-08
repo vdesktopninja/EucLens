@@ -40,6 +40,9 @@ internal static class DesktopValidation
         foreach (var dark in new[] { false, true })
         {
             vm.IsDark = dark;
+            var expectedBackground = (SolidColorBrush)window.FindResource("WindowBrush");
+            if (window.Background is not SolidColorBrush actualBackground || actualBackground.Color != expectedBackground.Color || !window.UseLayoutRounding)
+                throw new InvalidOperationException("Window foundation style or active theme background was not applied.");
             foreach (var (width, height) in cases)
             foreach (var scale in new[] { 1d, 1.25d, 1.5d })
             {
