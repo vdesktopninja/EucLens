@@ -1,0 +1,7 @@
+.ai/
+**/bin/
+**/obj/
+.vs/
+artifacts/
+TestResults/
+*.user
