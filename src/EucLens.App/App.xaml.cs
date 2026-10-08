@@ -60,6 +60,7 @@ public partial class App : Application
             if (smoke) await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"), ex.ToString());
             else MessageBox.Show($"EUC Lens could not start. {ex.Message}", "EUC Lens", MessageBoxButton.OK, MessageBoxImage.Error);
             await StopAsync();
+            closing = true;
             Shutdown(1);
         }
     }
@@ -92,6 +93,7 @@ public partial class App : Application
         if (errors.Errors.Count > 0) throw new InvalidOperationException("WPF binding errors: " + string.Join("\n", errors.Errors));
         await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"), "PASS: startup, sampling, all five views, themes, recording, JSON/CSV export, no WPF binding errors.");
         await StopAsync();
+        closing = true;
         Shutdown(0);
     }
     private async void WindowClosing(object? sender, CancelEventArgs e)

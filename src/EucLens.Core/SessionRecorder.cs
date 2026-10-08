@@ -34,17 +34,17 @@ public sealed class SessionRecorder : ISessionRecorder
     public Task ExportJsonAsync(string path, CancellationToken cancellationToken = default)
     {
         var copy = samples.ToArray();
-        return WriteAtomicAsync(path, async stream =>
+        return Task.Run(() => WriteAtomicAsync(path, async stream =>
         {
             var options = new JsonSerializerOptions { WriteIndented = true };
             options.Converters.Add(new JsonStringEnumConverter());
             await JsonSerializer.SerializeAsync(stream, copy, options, cancellationToken);
-        }, cancellationToken);
+        }, cancellationToken), cancellationToken);
     }
     public Task ExportCsvAsync(string path, CancellationToken cancellationToken = default)
     {
         var copy = samples.ToArray();
-        return WriteAtomicAsync(path, async stream =>
+        return Task.Run(() => WriteAtomicAsync(path, async stream =>
         {
             await using var writer = new StreamWriter(stream, new UTF8Encoding(true), leaveOpen: true);
             await writer.WriteLineAsync("timestamp,is_demo,protocol,session_id,workload,demo_scenario,rtt_ms,network_latency_ms,available_mbps,consumed_mbps,packet_loss_percent,fps,dropped_frames_percent,encoder,codec,graphics_mode,hardware_encoding,resolution,gpu_model,gpu_percent,vram_percent,encoder_percent,decoder_percent,driver,cpu_percent,ram_percent,disk_mbps");
@@ -63,7 +63,7 @@ public sealed class SessionRecorder : ISessionRecorder
                     V(s.System.CpuUtilization), V(s.System.RamUtilization), V(s.System.DiskActivity)));
             }
             await writer.FlushAsync(cancellationToken);
-        }, cancellationToken);
+        }, cancellationToken), cancellationToken);
     }
     private static async Task WriteAtomicAsync(string path, Func<Stream, Task> write, CancellationToken token)
     {

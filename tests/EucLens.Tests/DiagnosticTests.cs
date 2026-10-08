@@ -81,4 +81,52 @@ public sealed class DiagnosticTests
     {
         Assert.Equal(HealthStatus.Unavailable, new DiagnosticEngine([]).Evaluate(await Sample()).Health);
     }
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task NonPositiveCapacityIsExplicitlyUnavailable(double capacity)
+    {
+        var s = await Sample();
+        s = s with { Connection = s.Connection with { AvailableBandwidth = Metric.Available(capacity, "Mbps") } };
+        var result = new BandwidthRule().Evaluate(s);
+        Assert.Equal(MetricStatus.Unavailable, result.Status);
+        Assert.Contains("greater than zero", result.Description);
+        Assert.Equal(HealthStatus.Unavailable, Engine().Evaluate(s).Health);
+    }
+    [Theory]
+    [InlineData(84.9, Severity.Info)]
+    [InlineData(85, Severity.Warning)]
+    [InlineData(94.9, Severity.Warning)]
+    [InlineData(95, Severity.Critical)]
+    public async Task GpuPressureThresholdsIncludeMemoryPressure(double utilization, Severity expected)
+    {
+        var s = await Sample();
+        s = s with { Gpu = s.Gpu with { Utilization = Metric.Available(0, "%"), VramUtilization = Metric.Available(utilization, "%") } };
+        Assert.Equal(expected, new GpuPressureRule().Evaluate(s).Severity);
+    }
+    [Theory]
+    [InlineData(89.9, Severity.Info)]
+    [InlineData(90, Severity.Warning)]
+    public async Task BandwidthRatioThreshold(double consumed, Severity expected)
+    {
+        var s = await Sample();
+        s = s with { Connection = s.Connection with { AvailableBandwidth = Metric.Available(100, "Mbps"), BandwidthConsumption = Metric.Available(consumed, "Mbps") } };
+        Assert.Equal(expected, new BandwidthRule().Evaluate(s).Severity);
+    }
+    [Fact]
+    public async Task EveryRuleReportsUnavailableForItsMissingRequiredInput()
+    {
+        var s = await Sample();
+        var unavailable = Metric.Unavailable("%", "Not exposed");
+        s = s with
+        {
+            Connection = s.Connection with { RoundTripTime = unavailable, BandwidthConsumption = unavailable },
+            Graphics = s.Graphics with { FramesPerSecond = unavailable },
+            Gpu = s.Gpu with { Utilization = unavailable }
+        };
+        var result = Engine().Evaluate(s);
+        Assert.Equal(HealthStatus.Unavailable, result.Health);
+        Assert.All(result.Results, r => Assert.Equal(MetricStatus.Unavailable, r.Status));
+    }
+
 }
