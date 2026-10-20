@@ -61,6 +61,10 @@
       "component": "ImplicitCheckBoxStyle"
     },
     {
+      "element": "Expander",
+      "component": "ImplicitExpanderStyle"
+    },
+    {
       "element": "TextBlock",
       "component": "ImplicitTextBlockStyle"
     },
@@ -131,7 +135,7 @@
   "counts": {
     "tokens": 81,
     "colorTokens": 54,
-    "components": 32,
+    "components": 33,
     "proposedColors": 0
   },
   "evidenceLimits": [

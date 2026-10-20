@@ -39,6 +39,15 @@ public sealed class MainViewModel : ObservableObject
         : current is null ? "Detecting…" : ProtocolLabel(current.Session.Protocol);
     public string ProtocolDetail => IsDemo ? "Simulated protocol chosen in Demo Mode." : current?.Session.ProtocolDetection ?? "Waiting for the first sample.";
     private readonly IDiagnosticEngine diagnostics;
+    private readonly IDiagnosticSettingsStore? diagnosticSettings;
+    /// <summary>Serializes background evaluation with Reset/Configure so mode switches never mix histories.</summary>
+    private readonly object diagnosticsGate = new();
+    private const string InsufficientData = "Insufficient Data";
+    private string connectionState = InsufficientData, graphicsState = InsufficientData, guestState = InsufficientData;
+    private IReadOnlyList<DiagnosticFinding> allFindings = [];
+    private Choice<Severity?> selectedFindingFilter;
+    private string findingSummary = "No findings yet.";
+    private string thresholdStatus = "Default thresholds (initial tunable values).";
     private readonly ISessionRecorder recorder;
     private readonly IDesktopServices desktop;
     private readonly ILogger<MainViewModel> logger;
@@ -46,7 +55,7 @@ public sealed class MainViewModel : ObservableObject
     private SessionSnapshot? current;
     private bool dark;
     private string status = "Initializing monitoring…";
-    private HealthStatus health = HealthStatus.Unavailable, connectionHealth = HealthStatus.Unavailable, hostHealth = HealthStatus.Unavailable;
+    private HealthStatus health = HealthStatus.Unavailable;
     private readonly ObservableCollection<DateTimePoint> cpuPoints = [];
     private Choice<MetricCategory?> selectedAdvancedCategory;
     private string advancedSearch = "";
@@ -63,7 +72,7 @@ public sealed class MainViewModel : ObservableObject
     public bool HasUnexportedSamples => recorder.SampleCount > exportedSamples;
     public IReadOnlyList<Choice<RemoteProtocol>> Protocols { get; } = [new(RemoteProtocol.CitrixHdx, "Citrix HDX"), new(RemoteProtocol.OmnissaBlast, "Omnissa Blast"), new(RemoteProtocol.MicrosoftRdp, "Microsoft RDP")];
     public IReadOnlyList<Choice<DemoScenario>> Scenarios { get; } = [new(DemoScenario.Healthy, "Healthy session"), new(DemoScenario.HighNetworkLatency, "High network latency"), new(DemoScenario.LowFps, "Low FPS"), new(DemoScenario.GpuBottleneck, "GPU bottleneck"), new(DemoScenario.BandwidthCongestion, "Bandwidth congestion")];
-    public IReadOnlyList<Choice<WorkloadContext>> Workloads { get; } = [new(WorkloadContext.Idle, "Idle / static content"), new(WorkloadContext.Office, "Office productivity"), new(WorkloadContext.InteractiveGraphics, "Interactive graphics")];
+    public IReadOnlyList<Choice<WorkloadContext>> Workloads { get; } = [new(WorkloadContext.Idle, "Idle / static content"), new(WorkloadContext.Office, "Office productivity"), new(WorkloadContext.InteractiveGraphics, "Interactive graphics"), new(WorkloadContext.VideoPlayback, "Video playback")];
     public IReadOnlyList<PageViewModel> Pages { get; }
     public PageViewModel SelectedPage { get => selectedPage; set { if (Set(ref selectedPage, value) && value is AdvancedPage) RebuildAdvanced(); } }
     public Choice<RemoteProtocol> SelectedProtocol { get => selectedProtocol; set { if (Set(ref selectedProtocol, value)) Configure(); } }
@@ -75,9 +84,22 @@ public sealed class MainViewModel : ObservableObject
     public string NetworkReadout => current?.Connection.RoundTripTime.Display ?? "Unavailable";
     public string GraphicsReadout => current?.Graphics.FramesPerSecond.Display ?? "Unavailable";
     public string Health => health.ToString();
-    public string ConnectionHealth => connectionHealth.ToString();
-    public string HostHealth => hostHealth.ToString();
-    public string ConnectionQuality => health switch { HealthStatus.Healthy => "Good (rule assessment)", HealthStatus.Warning => "Degraded (rule assessment)", HealthStatus.Critical => "Poor (rule assessment)", _ => "Unavailable" };
+    /// <summary>Independent domain states: Healthy, Warning, Critical or Insufficient Data. Never one combined score.</summary>
+    public string ConnectionHealth => connectionState;
+    public string GraphicsHealth => graphicsState;
+    public string GuestHealth => guestState;
+    public string ConnectionQuality => $"{connectionState} (rule assessment)";
+    public ObservableCollection<HealthTile> HealthTiles { get; } = [];
+    public ObservableCollection<FindingItem> FindingCards { get; } = [];
+    public ObservableCollection<HypothesisCard> Hypotheses { get; } = [];
+    public IReadOnlyList<Choice<Severity?>> FindingFilters { get; } = [new(null, "All"), new(Severity.Critical, "Critical"), new(Severity.Warning, "Warning"), new(Severity.Info, "Information")];
+    public Choice<Severity?> SelectedFindingFilter { get => selectedFindingFilter; set { if (Set(ref selectedFindingFilter, value)) RefreshFindings(); } }
+    public string FindingSummary { get => findingSummary; private set => Set(ref findingSummary, value); }
+    public string ThresholdStatus { get => thresholdStatus; private set => Set(ref thresholdStatus, value); }
+    public ObservableCollection<MetricCard> ThresholdCards { get; } = [];
+    public string ThresholdPath => diagnosticSettings?.Path ?? "Not configured";
+    public AsyncCommand RestoreThresholdDefaultsCommand { get; }
+    public AsyncCommand ReloadThresholdsCommand { get; }
     public string SessionDuration => current is null ? "Unavailable" : FormatDuration(current.Timestamp - current.Session.ConnectedAt);
     public string UpdatedAt => current is null ? "Awaiting first sample" : $"Last sample {current.Timestamp.ToLocalTime():HH:mm:ss} · 1 second interval";
     public string RecordingState => $"{(recorder.IsRecording ? "RECORDING" : recorder.SampleCount > 0 ? "STOPPED" : "READY")} · {((recorder.SampleCount > 0 || recorder.IsRecording ? recordingIsDemo : IsDemo) ? "DEMO DATA" : "REAL SESSION")}";
@@ -90,7 +112,6 @@ public sealed class MainViewModel : ObservableObject
     public ObservableCollection<MetricCard> GpuCards { get; } = [];
     public ObservableCollection<MetricCard> SystemCards { get; } = [];
     public ObservableCollection<MetricCard> SessionCards { get; } = [];
-    public ObservableCollection<DiagnosticCard> DiagnosticCards { get; } = [];
     public ObservableCollection<AdvancedMetricRow> AdvancedRows { get; } = [];
     public IReadOnlyList<Choice<MetricCategory?>> AdvancedCategories { get; } =
     [
@@ -122,8 +143,10 @@ public sealed class MainViewModel : ObservableObject
     public AsyncCommand ExportCsvCommand { get; }
     public AsyncCommand SavePreferencesCommand { get; }
     public MainViewModel(IDemoMetricsProvider provider, IDiagnosticEngine diagnostics, ISessionRecorder recorder,
-        IDesktopServices desktop, ILogger<MainViewModel> logger, IMetricsProvider? realProvider = null)
+        IDesktopServices desktop, ILogger<MainViewModel> logger, IMetricsProvider? realProvider = null, IDiagnosticSettingsStore? diagnosticSettings = null)
     {
+        this.diagnosticSettings = diagnosticSettings;
+        selectedFindingFilter = FindingFilters[0];
         this.realProvider = realProvider; selectedMode = Modes[realProvider is null ? 1 : 0];
         this.provider = provider; this.diagnostics = diagnostics; this.recorder = recorder; this.desktop = desktop; this.logger = logger;
         selectedProtocol = Protocols[0]; selectedScenario = Scenarios[0]; selectedWorkload = Workloads[realProvider is null ? 2 : 0];
@@ -138,6 +161,8 @@ public sealed class MainViewModel : ObservableObject
         StopRecordingCommand = new(() => { recorder.Stop(); Status = "Recording stopped. Export to save the collected metrics."; RefreshRecorder(); }, () => recorder.IsRecording);
         ExportJsonCommand = new(() => ExportAsync(true), () => recorder.SampleCount > 0);
         ExportCsvCommand = new(() => ExportAsync(false), () => recorder.SampleCount > 0);
+        RestoreThresholdDefaultsCommand = new(() => ApplyThresholdsAsync(restore: true), () => diagnosticSettings is not null);
+        ReloadThresholdsCommand = new(() => ApplyThresholdsAsync(restore: false), () => diagnosticSettings is not null);
         SavePreferencesCommand = new(SavePreferencesAsync);
     }
     private static LineSeries<DateTimePoint> Series(ObservableCollection<DateTimePoint> values, string name, string unit) => new()
@@ -170,15 +195,51 @@ public sealed class MainViewModel : ObservableObject
         }
         await provider.InitializeAsync(token);
         if (realProvider is not null) await realProvider.InitializeAsync(token);
+        await ApplyThresholdsAsync(restore: false);
         ready = true; Configure(); RefreshRecorder();
+    }
+    /// <summary>Loads (or restores) validated thresholds; invalid files keep the defaults and say why.</summary>
+    private async Task ApplyThresholdsAsync(bool restore)
+    {
+        var configurable = diagnostics as IConfigurableDiagnostics;
+        try
+        {
+            ThresholdLoadResult? result = diagnosticSettings is null ? null
+                : restore ? await diagnosticSettings.RestoreDefaultsAsync() : await diagnosticSettings.LoadAsync();
+            var thresholds = result?.Thresholds ?? DiagnosticThresholds.Defaults;
+            lock (diagnosticsGate) { configurationVersion++; configurable?.Configure(thresholds); }
+            ThresholdStatus = result is null ? "Default thresholds (initial tunable values)."
+                : result.Errors.Count > 0 ? $"Invalid settings in {result.Path}; defaults in use: {string.Join(" ", result.Errors)}"
+                : thresholds == DiagnosticThresholds.Defaults ? $"Default thresholds (initial tunable values). Edit {result.Path} to tune them."
+                : $"Custom thresholds loaded from {result.Path}.";
+            Replace(ThresholdCards, ThresholdRows(thresholds));
+            if (ready) { ClearLive(); if (restore) Status = "Diagnostic thresholds restored to defaults."; }
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning(ex, "Diagnostic thresholds could not be saved or loaded.");
+            ThresholdStatus = $"Could not access diagnostic settings: {ex.Message}. Defaults in use.";
+        }
+    }
+    private static IEnumerable<MetricCard> ThresholdRows(DiagnosticThresholds t)
+    {
+        string N(double v) => v.ToString("0.##", System.Globalization.CultureInfo.CurrentCulture);
+        yield return new("Observation windows", $"{N(t.ShortWindowSeconds)} / {N(t.StandardWindowSeconds)} / {N(t.LongWindowSeconds)} s", "Short / standard / long. Elapsed monotonic time.");
+        yield return new("Sustained condition", $"≥ {N(t.SustainedFraction * 100)} % of covered time", $"Needs ≥ {N(t.MinimumCoverageFraction * 100)} % window coverage and ≥ {t.MinimumValidSamples} valid samples.");
+        yield return new("Recovery (hysteresis)", $"{N(t.RecoveryMarginPercent)} % below warning for {N(t.RecoveryWindowSeconds)} s", $"Findings without data expire after {N(t.StaleFindingSeconds)} s.");
+        yield return new("Blast RTT warning / critical", $"{N(t.RttWarningMs)} / {N(t.RttCriticalMs)} ms", "Round-trip, not one-way latency.");
+        yield return new("Uplink packet loss warning / critical", $"{N(t.PacketLossWarningPercent)} / {N(t.PacketLossCriticalPercent)} %", "Mean over the standard window.");
+        yield return new("Low FPS (active workloads)", $"< {N(t.LowFps)} FPS", $"Screen activity: dirty FPS ≥ {N(t.ActivityDirtyFps)}.");
+        yield return new("Guest CPU warning / critical", $"{N(t.CpuWarningPercent)} / {N(t.CpuCriticalPercent)} %", "Machine-wide guest CPU.");
+        yield return new("Guest RAM warning / critical", $"{N(t.MemoryWarningPercent)} / {N(t.MemoryCriticalPercent)} %", $"Or available ≤ {N(t.AvailableRamWarningGiB)} / {N(t.AvailableRamCriticalGiB)} GiB.");
+        yield return new("GPU / VRAM / encoder warning", $"{N(t.GpuWarningPercent)} / {N(t.VramWarningPercent)} / {N(t.EncoderWarningPercent)} %", "Hardware GPU only.");
     }
     private void Configure()
     {
         if (!ready) return;
-        configurationVersion++;
         provider.Configure(selectedProtocol.Value, selectedScenario.Value, selectedWorkload.Value);
-        // Sustained rules must not carry evidence across modes or scenarios.
-        diagnostics.Reset();
+        // Sustained rules must not carry evidence across modes or scenarios; an in-flight evaluation is discarded.
+        lock (diagnosticsGate) { configurationVersion++; diagnostics.Reset(); }
         Raise(nameof(ProtocolDisplay)); Raise(nameof(ProtocolDetail));
         // Old samples remain in recordings with their own protocol/workload; live charts start fresh.
         ClearLive();
@@ -194,11 +255,18 @@ public sealed class MainViewModel : ObservableObject
                 var version = configurationVersion;
                 var active = ActiveProvider;
                 var workload = SelectedWorkload.Value;
-                var sample = await Task.Run(() => active.CollectAsync(token), token);
-                if (!sample.Session.IsDemo) sample = sample with { Workload = workload };
-                if (version == configurationVersion)
+                // Collection and diagnostic evaluation both run off the UI thread.
+                var (sample, report) = await Task.Run(async () =>
                 {
-                    Apply(sample);
+                    var s = await active.CollectAsync(token);
+                    if (!s.Session.IsDemo) s = s with { Workload = workload };
+                    DiagnosticReport? r = null;
+                    lock (diagnosticsGate) { if (version == configurationVersion) r = diagnostics.Evaluate(s); }
+                    return (s, r);
+                }, token);
+                if (version == configurationVersion && report is not null)
+                {
+                    Apply(sample, report);
                     if (collectionFailed) { Status = sample.CollectionStatus ?? "Collection recovered."; collectionFailed = false; }
                 }
             }
@@ -209,21 +277,19 @@ public sealed class MainViewModel : ObservableObject
                 logger.LogError(ex, "Metrics collection failed.");
                 ClearLive();
                 Status = $"Collection failed: {ex.Message}. Retrying next second.";
-                health = connectionHealth = hostHealth = HealthStatus.Unavailable;
-                Raise(nameof(Health)); Raise(nameof(ConnectionHealth)); Raise(nameof(HostHealth)); Raise(nameof(ConnectionQuality));
+                health = HealthStatus.Unavailable; connectionState = graphicsState = guestState = InsufficientData;
+                RaiseHealth();
             }
             try { if (!await timer.WaitForNextTickAsync(token)) break; }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
         }
     }
-    private void Apply(SessionSnapshot s)
+    private void Apply(SessionSnapshot s, DiagnosticReport report)
     {
+        // Diagnostic state travels with the sample so recordings preserve findings and their transitions.
+        if (report.Snapshot is not null) s = s with { Diagnostics = report.Snapshot };
         current = s;
-        var report = diagnostics.Evaluate(s);
-        health = report.Health; connectionHealth = report.ConnectionHealth; hostHealth = report.HostHealth;
-        Replace(DiagnosticCards, report.Results.OrderBy(r => r.Area).ThenByDescending(r => r.Severity).Select(r => new DiagnosticCard(
-            r.Status != MetricStatus.Available ? r.Status.ToString().ToUpperInvariant() : r.Severity.ToString().ToUpperInvariant(), $"{(r.Area == DiagnosticArea.Host ? "Host" : "Connection")} · {r.Title}",
-            r.Description, string.Join(" · ", r.SupportingMetrics.Select(p => $"{p.Key}: {p.Value}")), r.PossibleCause, r.RecommendedAction)));
+        ApplyDiagnostics(report);
         MetricCard C(string name, Metric metric) => new(name, metric.Display, s.Session.IsDemo ? metric.UnavailableReason ?? "Simulated measurement"
             : $"{metric.Status} · {(metric.Scope is { } scope ? ScopeLabel(scope) + " · " : "")}{metric.Source ?? "Not collected"} · {metric.Error ?? metric.UnavailableReason}");
         MetricCard T(string name, string? value) => new(name, value ?? "N/A", s.Session.IsDemo ? "Simulated session metadata" : "Local session metadata");
@@ -235,11 +301,23 @@ public sealed class MainViewModel : ObservableObject
         var graphics = new List<MetricCard> { C("Frames per second", s.Graphics.FramesPerSecond), C("Dropped frames", s.Graphics.DroppedFramesPercent), T("Encoder", s.Graphics.Encoder), T("Codec", s.Graphics.Codec), T("Graphics mode", s.Graphics.Mode), T("Hardware encoding", s.Graphics.HardwareEncoding is { } hw ? hw ? "Enabled (demo)" : "Disabled (demo)" : null), T("Display resolution", s.Graphics.Resolution) };
         if (host is not null) graphics.AddRange([H("Active monitors", "display.monitorCount"), H("Primary display scaling", "display.primaryScalePercent")]);
         Replace(GraphicsCards, graphics);
-        var gpu = new List<MetricCard> { T("GPU model", s.Gpu.Model) };
-        if (s.Gpu.AdapterKind is not null) gpu.Add(T("Adapter type", s.Gpu.AdapterKind));
-        gpu.AddRange([C("GPU utilization", s.Gpu.Utilization), C("GPU memory utilization", s.Gpu.VramUtilization)]);
-        if (s.Gpu.VramUsedTotal is not null) gpu.Add(T("VRAM used / total", s.Gpu.VramUsedTotal));
-        gpu.AddRange([C("Video encoder", s.Gpu.EncoderUtilization), C("Video decoder", s.Gpu.DecoderUtilization), T("Driver version", s.Gpu.DriverVersion)]);
+        var gpu = new List<MetricCard>();
+        if (s.Gpu.HardwareAcceleration == false)
+        {
+            // Software rendering is a supported configuration: a concise statement instead of rows of N/A.
+            gpu.AddRange([new("Graphics acceleration", "Software rendering", "No hardware GPU; rendering and Blast encoding use the guest CPU."),
+                new("Hardware GPU", "Not detected", s.Gpu.AdapterKind ?? "DXGI enumeration found no hardware GPU."),
+                new("GPU performance analysis", "Not applicable", "GPU rules apply only when a hardware GPU and its counters are available.")]);
+            OverviewCards[3] = new("GPU", "Software", "Software rendering; no hardware GPU detected.");
+        }
+        else
+        {
+            gpu.Add(T("GPU model", s.Gpu.Model));
+            if (s.Gpu.AdapterKind is not null) gpu.Add(T("Adapter type", s.Gpu.AdapterKind));
+            gpu.AddRange([C("GPU utilization", s.Gpu.Utilization), C("GPU memory utilization", s.Gpu.VramUtilization)]);
+            if (s.Gpu.VramUsedTotal is not null) gpu.Add(T("VRAM used / total", s.Gpu.VramUsedTotal));
+            gpu.AddRange([C("Video encoder", s.Gpu.EncoderUtilization), C("Video decoder", s.Gpu.DecoderUtilization), T("Driver version", s.Gpu.DriverVersion)]);
+        }
         Replace(GpuCards, gpu);
         var system = new List<MetricCard> { C("CPU utilization", s.System.CpuUtilization), C("RAM utilization", s.System.RamUtilization) };
         if (host is not null) system.AddRange([H("Available RAM", "memory.availableGiB"), H("Physical RAM", "memory.totalGiB"), H("Disk read", "disk.readMBps"), H("Disk write", "disk.writeMBps")]);
@@ -265,10 +343,67 @@ public sealed class MainViewModel : ObservableObject
         recorder.Add(s);
         if (recording) Append(recordedPoints, s.Timestamp, ChartValue(s.Connection.RoundTripTime), 600);
         if (recording && !recorder.IsRecording) Status = "Recording reached the 86,400 sample limit and stopped. Export to keep it.";
-        Raise(nameof(Health)); Raise(nameof(ConnectionHealth)); Raise(nameof(HostHealth)); Raise(nameof(ConnectionQuality)); Raise(nameof(SessionDuration)); Raise(nameof(UpdatedAt));
+        RaiseHealth(); Raise(nameof(SessionDuration)); Raise(nameof(UpdatedAt));
         Raise(nameof(SessionIdentity)); Raise(nameof(NetworkReadout)); Raise(nameof(GraphicsReadout)); Raise(nameof(ProtocolDisplay)); Raise(nameof(ProtocolDetail));
         if (SelectedPage is AdvancedPage) RebuildAdvanced();
         RefreshRecorder();
+    }
+    private void RaiseHealth()
+    {
+        Raise(nameof(Health)); Raise(nameof(ConnectionHealth)); Raise(nameof(GraphicsHealth)); Raise(nameof(GuestHealth)); Raise(nameof(ConnectionQuality));
+    }
+    private void ApplyDiagnostics(DiagnosticReport report)
+    {
+        health = report.Health;
+        IReadOnlyList<DomainAssessment> assessments = report.Assessments ??
+        [
+            // Legacy engines report only connection/host health.
+            new(DiagnosticDomain.Connection, Map(report.ConnectionHealth), AssessmentCoverage.Partial, "Legacy single-sample rules.", "", 0),
+            new(DiagnosticDomain.Graphics, HealthState.InsufficientData, AssessmentCoverage.None, "Not evaluated by this engine.", "", 0),
+            new(DiagnosticDomain.Guest, Map(report.HostHealth), AssessmentCoverage.Partial, "Legacy host rules.", "", 0),
+        ];
+        string State(DiagnosticDomain d) => assessments.FirstOrDefault(a => a.Domain == d)?.StateLabel ?? InsufficientData;
+        connectionState = State(DiagnosticDomain.Connection); graphicsState = State(DiagnosticDomain.Graphics); guestState = State(DiagnosticDomain.Guest);
+        Replace(HealthTiles, assessments.Select(a => new HealthTile(a.Domain switch
+        {
+            DiagnosticDomain.Connection => "Connection Health", DiagnosticDomain.Graphics => "Graphics Health", _ => "VDI Guest Health"
+        }, a.StateLabel, a.Coverage switch
+        {
+            AssessmentCoverage.Full => "Coverage: Full", AssessmentCoverage.Partial => "Coverage: Partial", _ => "Coverage: None"
+        } + (a.WindowSeconds > 0 ? $" · {a.WindowSeconds:0} s window" : ""), a.Evidence, a.CoverageNote)));
+        allFindings = report.Findings ?? report.Results.Select(r => new DiagnosticFinding(r.RuleId,
+            r.Area == DiagnosticArea.Host ? DiagnosticDomain.Guest : DiagnosticDomain.Connection, r.Status == MetricStatus.Available ? r.Severity : Severity.Info,
+            r.Title, r.Description, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null, null, 0, 0, 0,
+            r.SupportingMetrics.Select(p => new DiagnosticEvidence(p.Key, p.Value)).ToArray(), "Legacy rule.", [r.PossibleCause], [r.RecommendedAction], "")).ToArray();
+        Replace(Hypotheses, (report.Hypotheses ?? []).Select(h => new HypothesisCard(h.Statement, h.Confidence,
+            h.VerificationSteps.Count == 0 ? "" : "Verify: " + string.Join(" ", h.VerificationSteps.Select((step, i) => $"{i + 1}. {step}")))));
+        RefreshFindings();
+        static HealthState Map(HealthStatus h) => h switch
+        {
+            HealthStatus.Healthy => HealthState.Healthy, HealthStatus.Warning => HealthState.Warning, HealthStatus.Critical => HealthState.Critical, _ => HealthState.InsufficientData
+        };
+    }
+    private void RefreshFindings()
+    {
+        var filter = SelectedFindingFilter.Value;
+        SyncFindings(allFindings.Where(f => filter is null || f.Severity == filter).Select(FindingCard.From).ToArray());
+        var active = allFindings.Where(f => f.IsActive).ToArray();
+        FindingSummary = active.Length == 0 && allFindings.Count == 0 ? "No findings."
+            : $"{active.Length} active ({active.Count(f => f.Severity == Severity.Critical)} critical, {active.Count(f => f.Severity == Severity.Warning)} warning, {active.Count(f => f.Severity == Severity.Info)} information) · {allFindings.Count - active.Length} recently recovered";
+    }
+    /// <summary>Updates finding items in place by key; only new or vanished findings change the collection.</summary>
+    private void SyncFindings(FindingCard[] cards)
+    {
+        for (var i = 0; i < cards.Length; i++)
+        {
+            var key = cards[i].RuleId + "|" + cards[i].DetectedKey;
+            var existing = -1;
+            for (var j = i; j < FindingCards.Count; j++) if (FindingCards[j].Key == key) { existing = j; break; }
+            if (existing < 0) { FindingCards.Insert(i, new FindingItem(cards[i])); continue; }
+            if (existing != i) FindingCards.Move(existing, i);
+            FindingCards[i].Card = cards[i];
+        }
+        while (FindingCards.Count > cards.Length) FindingCards.RemoveAt(FindingCards.Count - 1);
     }
     private string ProtocolLabel(RemoteProtocol protocol) => protocol == RemoteProtocol.Unknown ? "Not detected"
         : Protocols.FirstOrDefault(p => p.Value == protocol)?.Label ?? protocol.ToString();
@@ -315,11 +450,13 @@ public sealed class MainViewModel : ObservableObject
     private static double? ChartValue(Metric metric) => metric.Status == MetricStatus.Available ? metric.Value : null;
     private void ClearLive()
     {
-        current = null; health = connectionHealth = hostHealth = HealthStatus.Unavailable;
+        current = null; health = HealthStatus.Unavailable; connectionState = graphicsState = guestState = InsufficientData;
+        allFindings = []; HealthTiles.Clear(); FindingCards.Clear(); Hypotheses.Clear(); FindingSummary = "No findings yet.";
         rttPoints.Clear(); fpsPoints.Clear(); cpuPoints.Clear(); AdvancedRows.Clear();
         AdvancedStatus = IsDemo ? "Advanced metrics list real collector output; Demo Mode has none." : "Waiting for the first sample.";
-        OverviewCards.Clear(); ConnectionCards.Clear(); GraphicsCards.Clear(); GpuCards.Clear(); SystemCards.Clear(); SessionCards.Clear(); DiagnosticCards.Clear();
-        foreach (var name in new[] { nameof(Health), nameof(ConnectionHealth), nameof(HostHealth), nameof(ProtocolDisplay), nameof(ProtocolDetail), nameof(ConnectionQuality), nameof(SessionDuration), nameof(UpdatedAt), nameof(SessionIdentity), nameof(NetworkReadout), nameof(GraphicsReadout) }) Raise(name);
+        OverviewCards.Clear(); ConnectionCards.Clear(); GraphicsCards.Clear(); GpuCards.Clear(); SystemCards.Clear(); SessionCards.Clear();
+        RaiseHealth();
+        foreach (var name in new[] { nameof(ProtocolDisplay), nameof(ProtocolDetail), nameof(ConnectionQuality), nameof(SessionDuration), nameof(UpdatedAt), nameof(SessionIdentity), nameof(NetworkReadout), nameof(GraphicsReadout) }) Raise(name);
     }
     private static void Replace<T>(ObservableCollection<T> target, IEnumerable<T> values)
     {

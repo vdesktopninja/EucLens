@@ -138,7 +138,9 @@ public sealed class WindowsGpuMetricsProvider(IGpuAdapterSource adapterSource, I
         if (primary is null || view is null)
         {
             var missing = new Metric(null, "%", reason, DxgiSource, now, SampleStatus: MetricStatus.Unavailable, Scope: MetricScope.Machine);
-            return new($"N/A — {reason}", missing, missing, missing, missing, "N/A", "N/A", "No hardware GPU");
+            // Software rendering is a supported configuration, not a failure; only a failed inventory is "unknown".
+            return new("None (software rendering)", missing, missing, missing, missing, "N/A", "N/A", reason,
+                inventoryError is null ? false : null);
         }
         var n = view.Nvml;
         Metric Prefer(Metric windows, NvmlValue? fallback, string nvmlField) =>
@@ -157,7 +159,7 @@ public sealed class WindowsGpuMetricsProvider(IGpuAdapterSource adapterSource, I
             : $"NVIDIA GPU (NVML virtualization mode: {n.VirtualizationMode})";
         return new(primary.Description, Prefer(view.Utilization, n?.GpuUtilization, "nvmlDeviceGetUtilizationRates.gpu"), vram,
             Prefer(view.Encode, n?.EncoderUtilization, "nvmlDeviceGetEncoderUtilization"),
-            Prefer(view.Decode, n?.DecoderUtilization, "nvmlDeviceGetDecoderUtilization"), driver, view.VramText, kind);
+            Prefer(view.Decode, n?.DecoderUtilization, "nvmlDeviceGetDecoderUtilization"), driver, view.VramText, kind, true);
     }
 
     /// <summary>Links an NVML device only when exactly one adapter and one device share PCI vendor, device and subsystem IDs.</summary>

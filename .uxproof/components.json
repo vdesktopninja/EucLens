@@ -77,6 +77,13 @@
     "targetType": "TextBox"
   },
   {
+    "name": "ImplicitExpanderStyle",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "Expander"
+  },
+  {
     "name": "HealthValue",
     "file": "src/EucLens.App/Themes/Controls.xaml",
     "root": "src/EucLens.App/Themes",

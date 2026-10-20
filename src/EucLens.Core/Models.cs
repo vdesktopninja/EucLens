@@ -2,7 +2,7 @@ namespace EucLens.Core;
 
 public enum RemoteProtocol { CitrixHdx, OmnissaBlast, MicrosoftRdp, Unknown }
 public enum DemoScenario { Healthy, HighNetworkLatency, LowFps, GpuBottleneck, BandwidthCongestion }
-public enum WorkloadContext { Idle, Office, InteractiveGraphics }
+public enum WorkloadContext { Idle, Office, InteractiveGraphics, VideoPlayback }
 public enum MetricStatus { Available, Unavailable, Stale, Failed }
 public enum MonitoringMode { RealSession, DemoMode }
 public enum Severity { Info, Warning, Critical }
@@ -39,13 +39,13 @@ public sealed record GraphicsMetrics(Metric FramesPerSecond, string Encoder, str
     Metric DroppedFramesPercent, string Mode, bool? HardwareEncoding, string Resolution);
 public sealed record GpuMetrics(string Model, Metric Utilization, Metric VramUtilization,
     Metric EncoderUtilization, Metric DecoderUtilization, string DriverVersion,
-    string? VramUsedTotal = null, string? AdapterKind = null);
+    string? VramUsedTotal = null, string? AdapterKind = null, bool? HardwareAcceleration = null);
 public sealed record SystemMetrics(Metric CpuUtilization, Metric RamUtilization, Metric DiskActivity);
 public sealed record SessionSnapshot(DateTimeOffset Timestamp, SessionInfo Session,
     WorkloadContext Workload, ConnectionMetrics Connection, GraphicsMetrics Graphics,
     GpuMetrics Gpu, SystemMetrics System, DemoScenario? DemoScenario = null,
     IReadOnlyDictionary<string, Metric>? BlastMetrics = null, string? CollectionStatus = null,
-    IReadOnlyList<MetricEntry>? HostMetrics = null);
+    IReadOnlyList<MetricEntry>? HostMetrics = null, DiagnosticSnapshot? Diagnostics = null);
 
 /// <summary>One protocol-independent host measurement. Text carries non-numeric facts such as a GPU model.</summary>
 public sealed record MetricEntry(string Id, MetricCategory Category, string Name, Metric Metric, string? Text = null)
@@ -71,7 +71,9 @@ public sealed record DiagnosticResult(string RuleId, Severity Severity, MetricSt
     string PossibleCause, string RecommendedAction, DiagnosticArea Area = DiagnosticArea.Connection);
 /// <summary>Health is also reported per area so missing host data never hides connection findings, or vice versa.</summary>
 public sealed record DiagnosticReport(HealthStatus Health, IReadOnlyList<DiagnosticResult> Results,
-    HealthStatus ConnectionHealth = HealthStatus.Unavailable, HealthStatus HostHealth = HealthStatus.Unavailable);
+    HealthStatus ConnectionHealth = HealthStatus.Unavailable, HealthStatus HostHealth = HealthStatus.Unavailable,
+    IReadOnlyList<DomainAssessment>? Assessments = null, IReadOnlyList<DiagnosticFinding>? Findings = null,
+    IReadOnlyList<DiagnosticHypothesis>? Hypotheses = null, DiagnosticSnapshot? Snapshot = null);
 public interface IDiagnosticRule
 {
     DiagnosticResult Evaluate(SessionSnapshot snapshot);

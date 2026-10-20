@@ -30,11 +30,13 @@ The active data source is always shown in the header banner and sidebar.
 - Healthy, high latency, low FPS, GPU bottleneck and bandwidth congestion scenarios.
 - One-second asynchronous collection, metric cards, session health and LiveCharts2
   RTT/FPS charts with a rolling 120-sample window.
-- Diagnostics with separate **Connection** and **System / host** health. Connection
-  rules cover latency, workload-aware FPS/drops and bandwidth. Host rules cover
-  sustained CPU, memory, GPU, VRAM and encoder load plus a combined graphics
-  bottleneck; they need a full 30-sample window, so short spikes are ignored.
-  Missing, stale or failed measurements are never treated as healthy.
+- Offline, rule-based **diagnostic intelligence** with independent **Connection**,
+  **Graphics** and **VDI Guest** health (Healthy, Warning, Critical or Insufficient Data,
+  each with coverage). Findings carry evidence, the observation window, the decision rule,
+  possible causes, recommended actions and limitations. Sustained conditions use
+  monotonic-time windows with hysteresis and recovery; brief spikes, idle desktops and
+  software rendering do not raise warnings. Thresholds are configurable and validated.
+  See [Diagnostic intelligence](docs/DIAGNOSTICS.md).
 - Start/stop timestamped recording, elapsed time, sample count and a historical
   RTT chart (latest 600 samples). JSON and CSV export to a chosen local file.
 - Local preferences, bounded application logs, no authentication, telemetry,

@@ -53,7 +53,7 @@ public sealed class SessionRecorder : ISessionRecorder
             // Schema 0.3 appends columns only, so existing column positions are unchanged.
             var hostKeys = copy.SelectMany(s => s.HostMetrics?.Select(e => e.Id) ?? []).Distinct().ToArray();
             var hostHeader = ",protocol_detection" + string.Concat(hostKeys.Select(k => $",host_{k},host_{k}_unit,host_{k}_status,host_{k}_raw,host_{k}_scope,host_{k}_source"));
-            await writer.WriteLineAsync("timestamp,data_source,is_demo,protocol,session_id,workload,demo_scenario,rtt_ms,network_latency_ms,available_mbps,consumed_mbps,packet_loss_percent,fps,dropped_frames_percent,encoder,codec,graphics_mode,hardware_encoding,resolution,gpu_model,gpu_percent,vram_percent,encoder_percent,decoder_percent,driver,cpu_percent,ram_percent,disk_mbps,collection_status" + blastHeader + hostHeader);
+            await writer.WriteLineAsync("timestamp,data_source,is_demo,protocol,session_id,workload,demo_scenario,rtt_ms,network_latency_ms,available_mbps,consumed_mbps,packet_loss_percent,fps,dropped_frames_percent,encoder,codec,graphics_mode,hardware_encoding,resolution,gpu_model,gpu_percent,vram_percent,encoder_percent,decoder_percent,driver,cpu_percent,ram_percent,disk_mbps,collection_status" + blastHeader + hostHeader + DiagnosticsHeader);
             foreach (var s in copy)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -74,10 +74,21 @@ public sealed class SessionRecorder : ISessionRecorder
                     Q(s.Graphics.Encoder), Q(s.Graphics.Codec), Q(s.Graphics.Mode), s.Graphics.HardwareEncoding?.ToString() ?? "Unavailable",
                     Q(s.Graphics.Resolution), Q(s.Gpu.Model), V(s.Gpu.Utilization), V(s.Gpu.VramUtilization),
                     V(s.Gpu.EncoderUtilization), V(s.Gpu.DecoderUtilization), Q(s.Gpu.DriverVersion),
-                    V(s.System.CpuUtilization), V(s.System.RamUtilization), V(s.System.DiskActivity), Q(s.CollectionStatus)) + blast + host);
+                    V(s.System.CpuUtilization), V(s.System.RamUtilization), V(s.System.DiskActivity), Q(s.CollectionStatus)) + blast + host + Diagnostics(s.Diagnostics, Q));
             }
             await writer.FlushAsync(cancellationToken);
         }, cancellationToken), cancellationToken);
+    }
+    /// <summary>Schema 0.4: diagnostic state per sample, appended after all earlier columns.</summary>
+    private const string DiagnosticsHeader = ",diag_connection,diag_graphics,diag_guest,diag_coverage,diag_active_findings,diag_events";
+    private static string Diagnostics(DiagnosticSnapshot? d, Func<string?, string> q)
+    {
+        if (d is null) return ",,,,,,";
+        string State(DiagnosticDomain domain) => d.Assessments.FirstOrDefault(a => a.Domain == domain)?.StateLabel ?? "";
+        var coverage = string.Join("; ", d.Assessments.Select(a => $"{a.Domain} {a.Coverage}"));
+        var events = string.Join("; ", d.Events.Select(e => $"{e.Transition} {e.Finding.RuleId} {e.Finding.Severity}"));
+        return string.Join(",", "", q(State(DiagnosticDomain.Connection)), q(State(DiagnosticDomain.Graphics)), q(State(DiagnosticDomain.Guest)),
+            q(coverage), q(string.Join("; ", d.ActiveFindings)), q(events));
     }
     private static async Task WriteAtomicAsync(string path, Func<Stream, Task> write, CancellationToken token)
     {

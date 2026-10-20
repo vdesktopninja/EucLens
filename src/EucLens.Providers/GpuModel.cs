@@ -77,7 +77,9 @@ public static partial class GpuClassifier
                 : "Only hardware GPU detected.");
         return (null, adapters.Count == 0
             ? "No display adapters were enumerated."
-            : "No hardware GPU: " + string.Join("; ", adapters.Select(a => $"{a.Description} ({a.KindReason})")));
+            // Identical adapters (e.g. two Basic Render Driver instances) are listed once with a count.
+            : "No hardware GPU: " + string.Join("; ", adapters.GroupBy(a => (a.Description, a.Kind)).Select(g =>
+                $"{g.Key.Description}{(g.Count() > 1 ? $" ×{g.Count()}" : "")} ({g.First().KindReason})")));
     }
 }
 

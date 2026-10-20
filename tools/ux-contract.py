@@ -51,7 +51,7 @@ def extract():
         'styling': {'system': 'WPF merged resource dictionaries', 'tailwind': None, 'tokenSources': sources},
         'libraries': {'charts': ['LiveChartsCore.SkiaSharpView.WPF 2.0.0'], 'icons': ['Segoe MDL2 Assets']},
         'componentRoots': [{'dir': 'src/EucLens.App/Themes', 'fileCount': 4}, {'dir': 'src/EucLens.App/Views', 'fileCount': 6}],
-        'nativeEquivalents': [{'element': name, 'component': f'Implicit{name}Style'} for name in ('Button', 'ComboBox', 'ComboBoxItem', 'CheckBox', 'TextBlock', 'TextBox', 'ToolTip', 'Window')],
+        'nativeEquivalents': [{'element': name, 'component': f'Implicit{name}Style'} for name in ('Button', 'ComboBox', 'ComboBoxItem', 'CheckBox', 'Expander', 'TextBlock', 'TextBox', 'ToolTip', 'Window')],
         'archetypes': archetypes, 'warnings': [],
         'counts': {'tokens': len(tokens), 'colorTokens': sum(t['resourceType'] in ('Color', 'SolidColorBrush') for t in tokens), 'components': len(components), 'proposedColors': 0},
         'evidenceLimits': ['Source extraction only; WPF runtime, LiveCharts rendering, DPI and pixel layout require Windows.',

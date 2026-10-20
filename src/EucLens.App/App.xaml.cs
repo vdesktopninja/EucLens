@@ -40,18 +40,8 @@ public partial class App : Application
             registrations.AddSingleton<ISessionProtocolProbe, WtsSessionProtocolProbe>();
             registrations.AddSingleton<IMetricsProvider, RealSessionMetricsProvider>();
             registrations.AddSingleton<ISessionRecorder, SessionRecorder>();
-            registrations.AddSingleton(new HostDiagnosticThresholds());
-            registrations.AddSingleton<IDiagnosticRule, LatencyRule>();
-            registrations.AddSingleton<IDiagnosticRule, FrameRateRule>();
-            registrations.AddSingleton<IDiagnosticRule, GpuPressureRule>();
-            registrations.AddSingleton<IDiagnosticRule, BandwidthRule>();
-            registrations.AddSingleton<IDiagnosticRule, SustainedCpuRule>();
-            registrations.AddSingleton<IDiagnosticRule, MemoryPressureRule>();
-            registrations.AddSingleton<IDiagnosticRule, SustainedGpuRule>();
-            registrations.AddSingleton<IDiagnosticRule, GpuMemoryPressureRule>();
-            registrations.AddSingleton<IDiagnosticRule, EncoderUtilizationRule>();
-            registrations.AddSingleton<IDiagnosticRule, GraphicsBottleneckRule>();
-            registrations.AddSingleton<IDiagnosticEngine, DiagnosticEngine>();
+            registrations.AddSingleton<IDiagnosticEngine>(_ => new DiagnosticIntelligenceEngine(DiagnosticRuleSet.Default()));
+            registrations.AddSingleton<IDiagnosticSettingsStore, DiagnosticSettingsStore>();
             registrations.AddSingleton<IDesktopServices>(new DesktopServices { AutoConfirmNewRecording = smoke });
             registrations.AddSingleton<MainViewModel>();
             services = registrations.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
@@ -111,8 +101,25 @@ public partial class App : Application
             Check(vm.RecordingState.Contains("REAL SESSION", StringComparison.Ordinal) && vm.SampleCount >= 1, "Real Session recording failed.");
             var realRtt = Points(vm.RttSeries);
             Check(realRtt.Length >= 1 && realRtt.All(v => v is null), "Real RTT chart must contain gaps, not fabricated values.");
-            Check(vm.DiagnosticCards.Count == 9 && vm.ConnectionHealth == nameof(HealthStatus.Unavailable), "Real Session connection diagnostics must be Unavailable.");
-            Check(vm.HostHealth == nameof(HealthStatus.Unavailable), "Host health must stay Unavailable until a full sample window exists.");
+            // Diagnostics: three independent domains; a few seconds of data must never read as Healthy.
+            Check(vm.HealthTiles.Count == 3 && vm.ConnectionHealth == "Insufficient Data" && vm.GraphicsHealth == "Insufficient Data" && vm.GuestHealth == "Insufficient Data",
+                $"Short observation must be Insufficient Data: {vm.ConnectionHealth}/{vm.GraphicsHealth}/{vm.GuestHealth}.");
+            Check(vm.Hypotheses.Count > 0, "Diagnostic assessment statement missing.");
+            Check(vm.GpuCards.Any(c => c.Label == "Graphics acceleration") || vm.GpuCards.Any(c => c.Label == "GPU model"), "GPU acceleration state missing.");
+            if (vm.GpuCards.Any(c => c.Label == "Graphics acceleration"))
+                Check(vm.FindingCards.Any(f => f.RuleId == "gpu.software-rendering" && f.Severity == "INFO"), "Software rendering must be an information finding, not a warning.");
+            Check(!vm.FindingCards.Any(f => f.Severity is "WARNING" or "CRITICAL"), "No warning may be raised from a few seconds of data.");
+            vm.SelectedPage = vm.Pages.Single(p => p is DiagnosticsPage);
+            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+            vm.SelectedFindingFilter = vm.FindingFilters.Single(f => f.Value == Severity.Info);
+            Check(vm.FindingCards.All(f => f.Severity is "INFO" or "RECOVERED"), "Finding filter failed.");
+            if (vm.FindingCards.Count > 0) vm.FindingCards[0].IsExpanded = true;
+            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+            await Task.Delay(1200);
+            Check(vm.FindingCards.Count == 0 || vm.FindingCards[0].IsExpanded, "Expanded finding collapsed after a sample update.");
+            evidence.Add("Diagnostics on runner: " + string.Join("; ", vm.HealthTiles.Select(t => $"{t.Domain}={t.State} ({t.Coverage})")) +
+                " | findings: " + string.Join(", ", vm.FindingCards.Select(f => $"{f.RuleId}:{f.Severity}")) + " | assessment: " + string.Join(" / ", vm.Hypotheses.Select(h => h.Statement)));
+            vm.SelectedFindingFilter = vm.FindingFilters[0];
             Check(Points(vm.CpuSeries).Any(v => v is not null), "CPU history chart is empty.");
 
             // Advanced Metrics: raw rows, category filter and search.
@@ -138,6 +145,9 @@ public partial class App : Application
                 Check(json.RootElement.EnumerateArray().All(e => !e.GetProperty("Session").GetProperty("IsDemo").GetBoolean()
                     && e.GetProperty("BlastMetrics").GetProperty("rtt").GetProperty("Value").ValueKind == System.Text.Json.JsonValueKind.Null), "Real JSON contains demo or fabricated data.");
             Check(realCsv[0].Contains("host_cpu.utilization_status", StringComparison.Ordinal) && realCsv[0].Contains("protocol_detection", StringComparison.Ordinal), "Real CSV header lacks host columns.");
+            Check(realCsv[0].EndsWith(",diag_connection,diag_graphics,diag_guest,diag_coverage,diag_active_findings,diag_events", StringComparison.Ordinal), "Real CSV lacks diagnostic columns.");
+            using (var json = System.Text.Json.JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(directory, "real.json"))))
+                Check(json.RootElement.EnumerateArray().All(e => e.GetProperty("Diagnostics").GetProperty("Assessments").GetArrayLength() == 3), "Real JSON lacks diagnostic assessments.");
             evidence.Add($"Real Session: {realCsv.Length - 1} samples, Blast N/A, CPU {Card("CPU")}; status: {vm.Status}");
 
             // Demo Mode: synthetic values, separate recording, live charts populated.
@@ -168,7 +178,7 @@ public partial class App : Application
         vm.StartRecordingCommand.Execute(null);
         await Task.Delay(2200);
         vm.StopRecordingCommand.Execute(null);
-        if (vm.SampleCount < 1 || vm.DiagnosticCards.Count != 10) throw new InvalidOperationException("Sampling/diagnostics smoke check failed.");
+        if (vm.SampleCount < 1 || vm.HealthTiles.Count != 3) throw new InvalidOperationException("Sampling/diagnostics smoke check failed.");
         foreach (var page in vm.Pages)
         {
             vm.SelectedPage = page;
@@ -192,7 +202,7 @@ public partial class App : Application
         if (errors.Errors.Count > 0) throw new InvalidOperationException("WPF binding errors: " + string.Join("\n", errors.Errors));
         GC.Collect(); GC.WaitForPendingFinalizers();
         if (unhandled.Count > 0) throw new InvalidOperationException("Unhandled exceptions: " + string.Join("\n", unhandled));
-        await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"), "PASS: startup, Real Session without Horizon Agent (Blast N/A, real CPU/RAM, recording + JSON/CSV with host columns), protocol display, Advanced Metrics filter/search, NVML-absent initialization, Real↔Demo switching, demo sampling and live charts, all five views, themes, recording, JSON/CSV export, themed charts, navigation/resize layout matrix, WPF client captures, no WPF binding errors. Actual Windows DPI changes require manual acceptance.\n" + string.Join("\n", evidence));
+        await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"), "PASS: startup, diagnostics (3 independent domains, Insufficient Data on short observation, software rendering as information, filters, stable expanded findings, diag export columns), Real Session without Horizon Agent (Blast N/A, real CPU/RAM, recording + JSON/CSV with host columns), protocol display, Advanced Metrics filter/search, NVML-absent initialization, Real↔Demo switching, demo sampling and live charts, all six views, themes, recording, JSON/CSV export, themed charts, navigation/resize layout matrix, WPF client captures, no WPF binding errors. Actual Windows DPI changes require manual acceptance.\n" + string.Join("\n", evidence));
         await StopAsync();
         closing = true;
         Shutdown(0);

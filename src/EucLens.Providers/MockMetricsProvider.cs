@@ -73,7 +73,7 @@ public sealed class MockMetricsProvider(int seed = 42) : IDemoMetricsProvider
                     "Demo hardware encoder", "H.264 (demo)", M(lowFps ? 6 : .2, lowFps ? 1 : .1, "%"),
                     "Adaptive graphics (demo)", true, "1920 × 1080 (demo)"),
                 new("NVIDIA virtual GPU (simulated)", M(gpuBound ? 97 : 35, gpuBound ? 2 : 10, "%"),
-                    M(gpuBound ? 93 : 42, 3, "%"), M(gpuBound ? 95 : 28, 4, "%"), M(5, 2, "%"), "Demo driver — not measured"),
+                    M(gpuBound ? 93 : 42, 3, "%"), M(gpuBound ? 95 : 28, 4, "%"), M(5, 2, "%"), "Demo driver — not measured", HardwareAcceleration: true),
                 new(M(gpuBound ? 70 : 24, 8, "%"), M(48, 4, "%"), M(2.5, 1.5, "MB/s", 1000)), scenario);
             return Task.FromResult(snapshot);
         }
