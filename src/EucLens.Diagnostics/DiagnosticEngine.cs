@@ -7,13 +7,20 @@ public sealed class DiagnosticEngine(IEnumerable<IDiagnosticRule> rules) : IDiag
     private readonly IDiagnosticRule[] rules = rules.ToArray();
     public DiagnosticReport Evaluate(SessionSnapshot snapshot)
     {
-        var results = rules.Select(rule => rule.Evaluate(snapshot)).ToArray();
+        var results = rules.Where(rule => rule.AppliesTo(snapshot)).Select(rule => rule.Evaluate(snapshot)).ToArray();
+        return new(Health(results), results,
+            Health(results.Where(r => r.Area == DiagnosticArea.Connection).ToArray()),
+            Health(results.Where(r => r.Area == DiagnosticArea.Host).ToArray()));
+    }
+    public void Reset() { foreach (var rule in rules) rule.Reset(); }
+    /// <summary>Findings win; otherwise any unevaluated rule makes the area Unavailable rather than Healthy.</summary>
+    private static HealthStatus Health(DiagnosticResult[] results)
+    {
         var available = results.Where(r => r.Status == MetricStatus.Available).ToArray();
-        var health = available.Any(r => r.Severity == Severity.Critical) ? HealthStatus.Critical
+        return available.Any(r => r.Severity == Severity.Critical) ? HealthStatus.Critical
             : available.Any(r => r.Severity == Severity.Warning) ? HealthStatus.Warning
             : results.Any(r => r.Status != MetricStatus.Available) || results.Length == 0 ? HealthStatus.Unavailable
             : HealthStatus.Healthy;
-        return new(health, results);
     }
 }
 
@@ -21,6 +28,9 @@ public abstract class MetricRule : IDiagnosticRule
 {
     protected abstract string Id { get; }
     protected abstract string Title { get; }
+    protected virtual DiagnosticArea Area => DiagnosticArea.Connection;
+    public virtual bool AppliesTo(SessionSnapshot snapshot) => true;
+    public virtual void Reset() { }
     protected abstract IReadOnlyDictionary<string, Metric> Metrics(SessionSnapshot snapshot);
     protected abstract (Severity Severity, string Description, string Cause, string Action) Analyze(SessionSnapshot snapshot);
     public DiagnosticResult Evaluate(SessionSnapshot snapshot)
@@ -35,10 +45,10 @@ public abstract class MetricRule : IDiagnosticRule
                 : missing.Any(m => m.Value.Status == MetricStatus.Stale) ? MetricStatus.Stale : MetricStatus.Unavailable;
             return new(Id, Severity.Info, status, Title, $"{status}: " +
                 string.Join("; ", missing.Select(m => $"{m.Key}: {m.Value.Error ?? m.Value.UnavailableReason ?? "not supplied"}")),
-                evidence, "Insufficient measurements.", "Use a provider that supplies these metrics.");
+                evidence, "Insufficient measurements.", "Use a provider that supplies these metrics.", Area);
         }
         var result = Analyze(snapshot);
-        return new(Id, result.Severity, MetricStatus.Available, Title, result.Description, evidence, result.Cause, result.Action);
+        return new(Id, result.Severity, MetricStatus.Available, Title, result.Description, evidence, result.Cause, result.Action, Area);
     }
 }
 public sealed class LatencyRule : MetricRule
@@ -71,6 +81,9 @@ public sealed class GpuPressureRule : MetricRule
 {
     protected override string Id => "gpu-pressure";
     protected override string Title => "GPU pressure";
+    protected override DiagnosticArea Area => DiagnosticArea.Host;
+    // Single-sample thresholds suit the synthetic scenarios only; real sessions use the sustained host rules.
+    public override bool AppliesTo(SessionSnapshot snapshot) => snapshot.Session.IsDemo;
     protected override IReadOnlyDictionary<string, Metric> Metrics(SessionSnapshot s) => new Dictionary<string, Metric> { ["GPU"] = s.Gpu.Utilization, ["VRAM"] = s.Gpu.VramUtilization };
     protected override (Severity, string, string, string) Analyze(SessionSnapshot s)
     {

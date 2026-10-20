@@ -24,14 +24,20 @@ public sealed class MainViewModel : ObservableObject
             // A recording never mixes demo and real samples.
             var stopped = recorder.IsRecording;
             recorder.Stop(); Configure(); RefreshRecorder();
-            Raise(nameof(IsDemo)); Raise(nameof(ModeLabel)); Raise(nameof(ModeBanner)); Raise(nameof(ModeDescription));
+            Raise(nameof(IsDemo)); Raise(nameof(IsReal)); Raise(nameof(ModeLabel)); Raise(nameof(ModeBanner)); Raise(nameof(ModeDescription));
+            Raise(nameof(ProtocolDisplay)); Raise(nameof(ProtocolDetail));
             if (stopped) Status = $"Recording stopped because monitoring switched to {value.Label}. Export to keep it.";
         }
     }
     public bool IsDemo => SelectedMode.Value == MonitoringMode.DemoMode;
+    public bool IsReal => !IsDemo;
     public string ModeLabel => SelectedMode.Label;
-    public string ModeBanner => IsDemo ? "DEMO DATA · Synthetic measurements" : "REAL SESSION · Local Horizon Blast counters";
-    public string ModeDescription => IsDemo ? "Synthetic session metrics." : "Current Windows session only. Missing measurements display N/A.";
+    public string ModeBanner => IsDemo ? "DEMO DATA · Synthetic measurements" : "REAL SESSION · Horizon Blast counters + Windows host metrics";
+    public string ModeDescription => IsDemo ? "Synthetic session metrics." : "Blast: this Windows session. CPU, RAM, disk, GPU: whole machine. Missing measurements display N/A.";
+    /// <summary>Real Session shows only the detected protocol; the demo selector never stands in for it.</summary>
+    public string ProtocolDisplay => IsDemo ? $"{SelectedProtocol.Label} (demo selection)"
+        : current is null ? "Detecting…" : ProtocolLabel(current.Session.Protocol);
+    public string ProtocolDetail => IsDemo ? "Simulated protocol chosen in Demo Mode." : current?.Session.ProtocolDetection ?? "Waiting for the first sample.";
     private readonly IDiagnosticEngine diagnostics;
     private readonly ISessionRecorder recorder;
     private readonly IDesktopServices desktop;
@@ -40,7 +46,11 @@ public sealed class MainViewModel : ObservableObject
     private SessionSnapshot? current;
     private bool dark;
     private string status = "Initializing monitoring…";
-    private HealthStatus health = HealthStatus.Unavailable;
+    private HealthStatus health = HealthStatus.Unavailable, connectionHealth = HealthStatus.Unavailable, hostHealth = HealthStatus.Unavailable;
+    private readonly ObservableCollection<DateTimePoint> cpuPoints = [];
+    private Choice<MetricCategory?> selectedAdvancedCategory;
+    private string advancedSearch = "";
+    private string advancedStatus = "Waiting for the first sample.";
     private PageViewModel selectedPage;
     private Choice<RemoteProtocol> selectedProtocol;
     private Choice<DemoScenario> selectedScenario;
@@ -55,16 +65,18 @@ public sealed class MainViewModel : ObservableObject
     public IReadOnlyList<Choice<DemoScenario>> Scenarios { get; } = [new(DemoScenario.Healthy, "Healthy session"), new(DemoScenario.HighNetworkLatency, "High network latency"), new(DemoScenario.LowFps, "Low FPS"), new(DemoScenario.GpuBottleneck, "GPU bottleneck"), new(DemoScenario.BandwidthCongestion, "Bandwidth congestion")];
     public IReadOnlyList<Choice<WorkloadContext>> Workloads { get; } = [new(WorkloadContext.Idle, "Idle / static content"), new(WorkloadContext.Office, "Office productivity"), new(WorkloadContext.InteractiveGraphics, "Interactive graphics")];
     public IReadOnlyList<PageViewModel> Pages { get; }
-    public PageViewModel SelectedPage { get => selectedPage; set => Set(ref selectedPage, value); }
+    public PageViewModel SelectedPage { get => selectedPage; set { if (Set(ref selectedPage, value) && value is AdvancedPage) RebuildAdvanced(); } }
     public Choice<RemoteProtocol> SelectedProtocol { get => selectedProtocol; set { if (Set(ref selectedProtocol, value)) Configure(); } }
     public Choice<DemoScenario> SelectedScenario { get => selectedScenario; set { if (Set(ref selectedScenario, value)) Configure(); } }
     public Choice<WorkloadContext> SelectedWorkload { get => selectedWorkload; set { if (Set(ref selectedWorkload, value)) Configure(); } }
     public bool IsDark { get => dark; set { if (Set(ref dark, value)) desktop.ApplyTheme(value); } }
     public string Status { get => status; private set => Set(ref status, value); }
-    public string SessionIdentity => current is null ? "Awaiting session sample" : $"{Protocols.Single(p => p.Value == current.Session.Protocol).Label} | {current.Session.Transport} | Session {current.Session.SessionId}";
+    public string SessionIdentity => current is null ? "Awaiting session sample" : $"{ProtocolLabel(current.Session.Protocol)} | {current.Session.Transport} | Session {current.Session.SessionId}";
     public string NetworkReadout => current?.Connection.RoundTripTime.Display ?? "Unavailable";
     public string GraphicsReadout => current?.Graphics.FramesPerSecond.Display ?? "Unavailable";
     public string Health => health.ToString();
+    public string ConnectionHealth => connectionHealth.ToString();
+    public string HostHealth => hostHealth.ToString();
     public string ConnectionQuality => health switch { HealthStatus.Healthy => "Good (rule assessment)", HealthStatus.Warning => "Degraded (rule assessment)", HealthStatus.Critical => "Poor (rule assessment)", _ => "Unavailable" };
     public string SessionDuration => current is null ? "Unavailable" : FormatDuration(current.Timestamp - current.Session.ConnectedAt);
     public string UpdatedAt => current is null ? "Awaiting first sample" : $"Last sample {current.Timestamp.ToLocalTime():HH:mm:ss} · 1 second interval";
@@ -79,6 +91,19 @@ public sealed class MainViewModel : ObservableObject
     public ObservableCollection<MetricCard> SystemCards { get; } = [];
     public ObservableCollection<MetricCard> SessionCards { get; } = [];
     public ObservableCollection<DiagnosticCard> DiagnosticCards { get; } = [];
+    public ObservableCollection<AdvancedMetricRow> AdvancedRows { get; } = [];
+    public IReadOnlyList<Choice<MetricCategory?>> AdvancedCategories { get; } =
+    [
+        new(null, "All categories"), new(MetricCategory.BlastSession, "Horizon Blast Session"), new(MetricCategory.BlastImaging, "Horizon Blast Imaging"),
+        new(MetricCategory.WindowsCpu, "Windows CPU"), new(MetricCategory.WindowsMemory, "Windows Memory"), new(MetricCategory.WindowsDisk, "Windows Disk"),
+        new(MetricCategory.Gpu, "GPU"), new(MetricCategory.Display, "Display"),
+    ];
+    public Choice<MetricCategory?> SelectedAdvancedCategory { get => selectedAdvancedCategory; set { if (Set(ref selectedAdvancedCategory, value)) RebuildAdvanced(); } }
+    public string AdvancedSearch { get => advancedSearch; set { if (Set(ref advancedSearch, value ?? "")) RebuildAdvanced(); } }
+    public string AdvancedStatus { get => advancedStatus; private set => Set(ref advancedStatus, value); }
+    public ISeries[] CpuSeries { get; }
+    public Axis[] CpuTimeAxes { get; } = CreateTimeAxes();
+    public Axis[] CpuAxes { get; } = [new() { Name = "CPU · %", MinLimit = 0, MaxLimit = 100, TextSize = 11 }];
     public ISeries[] RttSeries { get; }
     public ISeries[] FpsSeries { get; }
     public ISeries[] RecordingSeries { get; }
@@ -102,11 +127,13 @@ public sealed class MainViewModel : ObservableObject
         this.realProvider = realProvider; selectedMode = Modes[realProvider is null ? 1 : 0];
         this.provider = provider; this.diagnostics = diagnostics; this.recorder = recorder; this.desktop = desktop; this.logger = logger;
         selectedProtocol = Protocols[0]; selectedScenario = Scenarios[0]; selectedWorkload = Workloads[realProvider is null ? 2 : 0];
-        Pages = [new DashboardPage(this), new DiagnosticsPage(this), new RecorderPage(this), new SystemPage(this), new SettingsPage(this)];
+        selectedAdvancedCategory = AdvancedCategories[0];
+        Pages = [new DashboardPage(this), new DiagnosticsPage(this), new RecorderPage(this), new SystemPage(this), new AdvancedPage(this), new SettingsPage(this)];
         selectedPage = Pages[0];
         RttSeries = [Series(rttPoints, "RTT", "ms")];
         FpsSeries = [Series(fpsPoints, "FPS", "FPS")];
         RecordingSeries = [Series(recordedPoints, "Recorded RTT", "ms")];
+        CpuSeries = [Series(cpuPoints, "CPU", "%")];
         StartRecordingCommand = new(StartRecording, () => ready && !recorder.IsRecording);
         StopRecordingCommand = new(() => { recorder.Stop(); Status = "Recording stopped. Export to save the collected metrics."; RefreshRecorder(); }, () => recorder.IsRecording);
         ExportJsonCommand = new(() => ExportAsync(true), () => recorder.SampleCount > 0);
@@ -133,7 +160,7 @@ public sealed class MainViewModel : ObservableObject
                 selectedWorkload = Workloads.Single(p => p.Value == preferences.Workload);
                 selectedMode = Modes.Single(m => m.Value == (realProvider is null ? MonitoringMode.DemoMode : preferences.Mode));
                 Raise(nameof(SelectedProtocol)); Raise(nameof(SelectedScenario)); Raise(nameof(SelectedWorkload));
-                Raise(nameof(SelectedMode)); Raise(nameof(IsDemo)); Raise(nameof(ModeLabel)); Raise(nameof(ModeBanner)); Raise(nameof(ModeDescription));
+                Raise(nameof(SelectedMode)); Raise(nameof(IsDemo)); Raise(nameof(IsReal)); Raise(nameof(ProtocolDisplay)); Raise(nameof(ProtocolDetail)); Raise(nameof(ModeLabel)); Raise(nameof(ModeBanner)); Raise(nameof(ModeDescription));
             }
         }
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
@@ -150,9 +177,12 @@ public sealed class MainViewModel : ObservableObject
         if (!ready) return;
         configurationVersion++;
         provider.Configure(selectedProtocol.Value, selectedScenario.Value, selectedWorkload.Value);
+        // Sustained rules must not carry evidence across modes or scenarios.
+        diagnostics.Reset();
+        Raise(nameof(ProtocolDisplay)); Raise(nameof(ProtocolDetail));
         // Old samples remain in recordings with their own protocol/workload; live charts start fresh.
         ClearLive();
-        Status = IsDemo ? $"DEMO DATA · {SelectedProtocol.Label} · {SelectedScenario.Label}" : "REAL SESSION · Discovering current-session Blast counters…";
+        Status = IsDemo ? $"DEMO DATA · {SelectedProtocol.Label} · {SelectedScenario.Label}" : "REAL SESSION · Discovering Blast counters and host collectors…";
     }
     public async Task RunAsync(CancellationToken token)
     {
@@ -179,7 +209,8 @@ public sealed class MainViewModel : ObservableObject
                 logger.LogError(ex, "Metrics collection failed.");
                 ClearLive();
                 Status = $"Collection failed: {ex.Message}. Retrying next second.";
-                health = HealthStatus.Unavailable; Raise(nameof(Health)); Raise(nameof(ConnectionQuality));
+                health = connectionHealth = hostHealth = HealthStatus.Unavailable;
+                Raise(nameof(Health)); Raise(nameof(ConnectionHealth)); Raise(nameof(HostHealth)); Raise(nameof(ConnectionQuality));
             }
             try { if (!await timer.WaitForNextTickAsync(token)) break; }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
@@ -189,18 +220,33 @@ public sealed class MainViewModel : ObservableObject
     {
         current = s;
         var report = diagnostics.Evaluate(s);
-        health = report.Health;
-        Replace(DiagnosticCards, report.Results.OrderByDescending(r => r.Severity).Select(r => new DiagnosticCard(
-            r.Status != MetricStatus.Available ? r.Status.ToString().ToUpperInvariant() : r.Severity.ToString().ToUpperInvariant(), r.Title,
+        health = report.Health; connectionHealth = report.ConnectionHealth; hostHealth = report.HostHealth;
+        Replace(DiagnosticCards, report.Results.OrderBy(r => r.Area).ThenByDescending(r => r.Severity).Select(r => new DiagnosticCard(
+            r.Status != MetricStatus.Available ? r.Status.ToString().ToUpperInvariant() : r.Severity.ToString().ToUpperInvariant(), $"{(r.Area == DiagnosticArea.Host ? "Host" : "Connection")} · {r.Title}",
             r.Description, string.Join(" · ", r.SupportingMetrics.Select(p => $"{p.Key}: {p.Value}")), r.PossibleCause, r.RecommendedAction)));
-        MetricCard C(string name, Metric metric) => new(name, metric.Display, s.Session.IsDemo ? metric.UnavailableReason ?? "Simulated measurement" : $"{metric.Status} · {metric.Source ?? "Not collected"} · {metric.Error ?? metric.UnavailableReason}");
+        MetricCard C(string name, Metric metric) => new(name, metric.Display, s.Session.IsDemo ? metric.UnavailableReason ?? "Simulated measurement"
+            : $"{metric.Status} · {(metric.Scope is { } scope ? ScopeLabel(scope) + " · " : "")}{metric.Source ?? "Not collected"} · {metric.Error ?? metric.UnavailableReason}");
         MetricCard T(string name, string? value) => new(name, value ?? "N/A", s.Session.IsDemo ? "Simulated session metadata" : "Local session metadata");
+        var host = s.HostMetrics?.ToDictionary(e => e.Id, StringComparer.Ordinal);
+        MetricEntry? E(string id) => host is not null && host.TryGetValue(id, out var entry) ? entry : null;
+        MetricCard H(string name, string id) => E(id) is { } e ? e.Text is null ? C(name, e.Metric) : new(name, e.Text, $"{e.Metric.Status} · {e.Metric.Source}") : T(name, null);
         Replace(OverviewCards, [C("RTT", s.Connection.RoundTripTime), C("FPS", s.Graphics.FramesPerSecond), C("BANDWIDTH", s.Connection.BandwidthConsumption), C("GPU", s.Gpu.Utilization), C("CPU", s.System.CpuUtilization)]);
         Replace(ConnectionCards, [T("Transport", s.Session.Transport), C("Session RTT", s.Connection.RoundTripTime), C("Network latency", s.Connection.NetworkLatency), C("Available bandwidth", s.Connection.AvailableBandwidth), C("Current bandwidth", s.Connection.BandwidthConsumption), C("Packet loss", s.Connection.PacketLoss), T("Connection quality", ConnectionQuality)]);
-        Replace(GraphicsCards, [C("Frames per second", s.Graphics.FramesPerSecond), C("Dropped frames", s.Graphics.DroppedFramesPercent), T("Encoder", s.Graphics.Encoder), T("Codec", s.Graphics.Codec), T("Graphics mode", s.Graphics.Mode), T("Hardware encoding", s.Graphics.HardwareEncoding is { } hw ? hw ? "Enabled (demo)" : "Disabled (demo)" : null), T("Display resolution", s.Graphics.Resolution)]);
-        Replace(GpuCards, [T("GPU model", s.Gpu.Model), C("GPU utilization", s.Gpu.Utilization), C("VRAM utilization", s.Gpu.VramUtilization), C("Video encoder", s.Gpu.EncoderUtilization), C("Video decoder", s.Gpu.DecoderUtilization), T("Driver version", s.Gpu.DriverVersion)]);
-        Replace(SystemCards, [C("CPU utilization", s.System.CpuUtilization), C("RAM utilization", s.System.RamUtilization), C("Disk activity", s.System.DiskActivity)]);
-        Replace(SessionCards, [T("Active protocol", Protocols.Single(p => p.Value == s.Session.Protocol).Label), T("Session ID", s.Session.SessionId.ToString()), T("Username", s.Session.Username), T("Client hostname", s.Session.ClientHostname), T("Server hostname", s.Session.ServerHostname), T("Operating system", s.Session.OperatingSystem), T("Connection transport", s.Session.Transport), T(s.Session.IsDemo ? "Session duration" : "Monitoring duration", SessionDuration)]);
+        var graphics = new List<MetricCard> { C("Frames per second", s.Graphics.FramesPerSecond), C("Dropped frames", s.Graphics.DroppedFramesPercent), T("Encoder", s.Graphics.Encoder), T("Codec", s.Graphics.Codec), T("Graphics mode", s.Graphics.Mode), T("Hardware encoding", s.Graphics.HardwareEncoding is { } hw ? hw ? "Enabled (demo)" : "Disabled (demo)" : null), T("Display resolution", s.Graphics.Resolution) };
+        if (host is not null) graphics.AddRange([H("Active monitors", "display.monitorCount"), H("Primary display scaling", "display.primaryScalePercent")]);
+        Replace(GraphicsCards, graphics);
+        var gpu = new List<MetricCard> { T("GPU model", s.Gpu.Model) };
+        if (s.Gpu.AdapterKind is not null) gpu.Add(T("Adapter type", s.Gpu.AdapterKind));
+        gpu.AddRange([C("GPU utilization", s.Gpu.Utilization), C("GPU memory utilization", s.Gpu.VramUtilization)]);
+        if (s.Gpu.VramUsedTotal is not null) gpu.Add(T("VRAM used / total", s.Gpu.VramUsedTotal));
+        gpu.AddRange([C("Video encoder", s.Gpu.EncoderUtilization), C("Video decoder", s.Gpu.DecoderUtilization), T("Driver version", s.Gpu.DriverVersion)]);
+        Replace(GpuCards, gpu);
+        var system = new List<MetricCard> { C("CPU utilization", s.System.CpuUtilization), C("RAM utilization", s.System.RamUtilization) };
+        if (host is not null) system.AddRange([H("Available RAM", "memory.availableGiB"), H("Physical RAM", "memory.totalGiB"), H("Disk read", "disk.readMBps"), H("Disk write", "disk.writeMBps")]);
+        system.Add(C(host is null ? "Disk activity" : "Disk throughput (read + write)", s.System.DiskActivity));
+        if (host is not null) system.AddRange([H("Disk active time", "disk.activePercent"), H("CPU model", "cpu.model"), H("Logical processors", "cpu.logicalProcessors"), H("Windows version", "os.version")]);
+        Replace(SystemCards, system);
+        Replace(SessionCards, [T("Active protocol", ProtocolDisplay), T("Protocol detection", ProtocolDetail), T("Session ID", s.Session.SessionId.ToString()), T("Username", s.Session.Username), T("Client hostname", s.Session.ClientHostname), T("Server hostname", s.Session.ServerHostname), T("Operating system", s.Session.OperatingSystem), T("Connection transport", s.Session.Transport), T(s.Session.IsDemo ? "Session duration" : "Monitoring duration", SessionDuration)]);
         if (s.BlastMetrics is not null)
         {
             foreach (var (key, metric) in s.BlastMetrics)
@@ -214,28 +260,72 @@ public sealed class MainViewModel : ObservableObject
         }
         Append(rttPoints, s.Timestamp, ChartValue(s.Connection.RoundTripTime), 120);
         Append(fpsPoints, s.Timestamp, ChartValue(s.Graphics.FramesPerSecond), 120);
+        Append(cpuPoints, s.Timestamp, ChartValue(s.System.CpuUtilization), 120);
         var recording = recorder.IsRecording;
         recorder.Add(s);
         if (recording) Append(recordedPoints, s.Timestamp, ChartValue(s.Connection.RoundTripTime), 600);
         if (recording && !recorder.IsRecording) Status = "Recording reached the 86,400 sample limit and stopped. Export to keep it.";
-        Raise(nameof(Health)); Raise(nameof(ConnectionQuality)); Raise(nameof(SessionDuration)); Raise(nameof(UpdatedAt));
-        Raise(nameof(SessionIdentity)); Raise(nameof(NetworkReadout)); Raise(nameof(GraphicsReadout));
+        Raise(nameof(Health)); Raise(nameof(ConnectionHealth)); Raise(nameof(HostHealth)); Raise(nameof(ConnectionQuality)); Raise(nameof(SessionDuration)); Raise(nameof(UpdatedAt));
+        Raise(nameof(SessionIdentity)); Raise(nameof(NetworkReadout)); Raise(nameof(GraphicsReadout)); Raise(nameof(ProtocolDisplay)); Raise(nameof(ProtocolDetail));
+        if (SelectedPage is AdvancedPage) RebuildAdvanced();
         RefreshRecorder();
+    }
+    private string ProtocolLabel(RemoteProtocol protocol) => protocol == RemoteProtocol.Unknown ? "Not detected"
+        : Protocols.FirstOrDefault(p => p.Value == protocol)?.Label ?? protocol.ToString();
+    private static string ScopeLabel(MetricScope scope) => scope switch
+    {
+        MetricScope.Machine => "Machine-wide", MetricScope.Session => "This session", _ => "Process"
+    };
+    private static readonly Dictionary<MetricCategory, string> CategoryLabels = new()
+    {
+        [MetricCategory.BlastSession] = "Horizon Blast Session", [MetricCategory.BlastImaging] = "Horizon Blast Imaging",
+        [MetricCategory.WindowsCpu] = "Windows CPU", [MetricCategory.WindowsMemory] = "Windows Memory",
+        [MetricCategory.WindowsDisk] = "Windows Disk", [MetricCategory.Gpu] = "GPU", [MetricCategory.Display] = "Display",
+    };
+    /// <summary>Only runs while the Advanced Metrics page is visible, so hidden pages cost nothing per sample.</summary>
+    private void RebuildAdvanced()
+    {
+        var s = current;
+        if (s is null || s.Session.IsDemo)
+        {
+            AdvancedRows.Clear();
+            AdvancedStatus = IsDemo ? "Advanced metrics list real collector output; Demo Mode has none." : "Waiting for the first sample.";
+            return;
+        }
+        static string Value(Metric m) => m.Value is { } v ? v.ToString(Math.Abs(v) >= 1000 ? "#,0.#" : "0.###", System.Globalization.CultureInfo.CurrentCulture) : "N/A";
+        AdvancedMetricRow Row(MetricCategory category, string id, string name, Metric m, string? text) => new(CategoryLabels[category], name,
+            text ?? Value(m), m.Unit, m.Scope is { } scope ? ScopeLabel(scope) : "", m.Status.ToString(),
+            m.Status == MetricStatus.Available ? m.Source ?? "" : $"{m.Source} — {m.Error ?? m.UnavailableReason}",
+            m.Timestamp?.ToLocalTime().ToString("HH:mm:ss.fff", System.Globalization.CultureInfo.InvariantCulture) ?? "", id);
+        var all = new List<AdvancedMetricRow>();
+        foreach (var (key, metric) in s.BlastMetrics ?? new Dictionary<string, Metric>())
+            all.Add(Row(metric.Source?.Contains("Imaging Counters", StringComparison.Ordinal) == true ? MetricCategory.BlastImaging : MetricCategory.BlastSession,
+                "blast." + key, metric.Source?.Split('\\').LastOrDefault() ?? key, metric, null));
+        foreach (var entry in s.HostMetrics ?? []) all.Add(Row(entry.Category, entry.Id, entry.Name, entry.Metric, entry.Text));
+        var category = SelectedAdvancedCategory.Value is { } c ? CategoryLabels[c] : null;
+        var search = AdvancedSearch.Trim();
+        var rows = all.Where(r => (category is null || r.Category == category) && (search.Length == 0 ||
+            r.Name.Contains(search, StringComparison.OrdinalIgnoreCase) || r.Id.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+            r.Source.Contains(search, StringComparison.OrdinalIgnoreCase) || r.Value.Contains(search, StringComparison.OrdinalIgnoreCase))).ToArray();
+        Replace(AdvancedRows, rows);
+        AdvancedStatus = $"Updated {s.Timestamp.ToLocalTime():HH:mm:ss} · showing {rows.Length} of {all.Count} metrics · {all.Count(r => r.Status == nameof(MetricStatus.Available))} available, {all.Count(r => r.Status != nameof(MetricStatus.Available))} N/A";
     }
     // Already shown through the shared Connection/Graphics model; listing them twice would add noise.
     private static readonly HashSet<string> MappedBlastMetrics = ["rtt", "packetLoss", "imagingOutboundMbps", "fps", "encoderType"];
     private static double? ChartValue(Metric metric) => metric.Status == MetricStatus.Available ? metric.Value : null;
     private void ClearLive()
     {
-        current = null; health = HealthStatus.Unavailable;
-        rttPoints.Clear(); fpsPoints.Clear();
+        current = null; health = connectionHealth = hostHealth = HealthStatus.Unavailable;
+        rttPoints.Clear(); fpsPoints.Clear(); cpuPoints.Clear(); AdvancedRows.Clear();
+        AdvancedStatus = IsDemo ? "Advanced metrics list real collector output; Demo Mode has none." : "Waiting for the first sample.";
         OverviewCards.Clear(); ConnectionCards.Clear(); GraphicsCards.Clear(); GpuCards.Clear(); SystemCards.Clear(); SessionCards.Clear(); DiagnosticCards.Clear();
-        foreach (var name in new[] { nameof(Health), nameof(ConnectionQuality), nameof(SessionDuration), nameof(UpdatedAt), nameof(SessionIdentity), nameof(NetworkReadout), nameof(GraphicsReadout) }) Raise(name);
+        foreach (var name in new[] { nameof(Health), nameof(ConnectionHealth), nameof(HostHealth), nameof(ProtocolDisplay), nameof(ProtocolDetail), nameof(ConnectionQuality), nameof(SessionDuration), nameof(UpdatedAt), nameof(SessionIdentity), nameof(NetworkReadout), nameof(GraphicsReadout) }) Raise(name);
     }
     private static void Replace<T>(ObservableCollection<T> target, IEnumerable<T> values)
     {
         var items = values.ToArray();
-        for (var i = 0; i < items.Length; i++) { if (i < target.Count) target[i] = items[i]; else target.Add(items[i]); }
+        // Records compare by value; unchanged rows are left alone so WPF does not re-render them.
+        for (var i = 0; i < items.Length; i++) { if (i >= target.Count) target.Add(items[i]); else if (!Equals(target[i], items[i])) target[i] = items[i]; }
         while (target.Count > items.Length) target.RemoveAt(target.Count - 1);
     }
     private static void Append(ObservableCollection<DateTimePoint> target, DateTimeOffset timestamp, double? value, int limit)

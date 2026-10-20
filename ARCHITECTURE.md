@@ -85,7 +85,7 @@ are future work; individual snapshots cannot prove causality.
 | Citrix HDX | Supported SDK/telemetry sources, version/licensing matrix, session-to-client identity, counter definitions, units, transport and permissions; test inside actual VDA sessions. |
 | Omnissa Blast | **Implemented (0.2)** from local Horizon Blast Session/Imaging performance counters; see [docs/HORIZON_BLAST.md](docs/HORIZON_BLAST.md). Open: documented units for jitter, estimated bandwidth, poll/FBC rate and instantaneous byte counters; Encoder Type code mapping; negotiated transport; other Blast channels. |
 | Microsoft RDP | Documented Windows session/transport and graphics measurement interfaces, local/remote session mapping, counter availability and privileges across supported Windows versions. |
-| NVIDIA NVML | Official redistribution/license terms, supported driver/API loading, vGPU vs physical-device mapping, per-session attribution and non-admin availability. |
+| NVIDIA NVML | **Optional backend (0.3)**: loaded from the driver's System32/NVSMI copy, never bundled; linked to DXGI adapters by unique PCI IDs; see [docs/SYSTEM_GPU_MONITORING.md](docs/SYSTEM_GPU_MONITORING.md). Open: per-process vGPU attribution and validation across vGPU software versions. |
 
 No guessed API signatures, performance-counter names, registry keys or WMI
 classes are included. Each future adapter must implement availability detection,

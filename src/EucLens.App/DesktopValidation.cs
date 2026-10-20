@@ -24,7 +24,7 @@ internal static class DesktopValidation
         var report = new StringBuilder();
         var dpi = VisualTreeHelper.GetDpi(window);
         report.AppendLine($"Host DPI: {dpi.PixelsPerInchX:0} × {dpi.PixelsPerInchY:0}. Other scale cases below simulate available DIP space; they do not change Windows DPI.");
-        var navigation = Descendants<ListBox>(window).Single(list => list.Items.Count == 5);
+        var navigation = Descendants<ListBox>(window).Single(list => list.Items.Count == 6);
         var client = (FrameworkElement)window.Content;
         var chromeWidth = window.ActualWidth - client.ActualWidth;
         var chromeHeight = window.ActualHeight - client.ActualHeight;

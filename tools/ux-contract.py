@@ -39,7 +39,7 @@ def extract():
     archetypes = []
     for name, kind in [('Dashboard', 'session-overview'), ('Diagnostics', 'diagnostic-evidence'),
                        ('Recorder', 'recording-and-export'), ('System', 'technical-inventory'),
-                       ('Settings', 'preferences')]:
+                       ('Advanced', 'raw-metric-inspection'), ('Settings', 'preferences')]:
         source = f'src/EucLens.App/Views/{name}View.xaml'
         ET.parse(ROOT / source)
         components.append({'name': f'{name}View', 'file': source, 'root': 'src/EucLens.App/Views', 'kind': 'UserControl'})
@@ -50,8 +50,8 @@ def extract():
         'framework': 'WPF / .NET 10 / MVVM', 'workspace': True,
         'styling': {'system': 'WPF merged resource dictionaries', 'tailwind': None, 'tokenSources': sources},
         'libraries': {'charts': ['LiveChartsCore.SkiaSharpView.WPF 2.0.0'], 'icons': ['Segoe MDL2 Assets']},
-        'componentRoots': [{'dir': 'src/EucLens.App/Themes', 'fileCount': 4}, {'dir': 'src/EucLens.App/Views', 'fileCount': 5}],
-        'nativeEquivalents': [{'element': name, 'component': f'Implicit{name}Style'} for name in ('Button', 'ComboBox', 'ComboBoxItem', 'CheckBox', 'TextBlock', 'ToolTip', 'Window')],
+        'componentRoots': [{'dir': 'src/EucLens.App/Themes', 'fileCount': 4}, {'dir': 'src/EucLens.App/Views', 'fileCount': 6}],
+        'nativeEquivalents': [{'element': name, 'component': f'Implicit{name}Style'} for name in ('Button', 'ComboBox', 'ComboBoxItem', 'CheckBox', 'TextBlock', 'TextBox', 'ToolTip', 'Window')],
         'archetypes': archetypes, 'warnings': [],
         'counts': {'tokens': len(tokens), 'colorTokens': sum(t['resourceType'] in ('Color', 'SolidColorBrush') for t in tokens), 'components': len(components), 'proposedColors': 0},
         'evidenceLimits': ['Source extraction only; WPF runtime, LiveCharts rendering, DPI and pixel layout require Windows.',

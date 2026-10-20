@@ -50,7 +50,10 @@ public sealed class SessionRecorder : ISessionRecorder
             // Real providers add counter-level metrics; columns are the union in first-seen order.
             var blastKeys = copy.SelectMany(s => s.BlastMetrics?.Keys ?? Enumerable.Empty<string>()).Distinct().ToArray();
             var blastHeader = string.Concat(blastKeys.Select(k => $",blast_{k},blast_{k}_unit,blast_{k}_status,blast_{k}_raw,blast_{k}_source"));
-            await writer.WriteLineAsync("timestamp,data_source,is_demo,protocol,session_id,workload,demo_scenario,rtt_ms,network_latency_ms,available_mbps,consumed_mbps,packet_loss_percent,fps,dropped_frames_percent,encoder,codec,graphics_mode,hardware_encoding,resolution,gpu_model,gpu_percent,vram_percent,encoder_percent,decoder_percent,driver,cpu_percent,ram_percent,disk_mbps,collection_status" + blastHeader);
+            // Schema 0.3 appends columns only, so existing column positions are unchanged.
+            var hostKeys = copy.SelectMany(s => s.HostMetrics?.Select(e => e.Id) ?? []).Distinct().ToArray();
+            var hostHeader = ",protocol_detection" + string.Concat(hostKeys.Select(k => $",host_{k},host_{k}_unit,host_{k}_status,host_{k}_raw,host_{k}_scope,host_{k}_source"));
+            await writer.WriteLineAsync("timestamp,data_source,is_demo,protocol,session_id,workload,demo_scenario,rtt_ms,network_latency_ms,available_mbps,consumed_mbps,packet_loss_percent,fps,dropped_frames_percent,encoder,codec,graphics_mode,hardware_encoding,resolution,gpu_model,gpu_percent,vram_percent,encoder_percent,decoder_percent,driver,cpu_percent,ram_percent,disk_mbps,collection_status" + blastHeader + hostHeader);
             foreach (var s in copy)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -60,6 +63,10 @@ public sealed class SessionRecorder : ISessionRecorder
                 var blast = string.Concat(blastKeys.Select(k => s.BlastMetrics?.TryGetValue(k, out var m) == true
                     ? $",{V(m)},{Q(m.Unit)},{m.Status},{m.RawValue?.ToString(CultureInfo.InvariantCulture) ?? ""},{Q(m.Source)}"
                     : ",Unavailable,\"\",Unavailable,,\"\""));
+                var hostById = s.HostMetrics?.ToDictionary(e => e.Id, StringComparer.Ordinal);
+                var host = "," + Q(s.Session.ProtocolDetection) + string.Concat(hostKeys.Select(k => hostById?.TryGetValue(k, out var e) == true
+                    ? $",{(e.Text is null ? V(e.Metric) : Q(e.Text))},{Q(e.Metric.Unit)},{e.Metric.Status},{e.Metric.RawValue?.ToString(CultureInfo.InvariantCulture) ?? ""},{e.Metric.Scope?.ToString() ?? ""},{Q(e.Metric.Source)}"
+                    : ",Unavailable,\"\",Unavailable,,,\"\""));
                 await writer.WriteLineAsync(string.Join(",", s.Timestamp.ToString("O"), s.Session.IsDemo ? "Demo" : "RealSession", s.Session.IsDemo,
                     s.Session.Protocol, s.Session.SessionId, s.Workload, s.DemoScenario?.ToString() ?? "Unavailable", V(s.Connection.RoundTripTime),
                     V(s.Connection.NetworkLatency), V(s.Connection.AvailableBandwidth), V(s.Connection.BandwidthConsumption),
@@ -67,7 +74,7 @@ public sealed class SessionRecorder : ISessionRecorder
                     Q(s.Graphics.Encoder), Q(s.Graphics.Codec), Q(s.Graphics.Mode), s.Graphics.HardwareEncoding?.ToString() ?? "Unavailable",
                     Q(s.Graphics.Resolution), Q(s.Gpu.Model), V(s.Gpu.Utilization), V(s.Gpu.VramUtilization),
                     V(s.Gpu.EncoderUtilization), V(s.Gpu.DecoderUtilization), Q(s.Gpu.DriverVersion),
-                    V(s.System.CpuUtilization), V(s.System.RamUtilization), V(s.System.DiskActivity), Q(s.CollectionStatus)) + blast);
+                    V(s.System.CpuUtilization), V(s.System.RamUtilization), V(s.System.DiskActivity), Q(s.CollectionStatus)) + blast + host);
             }
             await writer.FlushAsync(cancellationToken);
         }, cancellationToken), cancellationToken);

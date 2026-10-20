@@ -2,9 +2,10 @@
 
 A free, MIT-licensed portable Windows desktop workspace for understanding remote
 desktop session performance. EUC Lens uses original code and design; it does not
-include Remote Display Analyzer code. Milestone 0.2 adds **real Omnissa Horizon
-Blast monitoring** from local Windows performance counters, alongside the
-original **Demo Mode**, whose identifiers and measurements are entirely synthetic.
+include Remote Display Analyzer code. **Real Session** mode combines Omnissa Horizon
+Blast counters (0.2) with protocol-independent Windows CPU, memory, disk, GPU and
+display measurements (0.3). The original **Demo Mode**, whose identifiers and
+measurements are entirely synthetic, is still available.
 The active data source is always shown in the header banner and sidebar.
 
 ## Current functionality
@@ -14,23 +15,34 @@ The active data source is always shown in the header banner and sidebar.
 - **Real Session** mode (default): reads the `Horizon Blast Session Counters` and
   `Horizon Blast Imaging Counters` instances that belong to the Windows session
   EUC Lens runs in. See [Horizon Blast monitoring](docs/HORIZON_BLAST.md).
+- Protocol-independent host monitoring in Real Session mode: machine-wide CPU
+  (with history chart), physical RAM, disk throughput, GPU adapters (DXGI) with
+  utilization, encode/decode and dedicated/shared memory from Windows GPU
+  counters, optional NVIDIA NVML, and the session's display topology. See
+  [System, GPU and display monitoring](docs/SYSTEM_GPU_MONITORING.md).
+- The detected protocol is shown in Real Session ("Not detected" with the reason
+  when no Blast session exists). Demo protocol selection only appears in Demo Mode.
+- **Advanced Metrics** page: every raw measurement with category filter, search,
+  value, unit, scope (machine-wide or this session), status, source and sample time.
 - **Demo Mode**: switch between simulated Citrix HDX, Omnissa Blast and Microsoft
   RDP sessions. Demo and real samples are never mixed; switching mode clears the
   live charts and stops an active recording.
 - Healthy, high latency, low FPS, GPU bottleneck and bandwidth congestion scenarios.
 - One-second asynchronous collection, metric cards, session health and LiveCharts2
   RTT/FPS charts with a rolling 120-sample window.
-- Four sample diagnostic rules: latency, workload-aware FPS/drop correlation,
-  GPU/VRAM pressure and bandwidth saturation. Results include severity, evidence,
-  cause and recommended action. Missing measurements are explicitly Unavailable.
+- Diagnostics with separate **Connection** and **System / host** health. Connection
+  rules cover latency, workload-aware FPS/drops and bandwidth. Host rules cover
+  sustained CPU, memory, GPU, VRAM and encoder load plus a combined graphics
+  bottleneck; they need a full 30-sample window, so short spikes are ignored.
+  Missing, stale or failed measurements are never treated as healthy.
 - Start/stop timestamped recording, elapsed time, sample count and a historical
   RTT chart (latest 600 samples). JSON and CSV export to a chosen local file.
 - Local preferences, bounded application logs, no authentication, telemetry,
   service, database, cloud dependency or runtime internet requirement.
 
-**Real Citrix, RDP and NVIDIA collection is still Unavailable.** Those adapter
-classes intentionally return no vendor metrics. In Real Session mode, GPU, CPU,
-RAM and disk cards show N/A because the Blast counter sets do not expose them. See [ARCHITECTURE.md](ARCHITECTURE.md)
+**Citrix HDX and Microsoft RDP protocol metrics are not implemented.** Host
+CPU, memory, disk, GPU and display metrics work in those sessions too, but the
+protocol is reported as "Not detected". See [ARCHITECTURE.md](ARCHITECTURE.md)
 for integration research requirements.
 
 ## Platforms

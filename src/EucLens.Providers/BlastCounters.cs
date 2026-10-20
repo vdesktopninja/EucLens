@@ -13,13 +13,15 @@ public interface IBlastSessionContext
 public sealed record CounterReading(double? Value, long? RawValue, DateTimeOffset Timestamp,
     MetricStatus Status = MetricStatus.Available, string? Error = null);
 
-/// <summary>All operations are local and synchronous. The provider schedules them off the UI thread.</summary>
-public interface IBlastCounterReader : IDisposable
+/// <summary>All operations are local and synchronous. Providers schedule them off the UI thread.</summary>
+public interface IPerformanceCounterReader : IDisposable
 {
     IReadOnlyList<string> GetInstances(string category);
     CounterReading Read(string category, string instance, string counter);
+    /// <summary>Releases cached native handles and rate baselines.</summary>
     void Reset();
 }
+public interface IBlastCounterReader : IPerformanceCounterReader;
 
 public sealed record BlastCounterDefinition(string Key, string Category, string Counter, string Unit,
     double Scale = 1, bool UnitVerified = true);
@@ -76,7 +78,8 @@ public static partial class BlastCounterCatalog
 
     public static Metric Convert(BlastCounterDefinition definition, CounterReading reading, string instance)
     {
-        var source = $@"\{definition.Category}({instance})\{definition.Counter}";
+        // Interned: the set of counter paths is small and recordings keep one reference per sample.
+        var source = string.Intern($@"\{definition.Category}({instance})\{definition.Counter}");
         var value = reading.Status == MetricStatus.Available ? reading.Value * definition.Scale : null;
         var status = reading.Status;
         var error = reading.Error;
@@ -86,6 +89,6 @@ public static partial class BlastCounterCatalog
             status = MetricStatus.Failed;
             error = "Counter returned a non-finite or missing value.";
         }
-        return new(value, definition.Unit, error, source, reading.Timestamp, reading.RawValue, status, error);
+        return new(value, definition.Unit, error, source, reading.Timestamp, reading.RawValue, status, error, MetricScope.Session);
     }
 }

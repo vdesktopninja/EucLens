@@ -35,12 +35,22 @@ public partial class App : Application
             registrations.AddSingleton<IDemoMetricsProvider, MockMetricsProvider>();
             registrations.AddSingleton<IBlastCounterReader, WindowsBlastCounterReader>();
             registrations.AddSingleton<IBlastSessionContext, WindowsBlastSessionContext>();
-            registrations.AddSingleton<IMetricsProvider, OmnissaBlastProvider>();
+            registrations.AddSingleton<OmnissaBlastProvider>();
+            registrations.AddSingleton<IHostMetricsCollector>(_ => new HostMetricsCollector());
+            registrations.AddSingleton<ISessionProtocolProbe, WtsSessionProtocolProbe>();
+            registrations.AddSingleton<IMetricsProvider, RealSessionMetricsProvider>();
             registrations.AddSingleton<ISessionRecorder, SessionRecorder>();
+            registrations.AddSingleton(new HostDiagnosticThresholds());
             registrations.AddSingleton<IDiagnosticRule, LatencyRule>();
             registrations.AddSingleton<IDiagnosticRule, FrameRateRule>();
             registrations.AddSingleton<IDiagnosticRule, GpuPressureRule>();
             registrations.AddSingleton<IDiagnosticRule, BandwidthRule>();
+            registrations.AddSingleton<IDiagnosticRule, SustainedCpuRule>();
+            registrations.AddSingleton<IDiagnosticRule, MemoryPressureRule>();
+            registrations.AddSingleton<IDiagnosticRule, SustainedGpuRule>();
+            registrations.AddSingleton<IDiagnosticRule, GpuMemoryPressureRule>();
+            registrations.AddSingleton<IDiagnosticRule, EncoderUtilizationRule>();
+            registrations.AddSingleton<IDiagnosticRule, GraphicsBottleneckRule>();
             registrations.AddSingleton<IDiagnosticEngine, DiagnosticEngine>();
             registrations.AddSingleton<IDesktopServices>(new DesktopServices { AutoConfirmNewRecording = smoke });
             registrations.AddSingleton<MainViewModel>();
@@ -90,11 +100,35 @@ public partial class App : Application
             vm.StopRecordingCommand.Execute(null);
             Check(vm.Status.StartsWith("REAL SESSION", StringComparison.Ordinal) || vm.Status.StartsWith("Recording stopped", StringComparison.Ordinal), "Real Session status missing.");
             Check(vm.ModeBanner.StartsWith("REAL SESSION", StringComparison.Ordinal), "Real Session banner missing.");
-            Check(vm.OverviewCards.Count > 0 && vm.OverviewCards.All(c => c.Value == "N/A"), "Real Session without Horizon Agent must show only N/A.");
+            // No Horizon Agent: Blast fields are N/A. Host CPU is protocol-independent and must be measured.
+            string Card(string label) => vm.OverviewCards.Single(c => c.Label == label).Value;
+            Check(Card("RTT") == "N/A" && Card("FPS") == "N/A" && Card("BANDWIDTH") == "N/A", "Real Session without Horizon Agent must show N/A for Blast metrics.");
+            Check(Card("CPU") != "N/A" && Card("CPU").EndsWith('%'), "Real CPU utilization was not measured.");
+            Check(vm.SystemCards.Any(c => c.Label == "Available RAM" && c.Value.EndsWith("GiB", StringComparison.Ordinal)), "Real available RAM was not measured.");
+            Check(vm.ProtocolDisplay == "Not detected" && vm.ProtocolDetail.Contains("Not detected", StringComparison.Ordinal), "Real Session must report the protocol as not detected.");
+            Check(vm.SessionCards.Any(c => c.Label == "Active protocol" && c.Value == "Not detected"), "Session card shows a demo protocol in Real Session.");
+            Check(vm.GpuCards.Count > 0 && vm.GraphicsCards.Any(c => c.Label == "Active monitors"), "GPU/display rows missing.");
             Check(vm.RecordingState.Contains("REAL SESSION", StringComparison.Ordinal) && vm.SampleCount >= 1, "Real Session recording failed.");
             var realRtt = Points(vm.RttSeries);
             Check(realRtt.Length >= 1 && realRtt.All(v => v is null), "Real RTT chart must contain gaps, not fabricated values.");
-            Check(vm.DiagnosticCards.Count == 4 && vm.Health == nameof(HealthStatus.Unavailable), "Real Session diagnostics must be Unavailable.");
+            Check(vm.DiagnosticCards.Count == 9 && vm.ConnectionHealth == nameof(HealthStatus.Unavailable), "Real Session connection diagnostics must be Unavailable.");
+            Check(vm.HostHealth == nameof(HealthStatus.Unavailable), "Host health must stay Unavailable until a full sample window exists.");
+            Check(Points(vm.CpuSeries).Any(v => v is not null), "CPU history chart is empty.");
+
+            // Advanced Metrics: raw rows, category filter and search.
+            vm.SelectedPage = vm.Pages.Single(p => p is AdvancedPage);
+            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+            Check(vm.AdvancedRows.Count > 10 && vm.AdvancedRows.Any(r => r.Id == "cpu.utilization" && r.Status == "Available"), "Advanced Metrics lacks real CPU rows.");
+            Check(vm.AdvancedRows.Any(r => r.Category == "Horizon Blast Session") && vm.AdvancedRows.Any(r => r.Category == "Display"), "Advanced Metrics categories missing.");
+            vm.SelectedAdvancedCategory = vm.AdvancedCategories.Single(c => c.Value == MetricCategory.WindowsMemory);
+            Check(vm.AdvancedRows.Count > 0 && vm.AdvancedRows.All(r => r.Category == "Windows Memory"), "Advanced category filter failed.");
+            vm.SelectedAdvancedCategory = vm.AdvancedCategories[0];
+            vm.AdvancedSearch = "nvml";
+            Check(vm.AdvancedRows.Any(r => r.Id == "nvml.status"), "NVML status row missing (provider must initialize without NVIDIA hardware).");
+            evidence.Add("NVML on runner: " + vm.AdvancedRows.Single(r => r.Id == "nvml.status").Value);
+            evidence.Add("GPU on runner: " + string.Join("; ", vm.GpuCards.Select(c => $"{c.Label}={c.Value}")));
+            vm.AdvancedSearch = "";
+            vm.SelectedPage = vm.Pages[0];
             await recorder.ExportJsonAsync(Path.Combine(directory, "real.json"));
             await recorder.ExportCsvAsync(Path.Combine(directory, "real.csv"));
             var realCsv = await File.ReadAllLinesAsync(Path.Combine(directory, "real.csv"));
@@ -103,11 +137,13 @@ public partial class App : Application
             using (var json = System.Text.Json.JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(directory, "real.json"))))
                 Check(json.RootElement.EnumerateArray().All(e => !e.GetProperty("Session").GetProperty("IsDemo").GetBoolean()
                     && e.GetProperty("BlastMetrics").GetProperty("rtt").GetProperty("Value").ValueKind == System.Text.Json.JsonValueKind.Null), "Real JSON contains demo or fabricated data.");
-            evidence.Add($"Real Session: {realCsv.Length - 1} samples, all N/A; status: {vm.Status}");
+            Check(realCsv[0].Contains("host_cpu.utilization_status", StringComparison.Ordinal) && realCsv[0].Contains("protocol_detection", StringComparison.Ordinal), "Real CSV header lacks host columns.");
+            evidence.Add($"Real Session: {realCsv.Length - 1} samples, Blast N/A, CPU {Card("CPU")}; status: {vm.Status}");
 
             // Demo Mode: synthetic values, separate recording, live charts populated.
             vm.SelectedMode = vm.Modes.Single(m => m.Value == MonitoringMode.DemoMode);
             Check(vm.ModeBanner.StartsWith("DEMO DATA", StringComparison.Ordinal), "Demo banner missing.");
+            Check(vm.ProtocolDisplay.EndsWith("(demo selection)", StringComparison.Ordinal), "Demo protocol is not labelled as a demo selection.");
             vm.StartRecordingCommand.Execute(null);
             Check(recorder.IsRecording && recorder.SampleCount == 0, "New demo recording did not replace the real recording.");
             await Task.Delay(2200);
@@ -125,14 +161,14 @@ public partial class App : Application
             Check(demoCsv.Length > 1 && demoCsv.Skip(1).All(l => l.Split(',')[1] == "Demo"), "Demo CSV contains non-demo rows.");
             evidence.Add($"Demo Mode: {demoCsv.Length - 1} samples; Real→Demo→Real switching stopped recording and cleared live data.");
             await Task.Delay(1500);
-            Check(vm.OverviewCards.All(c => c.Value == "N/A"), "Real Session after switching back must show only N/A.");
+            Check(vm.OverviewCards.Single(c => c.Label == "RTT").Value == "N/A" && vm.ProtocolDisplay == "Not detected", "Real Session after switching back must not show demo values.");
             vm.SelectedMode = vm.Modes.Single(m => m.Value == MonitoringMode.DemoMode);
         }
         finally { Directory.Delete(directory, true); }
         vm.StartRecordingCommand.Execute(null);
         await Task.Delay(2200);
         vm.StopRecordingCommand.Execute(null);
-        if (vm.SampleCount < 1 || vm.DiagnosticCards.Count != 4) throw new InvalidOperationException("Sampling/diagnostics smoke check failed.");
+        if (vm.SampleCount < 1 || vm.DiagnosticCards.Count != 10) throw new InvalidOperationException("Sampling/diagnostics smoke check failed.");
         foreach (var page in vm.Pages)
         {
             vm.SelectedPage = page;
@@ -156,7 +192,7 @@ public partial class App : Application
         if (errors.Errors.Count > 0) throw new InvalidOperationException("WPF binding errors: " + string.Join("\n", errors.Errors));
         GC.Collect(); GC.WaitForPendingFinalizers();
         if (unhandled.Count > 0) throw new InvalidOperationException("Unhandled exceptions: " + string.Join("\n", unhandled));
-        await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"), "PASS: startup, Real Session N/A without Horizon Agent (recording + JSON/CSV), Real↔Demo switching, demo sampling and live charts, all five views, themes, recording, JSON/CSV export, themed charts, navigation/resize layout matrix, WPF client captures, no WPF binding errors. Actual Windows DPI changes require manual acceptance.\n" + string.Join("\n", evidence));
+        await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"), "PASS: startup, Real Session without Horizon Agent (Blast N/A, real CPU/RAM, recording + JSON/CSV with host columns), protocol display, Advanced Metrics filter/search, NVML-absent initialization, Real↔Demo switching, demo sampling and live charts, all five views, themes, recording, JSON/CSV export, themed charts, navigation/resize layout matrix, WPF client captures, no WPF binding errors. Actual Windows DPI changes require manual acceptance.\n" + string.Join("\n", evidence));
         await StopAsync();
         closing = true;
         Shutdown(0);

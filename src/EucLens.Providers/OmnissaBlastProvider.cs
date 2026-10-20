@@ -94,9 +94,14 @@ public sealed class OmnissaBlastProvider : IMetricsProvider
         var reasons = metrics.Values.Where(m => m.Status != MetricStatus.Available).Select(m => m.UnavailableReason).Distinct();
         var status = $"REAL SESSION · {count}/{metrics.Count} counters available · Windows session {session.SessionId}";
         if (count != metrics.Count) status += " · " + string.Join(" ", reasons);
+        // The protocol is only claimed when this session's own Blast counter instance exists.
+        var blastActive = discovered.Values.Any(d => d.Instance is not null);
+        var detection = blastActive
+            ? $"Omnissa Horizon Blast: counter instance found for Windows session {session.SessionId}."
+            : $"Not detected: no Horizon Blast counters for Windows session {session.SessionId} ({session.Description})";
         return new(now,
-            new(RemoteProtocol.OmnissaBlast, session.SessionId, Environment.UserName, "N/A", Environment.MachineName,
-                Environment.OSVersion.ToString(), "N/A (negotiated transport not exposed)", started, false),
+            new(blastActive ? RemoteProtocol.OmnissaBlast : RemoteProtocol.Unknown, session.SessionId, Environment.UserName, "N/A", Environment.MachineName,
+                Environment.OSVersion.ToString(), "N/A (negotiated transport not exposed)", started, false, detection),
             WorkloadContext.Idle,
             new(metrics["rtt"], Missing("ms", "One-way network latency is not exposed."),
                 Missing("Mbps", "Estimated Bandwidth (Uplink) unit is unverified; see the raw counter."),

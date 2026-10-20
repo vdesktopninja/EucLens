@@ -10,7 +10,9 @@
    <DataTemplate DataType="{x:Type vm:DiagnosticsPage}"><views:DiagnosticsView /></DataTemplate>
    <DataTemplate DataType="{x:Type vm:RecorderPage}"><views:RecorderView /></DataTemplate>
    <DataTemplate DataType="{x:Type vm:SystemPage}"><views:SystemView /></DataTemplate>
+   <DataTemplate DataType="{x:Type vm:AdvancedPage}"><views:AdvancedView /></DataTemplate>
    <DataTemplate DataType="{x:Type vm:SettingsPage}"><views:SettingsView /></DataTemplate>
+   <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
   </ResourceDictionary>
  </Application.Resources>
 </Application>

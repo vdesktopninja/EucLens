@@ -38,6 +38,8 @@ public sealed class AsyncCommand(Func<Task> execute, Func<bool>? canExecute = nu
 }
 public sealed record Choice<T>(T Value, string Label);
 public sealed record MetricCard(string Label, string Value, string Detail);
+public sealed record AdvancedMetricRow(string Category, string Name, string Value, string Unit, string Scope, string Status,
+    string Source, string Timestamp, string Id);
 public sealed record DiagnosticCard(string Severity, string Title, string Description, string Evidence, string Cause, string Action);
 public abstract class PageViewModel(MainViewModel monitor, string name, string glyph)
 {
@@ -49,4 +51,5 @@ public sealed class DashboardPage(MainViewModel monitor) : PageViewModel(monitor
 public sealed class DiagnosticsPage(MainViewModel monitor) : PageViewModel(monitor, "Diagnostics", "\uE9D9");
 public sealed class RecorderPage(MainViewModel monitor) : PageViewModel(monitor, "Session Recorder", "\uE7C8");
 public sealed class SystemPage(MainViewModel monitor) : PageViewModel(monitor, "System Information", "\uE770");
+public sealed class AdvancedPage(MainViewModel monitor) : PageViewModel(monitor, "Advanced Metrics", "\uE9F9");
 public sealed class SettingsPage(MainViewModel monitor) : PageViewModel(monitor, "Settings", "\uE713");

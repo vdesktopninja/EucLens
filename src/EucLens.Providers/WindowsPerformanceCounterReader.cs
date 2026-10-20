@@ -5,7 +5,7 @@ using EucLens.Core;
 namespace EucLens.Providers;
 
 /// <summary>Owns and reuses native performance counter handles and rate baselines.</summary>
-public sealed class WindowsBlastCounterReader : IBlastCounterReader
+public class WindowsPerformanceCounterReader : IPerformanceCounterReader
 {
     private readonly Dictionary<(string Category, string Instance, string Counter), Entry> entries = [];
     private bool disposed;
@@ -85,5 +85,9 @@ public sealed class WindowsBlastCounterReader : IBlastCounterReader
         if (disposed) return;
         Reset();
         disposed = true;
+        GC.SuppressFinalize(this);
     }
 }
+
+/// <summary>Separate instance so Blast rediscovery never releases unrelated counter handles.</summary>
+public sealed class WindowsBlastCounterReader : WindowsPerformanceCounterReader, IBlastCounterReader;

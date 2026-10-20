@@ -70,6 +70,20 @@
     "targetType": "ComboBox"
   },
   {
+    "name": "ImplicitTextBoxStyle",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "TextBox"
+  },
+  {
+    "name": "HealthValue",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "TextBlock"
+  },
+  {
     "name": "ImplicitCheckBoxStyle",
     "file": "src/EucLens.App/Themes/Controls.xaml",
     "root": "src/EucLens.App/Themes",
@@ -181,6 +195,12 @@
   {
     "name": "SystemView",
     "file": "src/EucLens.App/Views/SystemView.xaml",
+    "root": "src/EucLens.App/Views",
+    "kind": "UserControl"
+  },
+  {
+    "name": "AdvancedView",
+    "file": "src/EucLens.App/Views/AdvancedView.xaml",
     "root": "src/EucLens.App/Views",
     "kind": "UserControl"
   },
