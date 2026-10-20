@@ -67,7 +67,7 @@ public sealed class ProviderTests
     [Fact]
     public async Task AllVendorAdaptersAreUnavailableAndReturnNoFabricatedMeasurements()
     {
-        IMetricsProvider[] providers = [new CitrixHdxProvider(), new OmnissaBlastProvider(), new MicrosoftRdpProvider(), new NvidiaGpuProvider()];
+        IMetricsProvider[] providers = [new CitrixHdxProvider(), new MicrosoftRdpProvider(), new NvidiaGpuProvider()];
         foreach (var provider in providers)
         {
             await using (provider)
@@ -77,6 +77,17 @@ public sealed class ProviderTests
                 await Assert.ThrowsAsync<NotSupportedException>(() => provider.CollectAsync());
             }
         }
+    }
+    [Fact]
+    public async Task RealBlastProviderWithoutHorizonAgentReturnsOnlyNotApplicable()
+    {
+        // Build and CI machines have no Horizon Agent; the native provider must degrade, not throw or fabricate.
+        await using var provider = new OmnissaBlastProvider();
+        await provider.InitializeAsync();
+        var sample = await provider.CollectAsync();
+        Assert.False((await provider.GetAvailabilityAsync()).IsAvailable);
+        Assert.False(sample.Session.IsDemo);
+        Assert.All(sample.BlastMetrics!.Values, m => { Assert.Null(m.Value); Assert.NotEqual(MetricStatus.Available, m.Status); });
     }
     [Fact]
     public void MetricsDistinguishZeroFromUnavailableAndRejectNonFiniteValues()

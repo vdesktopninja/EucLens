@@ -3,14 +3,17 @@ namespace EucLens.Core;
 public enum RemoteProtocol { CitrixHdx, OmnissaBlast, MicrosoftRdp }
 public enum DemoScenario { Healthy, HighNetworkLatency, LowFps, GpuBottleneck, BandwidthCongestion }
 public enum WorkloadContext { Idle, Office, InteractiveGraphics }
-public enum MetricStatus { Available, Unavailable }
+public enum MetricStatus { Available, Unavailable, Stale, Failed }
+public enum MonitoringMode { RealSession, DemoMode }
 public enum Severity { Info, Warning, Critical }
 public enum HealthStatus { Healthy, Warning, Critical, Unavailable }
 
 /// <summary>A missing value is never represented as a zero measurement.</summary>
-public sealed record Metric(double? Value, string Unit, string? UnavailableReason = null)
+public sealed record Metric(double? Value, string Unit, string? UnavailableReason = null,
+    string? Source = null, DateTimeOffset? Timestamp = null, long? RawValue = null,
+    MetricStatus? SampleStatus = null, string? Error = null)
 {
-    public MetricStatus Status => Value.HasValue ? MetricStatus.Available : MetricStatus.Unavailable;
+    public MetricStatus Status => SampleStatus ?? (Value.HasValue ? MetricStatus.Available : MetricStatus.Unavailable);
     public static Metric Available(double value, string unit)
     {
         if (!double.IsFinite(value)) throw new ArgumentOutOfRangeException(nameof(value));
@@ -19,7 +22,7 @@ public sealed record Metric(double? Value, string Unit, string? UnavailableReaso
     public static Metric Unavailable(string unit, string reason) => new(null, unit, reason);
     public string Display => Value is { } value
         ? $"{value.ToString("0.0", System.Globalization.CultureInfo.CurrentCulture)} {Unit}"
-        : "Unavailable";
+        : Source is null ? "Unavailable" : "N/A";
 }
 
 public sealed record SessionInfo(RemoteProtocol Protocol, int SessionId, string Username,
@@ -35,7 +38,8 @@ public sealed record GpuMetrics(string Model, Metric Utilization, Metric VramUti
 public sealed record SystemMetrics(Metric CpuUtilization, Metric RamUtilization, Metric DiskActivity);
 public sealed record SessionSnapshot(DateTimeOffset Timestamp, SessionInfo Session,
     WorkloadContext Workload, ConnectionMetrics Connection, GraphicsMetrics Graphics,
-    GpuMetrics Gpu, SystemMetrics System, DemoScenario? DemoScenario = null);
+    GpuMetrics Gpu, SystemMetrics System, DemoScenario? DemoScenario = null,
+    IReadOnlyDictionary<string, Metric>? BlastMetrics = null, string? CollectionStatus = null);
 
 public sealed record ProviderAvailability(bool IsAvailable, string Description);
 public interface IMetricsProvider : IAsyncDisposable

@@ -27,6 +27,5 @@ public abstract class UnavailableProvider(string name) : IMetricsProvider
     public ValueTask DisposeAsync() { disposed = true; return ValueTask.CompletedTask; }
 }
 public sealed class CitrixHdxProvider() : UnavailableProvider("Citrix HDX");
-public sealed class OmnissaBlastProvider() : UnavailableProvider("Omnissa Horizon Blast");
 public sealed class MicrosoftRdpProvider() : UnavailableProvider("Microsoft RDP");
 public sealed class NvidiaGpuProvider() : UnavailableProvider("NVIDIA NVML");

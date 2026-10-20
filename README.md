@@ -2,14 +2,21 @@
 
 A free, MIT-licensed portable Windows desktop workspace for understanding remote
 desktop session performance. EUC Lens uses original code and design; it does not
-include Remote Display Analyzer code. The first milestone is a **demo application**:
-all session identifiers, OS/GPU details and measurements are synthetic.
+include Remote Display Analyzer code. Milestone 0.2 adds **real Omnissa Horizon
+Blast monitoring** from local Windows performance counters, alongside the
+original **Demo Mode**, whose identifiers and measurements are entirely synthetic.
+The active data source is always shown in the header banner and sidebar.
 
 ## Current functionality
 
 - Five working WPF pages: Dashboard, Diagnostics, Session Recorder, System
   Information and Settings, with a navigation sidebar and dark/light themes.
-- Switch between simulated Citrix HDX, Omnissa Blast and Microsoft RDP sessions.
+- **Real Session** mode (default): reads the `Horizon Blast Session Counters` and
+  `Horizon Blast Imaging Counters` instances that belong to the Windows session
+  EUC Lens runs in. See [Horizon Blast monitoring](docs/HORIZON_BLAST.md).
+- **Demo Mode**: switch between simulated Citrix HDX, Omnissa Blast and Microsoft
+  RDP sessions. Demo and real samples are never mixed; switching mode clears the
+  live charts and stops an active recording.
 - Healthy, high latency, low FPS, GPU bottleneck and bandwidth congestion scenarios.
 - One-second asynchronous collection, metric cards, session health and LiveCharts2
   RTT/FPS charts with a rolling 120-sample window.
@@ -21,8 +28,9 @@ all session identifiers, OS/GPU details and measurements are synthetic.
 - Local preferences, bounded application logs, no authentication, telemetry,
   service, database, cloud dependency or runtime internet requirement.
 
-**Real Citrix, Omnissa, RDP and NVIDIA collection is Unavailable.** The adapter
-classes intentionally return no vendor metrics. See [ARCHITECTURE.md](ARCHITECTURE.md)
+**Real Citrix, RDP and NVIDIA collection is still Unavailable.** Those adapter
+classes intentionally return no vendor metrics. In Real Session mode, GPU, CPU,
+RAM and disk cards show N/A because the Blast counter sets do not expose them. See [ARCHITECTURE.md](ARCHITECTURE.md)
 for integration research requirements.
 
 ## Platforms
@@ -76,17 +84,19 @@ when the workflow runs; local cross-publishing cannot verify Windows execution. 
 validated startup, all five views, sampling, themes, recording and exports;
 see [validation evidence](docs/VALIDATION.md).
 
-## Using the demo
+## Using EUC Lens
 
-1. On Dashboard, choose a protocol, scenario and workload. The first sample
+1. On Dashboard, choose the data source (Real Session or Demo Mode) and the
+   workload. In Demo Mode, also choose a protocol and scenario. The first sample
    arrives during startup; updates continue once per second on every page.
 2. Open Diagnostics to inspect the four sample rules. Idle/static content and
    office workloads do not generate low-FPS alerts merely for low FPS.
 3. Open Session Recorder, start recording, exercise scenarios, then stop and
-   export JSON or CSV. Each sample retains its timestamp, protocol, demo scenario
-   and workload. Export during recording saves a stable snapshot of samples so far.
+   export JSON or CSV. Each sample retains its timestamp, data source, protocol,
+   demo scenario and workload. Real samples also carry every Blast counter's
+   value, unit, status, raw value and counter path. Export during recording saves a stable snapshot of samples so far.
 4. Use Settings to change the theme immediately and save preferences for the
-   next launch. All displayed system information remains simulated.
+   next launch, including the data source.
 
 ## Storage and limitations
 
@@ -98,9 +108,11 @@ see [validation evidence](docs/VALIDATION.md).
   all samples; the historical chart shows only the latest 600.
 - Preferences and capped logs live under `%LOCALAPPDATA%\EucLens`. Logs use one
   approximately 1 MB file plus a previous file. Export paths are user-selected.
-- JSON retains complete snapshots and metric status/reasons. CSV exports all
-  numeric metrics and selected metadata, uses invariant decimal formatting and
-  explicit `Unavailable` cells, and escapes string fields. It is not a JSON
+- JSON retains complete snapshots and metric status/reasons, plus per-counter
+  source, timestamp, raw value and error for real samples. CSV exports all
+  numeric metrics, a `data_source` column and `blast_*` value/unit/status/raw/source
+  columns, uses invariant decimal formatting and explicit
+  `Unavailable`/`Stale`/`Failed` cells, and escapes string fields. It is not a JSON
   round-trip format.
 - Diagnostics are single-sample illustrative thresholds, not vendor guidance or
   definitive root-cause analysis. CPU/encoding/network-instability rules and
@@ -113,8 +125,8 @@ see [validation evidence](docs/VALIDATION.md).
 1. Validate the EXE/UI in Windows VDI sessions, including 100–200% DPI,
    software rendering, theme contrast, exports and accessibility.
 2. Add recording import/playback and optional streaming storage for long captures.
-3. Research each vendor's documented, supported, non-admin measurement sources;
-   implement one adapter at a time with genuine availability reporting.
+3. Research each remaining vendor's (Citrix, RDP, NVIDIA) documented, supported,
+   non-admin measurement sources; implement one adapter at a time.
 4. Add configurable, time-window diagnostics for CPU, encoding, dropped frames
    and network instability with measured workload context.
 5. Expand packaging/platform coverage, performance benchmarks and release signing.

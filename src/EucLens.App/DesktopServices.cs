@@ -8,20 +8,22 @@ namespace EucLens.App;
 
 public sealed class DesktopServices : IDesktopServices
 {
+    /// <summary>Smoke tests run unattended; a modal confirmation would block them.</summary>
+    public bool AutoConfirmNewRecording { get; init; }
     public static string DataDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EucLens");
     public string? SelectExportPath(bool json)
     {
         var dialog = new SaveFileDialog
         {
-            Title = "Export DEMO recording", FileName = $"EucLens-demo-{DateTime.Now:yyyyMMdd-HHmmss}",
+            Title = "Export recording", FileName = $"EucLens-recording-{DateTime.Now:yyyyMMdd-HHmmss}",
             Filter = json ? "JSON recording (*.json)|*.json" : "CSV metrics (*.csv)|*.csv",
             DefaultExt = json ? ".json" : ".csv", AddExtension = true, OverwritePrompt = true
         };
         return dialog.ShowDialog(Application.Current.MainWindow) == true ? dialog.FileName : null;
     }
-    public bool ConfirmNewRecording() => MessageBox.Show(Application.Current.MainWindow,
+    public bool ConfirmNewRecording() => AutoConfirmNewRecording || MessageBox.Show(Application.Current.MainWindow,
         "Start a new recording and discard the current in-memory samples? Export first to keep them.",
-        "New demo recording", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
+        "New recording", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
     public void ApplyTheme(bool dark)
     {
         var dictionaries = Application.Current.Resources.MergedDictionaries;
