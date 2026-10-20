@@ -81,7 +81,7 @@ internal static class DesktopValidation
     private static void CheckCharts(Window window, PageViewModel page)
     {
         var charts = Descendants<CartesianChart>(window).ToArray();
-        var expected = page is DashboardPage ? 2 : page is RecorderPage ? 1 : 0;
+        var expected = page is DashboardPage ? 2 : page is RecorderPage or SystemPage ? 1 : 0;
         if (charts.Length != expected) throw new InvalidOperationException($"{page.Name}: expected {expected} charts, found {charts.Length}.");
         foreach (var chart in charts)
         {
