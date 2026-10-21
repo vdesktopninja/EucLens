@@ -1,4 +1,4 @@
-<UserControl x:Class="EucLens.App.Views.DiagnosticsView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:ui="clr-namespace:EucLens.App.Presentation" xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF">
+<UserControl x:Class="EucLens.App.Views.DiagnosticsView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:ui="clr-namespace:EucLens.App.Presentation" xmlns:views="clr-namespace:EucLens.App.Views">
  <UserControl.Resources>
   <!-- One health domain: state, window, coverage, key measurements with thresholds, active count, explanation; detail behind an expander. -->
   <DataTemplate x:Key="DomainTile">
@@ -27,19 +27,8 @@
    </StackPanel></Border>
   </DataTemplate>
   <!-- Compact trend: shared time axis, gaps for missing samples, dashed lines only at configured thresholds. -->
-  <DataTemplate x:Key="TrendTile">
-   <Border Style="{StaticResource ChartSurface}"><StackPanel>
-    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-     <TextBlock TextWrapping="Wrap"><Run Text="{Binding Title, Mode=OneWay}" FontWeight="SemiBold" /><Run Text=" · " Foreground="{DynamicResource MutedBrush}" /><Run Text="{Binding Unit, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}" /></TextBlock>
-     <TextBlock Grid.Column="1" Text="{Binding Latest}" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" Margin="8,0,0,0" ToolTip="Latest sample" />
-    </Grid>
-    <TextBlock Text="{Binding Reference}" Style="{StaticResource Muted}" Margin="0,2,0,4" />
-    <Grid Height="{StaticResource TrendChartHeight}">
-     <lvc:CartesianChart Series="{Binding Series}" XAxes="{Binding XAxes}" YAxes="{Binding YAxes}" Sections="{Binding Sections}" AnimationsSpeed="0:0:0" Background="{DynamicResource ChartBackgroundBrush}" ui:ChartTheme.Text="{DynamicResource MutedBrush}" ui:ChartTheme.Surface="{DynamicResource SurfaceBrush}" ui:ChartTheme.Grid="{DynamicResource ChartGridBrush}" ui:ChartTheme.Line="{DynamicResource AccentBrush}" ui:ChartTheme.Warning="{DynamicResource WarningBrush}" ui:ChartTheme.Critical="{DynamicResource CriticalBrush}" AutomationProperties.Name="{Binding AutomationName}" />
-     <TextBlock Text="No valid samples in this window" Style="{StaticResource Muted}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding ShowNoData, Converter={StaticResource BoolToVisibility}}" />
-    </Grid>
-   </StackPanel></Border>
-  </DataTemplate>
+  <!-- The chart lives in a UserControl: inside a DataTemplate its constructor defaults would outrank template bindings. -->
+  <DataTemplate x:Key="TrendTile"><views:TrendTileView /></DataTemplate>
   <!-- Evidence and recommendations for the selected finding, exactly as the engine stated them. -->
   <DataTemplate x:Key="EvidencePanel">
    <StackPanel>
