@@ -62,6 +62,7 @@ internal static class DesktopValidation
                         throw new InvalidOperationException($"No loaded view for {page.Name}.");
                     if (Math.Abs(client.ActualWidth - viewport.Width) > 1 || Math.Abs(client.ActualHeight - viewport.Height) > 1)
                         throw new InvalidOperationException($"Client viewport {client.ActualWidth}×{client.ActualHeight} did not match requested {viewport.Width}×{viewport.Height}.");
+                    await WaitForChartMeasureAsync(window);
                     CheckCharts(window, page);
                     CheckPanes(window);
                     if (page is DiagnosticsPage)
@@ -87,6 +88,14 @@ internal static class DesktopValidation
         client.Width = originalWidth;
         client.Height = originalHeight;
         window.Content = client;
+    }
+    /// <summary>LiveCharts measures asynchronously after a chart loads; wait (bounded) until every engine has laid out its axes.</summary>
+    private static async Task WaitForChartMeasureAsync(Window window)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(3);
+        while (DateTime.UtcNow < deadline && Descendants<CartesianChart>(window).Any(c =>
+            ((LiveChartsCore.CartesianChartEngine)c.CoreChart) is var e && (e.XAxes.Length == 0 || e.ControlSize.Width <= 0)))
+            await window.Dispatcher.InvokeAsync(() => Task.Delay(50), DispatcherPriority.Background).Task.Unwrap();
     }
     private static void CheckCharts(Window window, PageViewModel page)
     {
