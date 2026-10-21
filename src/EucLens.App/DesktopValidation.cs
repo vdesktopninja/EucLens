@@ -3,6 +3,7 @@ using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -102,7 +103,7 @@ internal static class DesktopValidation
                         report.AppendLine($"FAIL: {visit} | {ex.GetType().Name}: {ex.Message}");
                         try
                         {
-                            var pageScroll = Descendants<ScrollViewer>(window).FirstOrDefault();
+                            var pageScroll = PageHost(window);
                             report.AppendLine($"    state: client {client.ActualWidth:0}×{client.ActualHeight:0}, page viewport {pageScroll?.ViewportWidth:0}×{pageScroll?.ViewportHeight:0}, offset {pageScroll?.VerticalOffset:0}/{pageScroll?.ScrollableHeight:0}, window active {window.IsActive}, keyboard focus on {Describe(Keyboard.FocusedElement)}, selected finding {vm.Diagnostics.SelectedFinding?.RuleId ?? "none"}, findings {vm.Diagnostics.Findings.Count}, filter {vm.Diagnostics.SelectedFilter.Label}");
                             Capture(window, client, Path.Combine(directory, $"FAILED-{(dark ? "dark" : "light")}-{width}x{height}-{scale * 100:0}pct-{page.GetType().Name}.png"));
                         }
@@ -436,20 +437,53 @@ internal static class DesktopValidation
         await Idle();
         return keyboard;
     }
-    /// <summary>Single-line text without trimming must fit its box; wrapping text reflows and is not clipped.</summary>
+    /// <summary>
+    /// Single-line text without trimming must fit its box; wrapping text reflows and is not clipped. The natural width comes from
+    /// a clone of the TextBlock with the same font, typography (e.g. tabular numerals), formatting and DPI, measured without a
+    /// width limit, so it is exactly what WPF itself would draw. A text that is genuinely narrower than that is reported.
+    /// </summary>
     private static void CheckText(Window window)
     {
         var view = Descendants<Views.DiagnosticsView>(window).Single();
-        var dpi = VisualTreeHelper.GetDpi(window).PixelsPerDip;
         foreach (var text in Descendants<TextBlock>(view))
         {
             if (!text.IsVisible || text.TextWrapping != TextWrapping.NoWrap || text.TextTrimming != TextTrimming.None || text.ActualWidth <= 0 || string.IsNullOrEmpty(text.Text)) continue;
-            var natural = new FormattedText(text.Text, System.Globalization.CultureInfo.CurrentCulture, text.FlowDirection,
-                new Typeface(text.FontFamily, text.FontStyle, text.FontWeight, text.FontStretch), text.FontSize, Brushes.Black, dpi).WidthIncludingTrailingWhitespace;
+            var natural = NaturalWidth(text);
             if (natural > text.ActualWidth + 1)
-                throw new InvalidOperationException($"Diagnostics text is clipped: '{text.Text}' needs {natural:0} DIP, has {text.ActualWidth:0} DIP.");
+                throw new InvalidOperationException($"Diagnostics text is clipped: '{text.Text}' needs {natural:0.0} DIP, has {text.ActualWidth:0.0} DIP " +
+                    $"({text.FontFamily.Source} {text.FontSize:0.#} {text.FontWeight}, numerals {Typography.GetNumeralAlignment(text)}).");
         }
     }
+
+    private static readonly System.Reflection.FieldInfo[] TypographyProperties = typeof(Typography).GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+        .Where(f => f.FieldType == typeof(DependencyProperty)).ToArray();
+
+    /// <summary>Width of the text as a TextBlock with identical text properties would measure it without any width limit.</summary>
+    private static double NaturalWidth(TextBlock text)
+    {
+        var clone = new TextBlock
+        {
+            Text = text.Text, FontFamily = text.FontFamily, FontSize = text.FontSize, FontStyle = text.FontStyle, FontWeight = text.FontWeight,
+            FontStretch = text.FontStretch, FlowDirection = text.FlowDirection, TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.None,
+            UseLayoutRounding = text.UseLayoutRounding, SnapsToDevicePixels = text.SnapsToDevicePixels,
+        };
+        // Every OpenType feature the original sets (tabular numerals and so on), and how its text is formatted and rendered.
+        foreach (var field in TypographyProperties)
+        {
+            var property = (DependencyProperty)field.GetValue(null)!;
+            clone.SetValue(property, text.GetValue(property));
+        }
+        TextOptions.SetTextFormattingMode(clone, TextOptions.GetTextFormattingMode(text));
+        TextOptions.SetTextRenderingMode(clone, TextOptions.GetTextRenderingMode(text));
+        // Not attached to a window, so give it the DPI of the original.
+        VisualTreeHelper.SetRootDpi(clone, VisualTreeHelper.GetDpi(text));
+        clone.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        return clone.DesiredSize.Width;
+    }
+
+    /// <summary>The scroll viewer that hosts the current page (the one whose content is the page view model's view).</summary>
+    private static ScrollViewer? PageHost(Window window) => Descendants<ScrollViewer>(window).FirstOrDefault(v => v.Content is ContentControl { Content: PageViewModel });
+
     private static void Capture(Window window, FrameworkElement visual, string path)
     {
         // Capture the actual WPF client visual. Native window chrome is excluded.

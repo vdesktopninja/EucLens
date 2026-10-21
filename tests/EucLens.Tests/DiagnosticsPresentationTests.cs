@@ -658,4 +658,19 @@ public sealed class DiagnosticsPresentationTests
         Assert.Contains("FAILED-", validation);
         Assert.Contains("evidence gathered before the failure", File.ReadAllText(Path.Combine(Repo(), "src/EucLens.App/App.xaml.cs")));
     }
+
+    [Fact]
+    public void ClippingCheckMeasuresACloneWithTheSameTypographyAndKeepsItsTolerance()
+    {
+        var code = File.ReadAllText(Path.Combine(Repo(), "src/EucLens.App/DesktopValidation.cs"));
+        // The natural width must come from a TextBlock clone (same font, OpenType features such as tabular numerals, formatting, DPI).
+        Assert.DoesNotContain("new FormattedText(", code);
+        foreach (var fragment in new[] { "NaturalWidth(text)", "typeof(Typography)", "SetRootDpi(clone", "SetTextFormattingMode(clone", "clone.Measure(" })
+            Assert.Contains(fragment, code);
+        // The assertion itself is as strict as before: 1 DIP tolerance, no suppression.
+        Assert.Contains("natural > text.ActualWidth + 1", code);
+        // The state dump reports the page host's viewport, not an arbitrary scroll viewer.
+        Assert.Contains("PageHost(window)", code);
+        Assert.DoesNotContain("Descendants<ScrollViewer>(window).FirstOrDefault();", code);
+    }
 }
