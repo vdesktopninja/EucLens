@@ -91,7 +91,8 @@ public partial class App : Application
             Check(vm.Status.StartsWith("REAL SESSION", StringComparison.Ordinal) || vm.Status.StartsWith("Recording stopped", StringComparison.Ordinal), "Real Session status missing.");
             Check(vm.ModeBanner.StartsWith("REAL SESSION", StringComparison.Ordinal), "Real Session banner missing.");
             // No Horizon Agent: Blast fields are N/A. Host CPU is protocol-independent and must be measured.
-            string Card(string label) => vm.OverviewCards.Single(c => c.Label == label).Value;
+            string Card(string label) => vm.OverviewCards.SingleOrDefault(c => c.Label == label)?.Value
+                ?? throw new InvalidOperationException($"Overview card {label} missing ({vm.OverviewCards.Count} cards, page {vm.SelectedPage.Name}, mode {vm.ModeLabel}). Status: {vm.Status}");
             Check(Card("RTT") == "N/A" && Card("FPS") == "N/A" && Card("BANDWIDTH") == "N/A", "Real Session without Horizon Agent must show N/A for Blast metrics.");
             Check(Card("CPU") != "N/A" && Card("CPU").EndsWith('%'), "Real CPU utilization was not measured.");
             Check(vm.SystemCards.Any(c => c.Label == "Available RAM" && c.Value.EndsWith("GiB", StringComparison.Ordinal)), "Real available RAM was not measured.");
