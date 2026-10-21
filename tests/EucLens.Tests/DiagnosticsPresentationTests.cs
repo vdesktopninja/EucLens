@@ -613,4 +613,49 @@ public sealed class DiagnosticsPresentationTests
         Assert.NotEmpty(used);
         Assert.All(used, k => { Assert.Contains(k, light); Assert.Contains(k, dark); });
     }
+
+    // ---------- smoke-test harness guarantees (source-level; the harness itself runs on Windows) ----------
+
+    [Fact]
+    public void SmokeHarnessChecksKeyboardAccessPerElementWithoutRequiringAListBoxTabStop()
+    {
+        var code = File.ReadAllText(Path.Combine(Repo(), "src/EucLens.App/DesktopValidation.cs"));
+        // WPF: a ListBox is not a tab stop (its rows are); requiring it would be wrong.
+        Assert.DoesNotContain("list.IsTabStop", code);
+        Assert.DoesNotContain("cannot be reached with the keyboard", code);
+        foreach (var named in new[] { "Evidence panel:", "Splitter:", "Findings list:" })
+            Assert.Contains(named, code);
+        // Rows, navigation modes, real focus movement, arrow-key selection and the empty state are all exercised.
+        foreach (var fragment in new[] { "ListBoxItem", "KeyboardNavigationMode.Once", "KeyboardNavigationMode.Contained", "MoveFocus(new TraversalRequest", "Keyboard.Focus(", "Key.Down", "CheckEmptyFindingsAsync", "real focus movement NOT verified" })
+            Assert.Contains(fragment, code);
+    }
+
+    [Fact]
+    public void SoakMeasurementsArePersistedBeforeAnyThresholdOrLaterValidation()
+    {
+        var code = File.ReadAllText(Path.Combine(Repo(), "src/EucLens.App/App.xaml.cs"));
+        var persist = code.IndexOf("await File.WriteAllTextAsync(SoakResultPath()", StringComparison.Ordinal);
+        Assert.True(persist > 0, "The soak result is not written to its own file.");
+        foreach (var later in new[] { "Diagnostics page is not responsive", "Managed heap grew across Diagnostics navigation", "Managed heap keeps growing per Diagnostics visit", "DesktopValidation.CheckCharts(MainWindow" })
+            Assert.True(code.IndexOf(later, StringComparison.Ordinal) > persist, $"'{later}' runs before the soak measurements are persisted.");
+        Assert.Contains("After {(b + 1) * 12} cycles", code); // one line per 12-cycle batch: managed heap and working set
+        // The thresholds themselves are unchanged.
+        foreach (var limit in new[] { "48 * MiB", "8 * MiB", "Percentile(.5) > 200", "latencies[^1] > 2000" })
+            Assert.Contains(limit, code);
+    }
+
+    [Fact]
+    public void CiAlwaysUploadsTheFailureEvidence()
+    {
+        var workflow = File.ReadAllText(Path.Combine(Repo(), ".github/workflows/windows.yml"));
+        var step = workflow[workflow.IndexOf("Upload test and smoke evidence", StringComparison.Ordinal)..];
+        step = step[..step.IndexOf("Upload portable application", StringComparison.Ordinal)];
+        Assert.Contains("if: always()", step);
+        foreach (var path in new[] { "smoke-result.txt", "smoke-progress.txt", "visual-evidence/", "TestResults/*.trx" })
+            Assert.Contains(path, step);
+        // A failing layout visit keeps its own screenshot and state; a failing run keeps the evidence gathered so far.
+        var validation = File.ReadAllText(Path.Combine(Repo(), "src/EucLens.App/DesktopValidation.cs"));
+        Assert.Contains("FAILED-", validation);
+        Assert.Contains("evidence gathered before the failure", File.ReadAllText(Path.Combine(Repo(), "src/EucLens.App/App.xaml.cs")));
+    }
 }

@@ -66,19 +66,23 @@ public partial class App : Application
         catch (Exception ex)
         {
             services?.GetService<ILogger<App>>()?.LogCritical(ex, "Application startup or smoke test failed.");
-            if (smoke) await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"), ex.ToString());
+            SmokeLog.Write("FAILED: " + ex.Message);
+            if (smoke) await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"),
+                ex + Environment.NewLine + Environment.NewLine + "--- evidence gathered before the failure ---" + Environment.NewLine + string.Join(Environment.NewLine, smokeEvidence));
             else MessageBox.Show($"EUC Lens could not start. {ex.Message}", "EUC Lens", MessageBoxButton.OK, MessageBoxImage.Error);
             await StopAsync();
             closing = true;
             Shutdown(1);
         }
     }
+    private readonly List<string> smokeEvidence = [];
     private async Task RunSmokeAsync(MainViewModel vm, BindingErrorListener errors)
     {
         var recorder = services!.GetRequiredService<ISessionRecorder>();
         var directory = Path.Combine(Path.GetTempPath(), "EucLens-smoke-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
-        var evidence = new List<string>();
+        var evidence = smokeEvidence;
+        SmokeLog.Write("smoke test started");
         void Check(bool condition, string message) { if (!condition) throw new InvalidOperationException(message + " Status: " + vm.Status); }
         static double?[] Points(ChartData chart) => chart.Points.Select(p => p.Value).ToArray();
         try
@@ -106,6 +110,7 @@ public partial class App : Application
             Check(vm.RecordingState.Contains("REAL SESSION", StringComparison.Ordinal) && vm.SampleCount >= 1, "Real Session recording failed.");
             var realRtt = Points(vm.RttChart);
             Check(realRtt.Length >= 1 && realRtt.All(v => v is null), "Real RTT chart must contain gaps, not fabricated values.");
+            SmokeLog.Write("Real Session checks passed; diagnostics short-observation checks");
             // Diagnostics: three independent domains; a few seconds of data must never read as Healthy.
             var d = vm.Diagnostics;
             Check(vm.HealthTiles.Count == 3 && vm.ConnectionHealth == "Insufficient Data" && vm.GraphicsHealth == "Insufficient Data" && vm.GuestHealth == "Insufficient Data",
@@ -232,7 +237,9 @@ public partial class App : Application
             await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
             await Task.Delay(350);
         }
+        SmokeLog.Write("starting the Diagnostics navigation soak");
         var soak = await DiagnosticsSoakAsync(vm);
+        SmokeLog.Write("soak finished; starting the layout matrix");
         vm.IsDark = false;
         vm.SelectedPage = vm.Pages[0];
         await Task.Delay(500);
@@ -260,6 +267,25 @@ public partial class App : Application
     /// must stay responsive with four live charts, and repeated navigation must not grow the managed heap.
     /// </summary>
     private async Task<string> DiagnosticsSoakAsync(MainViewModel vm)
+    {
+        try { return await DiagnosticsSoakCoreAsync(vm); }
+        catch (Exception ex)
+        {
+            // Whatever was measured is already in soak-result.txt; add what failed.
+            SmokeLog.Write("soak FAILED: " + ex.Message);
+            try { await File.AppendAllTextAsync(SoakResultPath(), Environment.NewLine + "RESULT: FAILED — " + ex.Message + Environment.NewLine); } catch (IOException) { }
+            throw;
+        }
+    }
+
+    private static string SoakResultPath()
+    {
+        var directory = Path.Combine(AppContext.BaseDirectory, "visual-evidence");
+        Directory.CreateDirectory(directory);
+        return Path.Combine(directory, "soak-result.txt");
+    }
+
+    private async Task<string> DiagnosticsSoakCoreAsync(MainViewModel vm)
     {
         var d = vm.Diagnostics;
         vm.SelectedMode = vm.Modes.Single(m => m.Value == MonitoringMode.DemoMode);
@@ -318,10 +344,6 @@ public partial class App : Application
         for (var batch = 0; batch < 4; batch++) batches.Add((await Cycles(), Process.GetCurrentProcess().WorkingSet64));
         var after = batches[^1].Heap;
         var workingAfter = batches[^1].WorkingSet;
-        // Charts rebuilt on every visit must still draw the current data after repeated navigation.
-        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
-        await DesktopValidation.WaitForChartMeasureAsync(MainWindow);
-        DesktopValidation.CheckCharts(MainWindow, vm.SelectedPage);
         latencies.Sort();
         double Percentile(double p) => latencies[Math.Min(latencies.Count - 1, (int)(p * latencies.Count))];
         const double MiB = 1024 * 1024;
@@ -329,11 +351,31 @@ public partial class App : Application
             $"UI dispatcher latency over {latencies.Count} probes median {Percentile(.5):0.0} ms, P95 {Percentile(.95):0.0} ms, max {latencies[^1]:0.0} ms; " +
             $"4 × 12 navigation cycles: managed heap {before / MiB:0.0} → {string.Join(" → ", batches.Select(b => (b.Heap / MiB).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)))} MiB, " +
             $"working set {workingBefore / MiB:0} → {string.Join(" → ", batches.Select(b => (b.WorkingSet / MiB).ToString("0", System.Globalization.CultureInfo.InvariantCulture)))} MiB.";
+        // Persist the measurements first: later checks, or the layout matrix, may still fail, and the numbers must survive that.
+        var lines = new List<string> { "Diagnostics soak: Demo high-latency scenario, Diagnostics page, 4 live charts, 4 × 12 Dashboard ↔ Diagnostics navigation cycles",
+            $"Findings after {seconds:0} s: {string.Join(", ", d.Findings.Select(f => $"{f.RuleId}:{f.Severity}"))}",
+            $"UI dispatcher latency over {latencies.Count} probes: median {Percentile(.5):0.0} ms, P95 {Percentile(.95):0.0} ms, max {latencies[^1]:0.0} ms (limits: median ≤ 200 ms, max ≤ 2000 ms)",
+            string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Baseline: managed heap {before / MiB:0.0} MiB (after a full collection), working set {workingBefore / MiB:0} MiB") };
+        for (var b = 0; b < batches.Count; b++)
+        {
+            var previous = b == 0 ? before : batches[b - 1].Heap;
+            lines.Add(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"After {(b + 1) * 12} cycles: managed heap {batches[b].Heap / MiB:0.0} MiB (Δ {(batches[b].Heap - previous) / MiB:+0.0;-0.0;0.0}), working set {batches[b].WorkingSet / MiB:0} MiB"));
+        }
+        lines.Add("Limits: ≤ 48 MiB growth overall and ≤ 8 MiB growth per 12-cycle batch after the first.");
+        await File.WriteAllTextAsync(SoakResultPath(), string.Join(Environment.NewLine, lines) + Environment.NewLine);
+        smokeEvidence.Add(result);
+        SmokeLog.Write("soak measurements written: " + string.Join(" | ", lines.Skip(2).Take(1)));
         if (Percentile(.5) > 200 || latencies[^1] > 2000) throw new InvalidOperationException("Diagnostics page is not responsive. " + result);
         if (after - before > 48 * MiB) throw new InvalidOperationException("Managed heap grew across Diagnostics navigation. " + result);
         // A leak grows with every visit; retained live-window history levels off after the first batch.
         for (var batch = 1; batch < batches.Count; batch++)
             if (batches[batch].Heap - batches[batch - 1].Heap > 8 * MiB) throw new InvalidOperationException($"Managed heap keeps growing per Diagnostics visit (batch {batch + 1}). " + result);
+        // Charts rebuilt on every visit must still draw the current data after repeated navigation.
+        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+        await DesktopValidation.WaitForChartMeasureAsync(MainWindow);
+        DesktopValidation.CheckCharts(MainWindow, vm.SelectedPage);
+        await File.AppendAllTextAsync(SoakResultPath(), "RESULT: PASS — thresholds met and charts still draw their data after the soak" + Environment.NewLine);
         if (d.Findings.Count > 0) d.SelectedFinding = d.Findings[0];
         return result;
     }

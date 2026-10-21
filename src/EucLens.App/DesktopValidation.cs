@@ -55,6 +55,9 @@ internal static class DesktopValidation
                 client.Height = viewport.Height;
                 foreach (var page in vm.Pages)
                 {
+                    var visit = $"{(dark ? "dark" : "light")} | {width}×{height} | {scale:P0} | {page.Name}";
+                    try
+                    {
                     // Exercise navigation through the actual selector binding.
                     navigation.SelectedItem = page;
                     await window.Dispatcher.InvokeAsync(window.UpdateLayout, DispatcherPriority.ApplicationIdle);
@@ -70,7 +73,10 @@ internal static class DesktopValidation
                     if (page is DiagnosticsPage)
                     {
                         CheckText(window);
-                        await CheckDiagnosticsLayoutAsync(window, vm);
+                        var keyboard = await CheckDiagnosticsLayoutAsync(window, vm);
+                        var emptyState = await CheckEmptyFindingsAsync(window, vm, Descendants<Views.DiagnosticsView>(window).Single());
+                        report.AppendLine($"    keyboard: {keyboard}");
+                        report.AppendLine($"    empty findings: {emptyState}");
                         // Whole page, not just the viewport, for visual review. Scale cases simulate DIP space only.
                         if (scale == 1 || width == 1366)
                         {
@@ -87,6 +93,22 @@ internal static class DesktopValidation
                     if ((scale == 1 && (width == 1366 || width == 1920)) || (page is DiagnosticsPage && width == 1366))
                     {
                         Capture(window, client, Path.Combine(directory, $"{width}x{height}-{scale * 100:0}pct-{(dark ? "dark" : "light")}-{page.GetType().Name}.png"));
+                    }
+                    }
+                    catch (Exception ex)
+                    {
+                        // Keep the evidence of the failing state: where it happened, what had passed, the runtime state and a screenshot.
+                        SmokeLog.Write($"layout FAILED at {visit}: {ex.Message}");
+                        report.AppendLine($"FAIL: {visit} | {ex.GetType().Name}: {ex.Message}");
+                        try
+                        {
+                            var pageScroll = Descendants<ScrollViewer>(window).FirstOrDefault();
+                            report.AppendLine($"    state: client {client.ActualWidth:0}×{client.ActualHeight:0}, page viewport {pageScroll?.ViewportWidth:0}×{pageScroll?.ViewportHeight:0}, offset {pageScroll?.VerticalOffset:0}/{pageScroll?.ScrollableHeight:0}, window active {window.IsActive}, keyboard focus on {Describe(Keyboard.FocusedElement)}, selected finding {vm.Diagnostics.SelectedFinding?.RuleId ?? "none"}, findings {vm.Diagnostics.Findings.Count}, filter {vm.Diagnostics.SelectedFilter.Label}");
+                            Capture(window, client, Path.Combine(directory, $"FAILED-{(dark ? "dark" : "light")}-{width}x{height}-{scale * 100:0}pct-{page.GetType().Name}.png"));
+                        }
+                        catch (Exception captureFailure) { report.AppendLine($"    (state capture failed: {captureFailure.Message})"); }
+                        await File.WriteAllTextAsync(Path.Combine(directory, "layout-results.txt"), report.ToString());
+                        throw;
                     }
                 }
             }
@@ -194,11 +216,148 @@ internal static class DesktopValidation
         if (!preview.Handled) target.RaiseEvent(new MouseWheelEventArgs(Mouse.PrimaryDevice, Environment.TickCount, delta) { RoutedEvent = UIElement.MouseWheelEvent, Source = target });
     }
 
+    private static void Require(bool condition, string failure) { if (!condition) throw new InvalidOperationException(failure); }
+
+    private static string Describe(IInputElement? element) => element switch
+    {
+        null => "nothing",
+        FrameworkElement { Name: { Length: > 0 } name } fe => $"{fe.GetType().Name} '{name}'",
+        FrameworkElement fe => fe.GetType().Name + (fe.DataContext is FindingItem item ? $" (finding {item.RuleId})" : ""),
+        _ => element.GetType().Name,
+    };
+
+    /// <summary>
+    /// Keyboard access to the findings list, the splitter and the evidence panel.
+    /// WPF semantics: a ListBox is not a tab stop itself (its rows are), and the findings list is one Tab stop with arrow keys
+    /// moving the selection inside it. So the list is checked through its rows and navigation modes, never through
+    /// <c>ListBox.IsTabStop</c>. Real focus movement is verified when this window can actually take keyboard focus; otherwise
+    /// that is stated in the evidence rather than assumed.
+    /// </summary>
+    private static async Task<string> CheckKeyboardAccessAsync(Window window, MainViewModel vm, Views.DiagnosticsView view)
+    {
+        var evidence = (ScrollViewer)view.FindName("EvidenceScroll");
+        var splitter = (Thumb)view.FindName("FindingsSplitter");
+        var list = (ListBox)view.FindName("FindingsList");
+        var d = vm.Diagnostics;
+        Task Idle() => window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle).Task;
+
+        // Evidence panel: a focusable tab stop, so PageUp/PageDown and the arrow keys scroll it.
+        Require(evidence.Focusable, "Evidence panel: ScrollViewer.Focusable is false, so the keyboard cannot focus it.");
+        Require(evidence.IsTabStop, "Evidence panel: IsTabStop is false, so Tab skips it.");
+        Require(evidence.VerticalScrollBarVisibility != ScrollBarVisibility.Disabled, "Evidence panel: vertical scrolling is disabled.");
+
+        // Splitter: a focusable tab stop that responds to the arrow keys (exercised by the caller).
+        Require(splitter.Focusable, "Splitter: Thumb.Focusable is false, so the keyboard cannot focus it.");
+        Require(splitter.IsTabStop, "Splitter: IsTabStop is false, so Tab skips it.");
+
+        // Findings list: one Tab stop for the list, arrow keys inside it, selection by arrow key. The list control itself is not a tab stop.
+        Require(KeyboardNavigation.GetTabNavigation(list) == KeyboardNavigationMode.Once, $"Findings list: TabNavigation is {KeyboardNavigation.GetTabNavigation(list)}, expected Once (one Tab stop for the whole list).");
+        Require(KeyboardNavigation.GetDirectionalNavigation(list) == KeyboardNavigationMode.Contained, $"Findings list: DirectionalNavigation is {KeyboardNavigation.GetDirectionalNavigation(list)}, expected Contained (arrow keys stay inside the list).");
+        Require(list.SelectionMode == SelectionMode.Single, $"Findings list: SelectionMode is {list.SelectionMode}, expected Single.");
+        var notes = new List<string>();
+        var populated = d.Findings.Count > 0;
+        if (populated)
+        {
+            Require(list.Items.Count == d.Findings.Count, $"Findings list shows {list.Items.Count} rows for {d.Findings.Count} findings.");
+            var row = list.ItemContainerGenerator.ContainerFromIndex(0) as ListBoxItem;
+            Require(row is not null, "Findings list: no row container was generated for the first finding.");
+            Require(row!.Focusable, "Findings list: a row (ListBoxItem) is not focusable, so Tab and the arrow keys cannot reach it.");
+            Require(row.IsTabStop, "Findings list: a row (ListBoxItem) is not a tab stop.");
+            notes.Add($"populated ({list.Items.Count} rows)");
+        }
+        else
+        {
+            // No findings is a real state, shown with an explanation; nothing is invented for the test.
+            Require(list.Items.Count == 0 && !Descendants<ListBoxItem>(list).Any(), "Findings list: rows exist although there are no findings.");
+            Require(d.IsListEmpty && d.ListEmptyTitle.Length > 0, "Findings list: empty, but no explanation is shown.");
+            notes.Add("empty list with an explanation");
+        }
+
+        // Real keyboard focus, where this runner's window can take it.
+        window.Activate();
+        for (var i = 0; i < 20 && !window.IsActive; i++) await Task.Delay(50);
+        var focusable = window.IsActive && ReferenceEquals(Keyboard.Focus(evidence), evidence) && ReferenceEquals(Keyboard.FocusedElement, evidence);
+        if (!focusable)
+        {
+            notes.Add($"real focus movement NOT verified (window active: {window.IsActive}); structural checks only");
+            return string.Join("; ", notes);
+        }
+        notes.Add("real focus movement verified");
+
+        // Tab reaches every part: walk forward from the first button of the page and collect what receives focus.
+        var start = Descendants<Button>(view).FirstOrDefault(b => b.IsVisible && b.Focusable);
+        Require(start is not null && ReferenceEquals(Keyboard.Focus(start), start), "Keyboard: could not place focus on the first button of the Diagnostics page.");
+        bool sawList = false, sawSplitter = false, sawEvidence = false;
+        var visited = new List<string>();
+        for (var step = 0; step < 250 && !(sawSplitter && sawEvidence && (sawList || !populated)); step++)
+        {
+            if (Keyboard.FocusedElement is not UIElement current) break;
+            current.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next));
+            var focused = Keyboard.FocusedElement;
+            visited.Add(Describe(focused));
+            sawList |= focused is ListBoxItem row && list.IsAncestorOf(row);
+            sawSplitter |= ReferenceEquals(focused, splitter);
+            sawEvidence |= ReferenceEquals(focused, evidence);
+        }
+        var trail = string.Join(" → ", visited.TakeLast(12));
+        Require(sawSplitter, $"Keyboard: Tab never reached the splitter. Last focus targets: {trail}");
+        Require(sawEvidence, $"Keyboard: Tab never reached the evidence panel. Last focus targets: {trail}");
+        Require(sawList || !populated, $"Keyboard: Tab never reached a findings row. Last focus targets: {trail}");
+
+        // Arrow keys move the selection inside the list; then restore it.
+        if (populated && d.Findings.Count >= 2 && d.SelectedFinding is { } selected && list.ItemContainerGenerator.ContainerFromItem(selected) is ListBoxItem container)
+        {
+            Require(ReferenceEquals(Keyboard.Focus(container), container), "Keyboard: could not focus the selected findings row.");
+            var index = d.Findings.IndexOf(selected);
+            var (first, back) = index < d.Findings.Count - 1 ? (Key.Down, Key.Up) : (Key.Up, Key.Down);
+            var expected = d.Findings[index + (first == Key.Down ? 1 : -1)];
+            RaiseKey(container, first);
+            await Idle();
+            Require(ReferenceEquals(d.SelectedFinding, expected), $"Keyboard: {first} did not move the selection to the neighbouring finding (selection is {d.SelectedFinding?.RuleId ?? "none"}, expected {expected.RuleId}; focus is on {Describe(Keyboard.FocusedElement)}).");
+            Require(Keyboard.FocusedElement is ListBoxItem, $"Keyboard: after {first}, focus left the findings rows (on {Describe(Keyboard.FocusedElement)}).");
+            RaiseKey((UIElement)Keyboard.FocusedElement, back);
+            await Idle();
+            Require(ReferenceEquals(d.SelectedFinding, selected), $"Keyboard: {back} did not return the selection (selection is {d.SelectedFinding?.RuleId ?? "none"}).");
+            notes.Add("arrow keys select neighbouring findings");
+        }
+        Keyboard.ClearFocus();
+        await ScrollPageAsync(window, home: true);
+        return string.Join("; ", notes);
+    }
+
+    /// <summary>The empty-list state, reached through the real filters (no finding is invented): explained, and the other panes stay reachable.</summary>
+    private static async Task<string> CheckEmptyFindingsAsync(Window window, MainViewModel vm, Views.DiagnosticsView view)
+    {
+        var d = vm.Diagnostics;
+        var emptyFilter = d.Filters.FirstOrDefault(f => f.Kind != FindingFilterKind.All && f.Count == 0);
+        if (emptyFilter is null) return "no filter with zero findings at this moment; empty state not exercised";
+        var previous = d.SelectedFilter;
+        var list = (ListBox)view.FindName("FindingsList");
+        d.SelectedFilter = emptyFilter;
+        await window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+        try
+        {
+            Require(list.Items.Count == 0 && !Descendants<ListBoxItem>(list).Any(), $"Empty filter '{emptyFilter.Label}': the list still shows rows.");
+            Require(d.IsListEmpty && d.ListEmptyTitle.Length > 0, $"Empty filter '{emptyFilter.Label}': no empty-state explanation.");
+            Require(d.SelectedFinding is null && d.HasNoSelection, $"Empty filter '{emptyFilter.Label}': a finding is still selected.");
+            var evidence = (ScrollViewer)view.FindName("EvidenceScroll");
+            var hint = ((StackPanel)evidence.Content).Children[0] as TextBlock;
+            Require(hint is { IsVisible: true, Text.Length: > 0 }, $"Empty filter '{emptyFilter.Label}': the evidence panel shows no hint.");
+            Require(evidence.Focusable && evidence.IsTabStop && ((Thumb)view.FindName("FindingsSplitter")).Focusable, "Empty list: the evidence panel or splitter is no longer keyboard reachable.");
+            return $"empty state ('{emptyFilter.Label}') explained, evidence hint shown, panes reachable";
+        }
+        finally
+        {
+            d.SelectedFilter = previous;
+            await window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+        }
+    }
+
     /// <summary>
     /// Findings and evidence layout: responsive arrangement, usable minimum sizes, reachability below the fold, independent
     /// scrolling with wheel chaining, keyboard access, selection that survives resizing, and no horizontal overflow of the page.
     /// </summary>
-    private static async Task CheckDiagnosticsLayoutAsync(Window window, MainViewModel vm)
+    private static async Task<string> CheckDiagnosticsLayoutAsync(Window window, MainViewModel vm)
     {
         var view = Descendants<Views.DiagnosticsView>(window).Single();
         var region = (ResponsiveSplitPanel)view.FindName("FindingsRegion");
@@ -256,9 +415,8 @@ internal static class DesktopValidation
         }
         evidence.ScrollToHome(); await ScrollPageAsync(window, home: true);
 
-        // Keyboard access: evidence and splitter are focusable tab stops, and the splitter moves with the arrow keys within its limits.
-        if (!evidence.Focusable || !evidence.IsTabStop || !splitter.Focusable || !splitter.IsTabStop || !list.IsTabStop)
-            throw new InvalidOperationException("Findings, splitter or evidence cannot be reached with the keyboard.");
+        // Keyboard access, one named check per element (see CheckKeyboardAccessAsync), then the splitter's arrow keys within its limits.
+        var keyboard = await CheckKeyboardAccessAsync(window, vm, view);
         // The effective position of the splitter is the master pane's extent; at a limit one direction cannot move, the other can.
         double Extent() => region.IsSideBySide ? findings.ActualWidth : findings.ActualHeight;
         var (wide, stacked) = (region.WideFraction, region.StackedFraction);
@@ -276,6 +434,7 @@ internal static class DesktopValidation
         // The view is rebuilt on every visit; restore the starting layout so captures show the default split.
         region.WideFraction = wide; region.StackedFraction = stacked;
         await Idle();
+        return keyboard;
     }
     /// <summary>Single-line text without trimming must fit its box; wrapping text reflows and is not clipped.</summary>
     private static void CheckText(Window window)

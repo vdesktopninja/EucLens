@@ -64,6 +64,7 @@ jobs:
           path: |
             TestResults/*.trx
             artifacts/win-x64/smoke-result.txt
+            artifacts/win-x64/smoke-progress.txt
             artifacts/win-x64/visual-evidence/
           if-no-files-found: warn
       - name: Upload portable application
