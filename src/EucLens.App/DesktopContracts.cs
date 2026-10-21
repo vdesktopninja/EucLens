@@ -9,6 +9,8 @@ public interface IDesktopServices
     void ApplyTheme(bool dark);
     Task SavePreferencesAsync(Preferences preferences);
     Task<Preferences?> LoadPreferencesAsync();
+    /// <summary>Places text on the clipboard; false when the clipboard is unavailable.</summary>
+    bool CopyText(string text) => false;
 }
 public sealed record Preferences(bool Dark, RemoteProtocol Protocol, DemoScenario Scenario, WorkloadContext Workload, MonitoringMode Mode = MonitoringMode.RealSession);
 

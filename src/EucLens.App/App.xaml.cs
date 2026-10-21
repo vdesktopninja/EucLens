@@ -102,24 +102,57 @@ public partial class App : Application
             var realRtt = Points(vm.RttSeries);
             Check(realRtt.Length >= 1 && realRtt.All(v => v is null), "Real RTT chart must contain gaps, not fabricated values.");
             // Diagnostics: three independent domains; a few seconds of data must never read as Healthy.
+            var d = vm.Diagnostics;
             Check(vm.HealthTiles.Count == 3 && vm.ConnectionHealth == "Insufficient Data" && vm.GraphicsHealth == "Insufficient Data" && vm.GuestHealth == "Insufficient Data",
                 $"Short observation must be Insufficient Data: {vm.ConnectionHealth}/{vm.GraphicsHealth}/{vm.GuestHealth}.");
-            Check(vm.Hypotheses.Count > 0, "Diagnostic assessment statement missing.");
+            Check(d.Hypotheses.Count > 0, "Diagnostic assessment statement missing.");
+            Check(d.HeadlineState == "Insufficient Data" && !d.HasActiveProblems && d.Headline.StartsWith("No conclusion yet", StringComparison.Ordinal),
+                "Short observation must not state a conclusion: " + d.Headline);
+            Check(d.DataQuality.Level == "Insufficient evidence" && d.DataQuality.Rows.Count == 5, "Evidence coverage indicator missing: " + d.DataQuality.Level);
+            Check(d.DataQuality.Rows.Any(r => r.Label == "Collector metrics with a value" && r.Value.Contains(" of ", StringComparison.Ordinal)),
+                "Collector availability must be shown separately from diagnostic coverage.");
+            Check(d.Domains.All(x => x.Measurements.Count > 0 && x.Details.Count > 0), "Domain measurements or coverage details missing.");
+            Check(d.Domains.Single(x => x.Domain == "Connection Health").Measurements.Any(m => m.Label == "RTT P95" && m.Value == "Not available" && m.Threshold.Contains("150", StringComparison.Ordinal)),
+                "Unavailable Blast RTT must read 'Not available' with its configured threshold, never 0.");
             Check(vm.GpuCards.Any(c => c.Label == "Graphics acceleration") || vm.GpuCards.Any(c => c.Label == "GPU model"), "GPU acceleration state missing.");
             if (vm.GpuCards.Any(c => c.Label == "Graphics acceleration"))
-                Check(vm.FindingCards.Any(f => f.RuleId == "gpu.software-rendering" && f.Severity == "INFO"), "Software rendering must be an information finding, not a warning.");
-            Check(!vm.FindingCards.Any(f => f.Severity is "WARNING" or "CRITICAL"), "No warning may be raised from a few seconds of data.");
+            {
+                Check(d.Findings.Any(f => f.RuleId == "gpu.software-rendering" && f.Severity == "INFO" && f.State == "Informational" && f.Marker == "Neutral"),
+                    "Software rendering must be a neutral information finding, not a warning.");
+                Check(d.Domains.Single(x => x.Domain == "VDI Guest Health").Measurements.Any(m => m.Label == "GPU" && m.Value == "Software rendering" && m.Threshold == "Not applicable"),
+                    "Guest health must state software rendering once, as not applicable.");
+            }
+            Check(!d.Findings.Any(f => f.IsProblem) && d.Filters.Single(f => f.Kind == FindingFilterKind.ActiveProblems).Count == 0, "No warning may be raised from a few seconds of data.");
+            Check(d.Trends.Count == 4 && d.Cpu.Points.Any(p => p.Value is not null) && d.Rtt.Points.All(p => p.Value is null) && !d.Rtt.HasData,
+                "Diagnostic trends must show measured CPU and leave unavailable RTT as gaps.");
             vm.SelectedPage = vm.Pages.Single(p => p is DiagnosticsPage);
             await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
-            vm.SelectedFindingFilter = vm.FindingFilters.Single(f => f.Value == Severity.Info);
-            Check(vm.FindingCards.All(f => f.Severity is "INFO" or "RECOVERED"), "Finding filter failed.");
-            if (vm.FindingCards.Count > 0) vm.FindingCards[0].IsExpanded = true;
-            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
-            await Task.Delay(1200);
-            Check(vm.FindingCards.Count == 0 || vm.FindingCards[0].IsExpanded, "Expanded finding collapsed after a sample update.");
-            evidence.Add("Diagnostics on runner: " + string.Join("; ", vm.HealthTiles.Select(t => $"{t.Domain}={t.State} ({t.Coverage})")) +
-                " | findings: " + string.Join(", ", vm.FindingCards.Select(f => $"{f.RuleId}:{f.Severity}")) + " | assessment: " + string.Join(" / ", vm.Hypotheses.Select(h => h.Statement)));
-            vm.SelectedFindingFilter = vm.FindingFilters[0];
+            d.SelectedTrendWindow = d.TrendWindows[2];
+            Check(d.Cpu.XAxes[0].MaxLimit - d.Cpu.XAxes[0].MinLimit == TimeSpan.FromSeconds(120).Ticks && d.Rtt.XAxes[0].MinLimit == d.Cpu.XAxes[0].MinLimit,
+                "Trend charts must share the selected 120 s window.");
+            d.SelectedTrendWindow = d.TrendWindows[1];
+            d.SelectedFilter = d.Filters.Single(f => f.Kind == FindingFilterKind.Information);
+            Check(d.Findings.All(f => f.State == "Informational"), "Information filter failed.");
+            d.SelectedFilter = d.Filters.Single(f => f.Kind == FindingFilterKind.ActiveProblems);
+            Check(d.IsListEmpty && d.ListEmptyTitle.Length > 0, "Active-problems filter must show an explained empty state.");
+            d.SelectedFilter = d.Filters[0];
+            if (d.Findings.Count > 0)
+            {
+                var chosen = d.Findings[^1];
+                d.SelectedFinding = chosen;
+                await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                await Task.Delay(1200);
+                Check(ReferenceEquals(d.SelectedFinding, chosen) && d.HasSelection && chosen.Evidence.Count > 0, "Selected finding or its evidence was lost after a sample update.");
+                d.CopyFindingCommand.Execute(null);
+                evidence.Add("Clipboard on runner: " + d.CopyStatus);
+            }
+            d.SortBy(FindingSortKey.Finding, false);
+            Check(d.Findings.Select(f => f.Title).SequenceEqual(d.Findings.Select(f => f.Title).Order(StringComparer.CurrentCultureIgnoreCase)), "Sorting by finding failed.");
+            d.SortBy(FindingSortKey.Severity, false);
+            evidence.Add("Diagnostics on runner: " + string.Join("; ", d.Domains.Select(t => $"{t.Domain}={t.State} ({t.Coverage}; {t.Summary})")) +
+                $" | status: {d.Headline} | evidence coverage: {d.DataQuality.Level}, {d.DataQuality.Summary} " +
+                string.Join(", ", d.DataQuality.Rows.Select(r => $"{r.Label}={r.Value}")) +
+                " | findings: " + string.Join(", ", d.Findings.Select(f => $"{f.RuleId}:{f.Severity}/{f.State}")) + " | assessment: " + string.Join(" / ", d.Hypotheses.Select(h => h.Statement)));
             Check(Points(vm.CpuSeries).Any(v => v is not null), "CPU history chart is empty.");
 
             // Advanced Metrics: raw rows, category filter and search.
@@ -179,6 +212,8 @@ public partial class App : Application
         await Task.Delay(2200);
         vm.StopRecordingCommand.Execute(null);
         if (vm.SampleCount < 1 || vm.HealthTiles.Count != 3) throw new InvalidOperationException("Sampling/diagnostics smoke check failed.");
+        // Demo data drives every trend; select a finding so layout captures include the evidence panel.
+        if (vm.Diagnostics.Findings.Count > 0) vm.Diagnostics.SelectedFinding = vm.Diagnostics.Findings[0];
         foreach (var page in vm.Pages)
         {
             vm.SelectedPage = page;
@@ -202,7 +237,7 @@ public partial class App : Application
         if (errors.Errors.Count > 0) throw new InvalidOperationException("WPF binding errors: " + string.Join("\n", errors.Errors));
         GC.Collect(); GC.WaitForPendingFinalizers();
         if (unhandled.Count > 0) throw new InvalidOperationException("Unhandled exceptions: " + string.Join("\n", unhandled));
-        await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"), "PASS: startup, diagnostics (3 independent domains, Insufficient Data on short observation, software rendering as information, filters, stable expanded findings, diag export columns), Real Session without Horizon Agent (Blast N/A, real CPU/RAM, recording + JSON/CSV with host columns), protocol display, Advanced Metrics filter/search, NVML-absent initialization, Real↔Demo switching, demo sampling and live charts, all six views, themes, recording, JSON/CSV export, themed charts, navigation/resize layout matrix, WPF client captures, no WPF binding errors. Actual Windows DPI changes require manual acceptance.\n" + string.Join("\n", evidence));
+        await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"), "PASS: startup, diagnostics (3 independent domains, Insufficient Data and no conclusion on short observation, evidence coverage vs collector availability, software rendering as neutral information, trends with gaps and a shared window, filters with counts and empty states, sorting, stable selection with evidence, clipboard, diag export columns), Real Session without Horizon Agent (Blast N/A, real CPU/RAM, recording + JSON/CSV with host columns), protocol display, Advanced Metrics filter/search, NVML-absent initialization, Real↔Demo switching, demo sampling and live charts, all six views, themes, recording, JSON/CSV export, themed charts, navigation/resize layout matrix, WPF client captures, no WPF binding errors. Actual Windows DPI changes require manual acceptance.\n" + string.Join("\n", evidence));
         await StopAsync();
         closing = true;
         Shutdown(0);

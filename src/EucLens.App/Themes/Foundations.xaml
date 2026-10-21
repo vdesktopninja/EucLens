@@ -18,6 +18,13 @@
  <GridLength x:Key="AdvancedStatusWidth">92</GridLength>
  <GridLength x:Key="AdvancedTimeWidth">96</GridLength>
  <sys:Double x:Key="ChartHeight">176</sys:Double>
+ <sys:Double x:Key="TrendChartHeight">116</sys:Double>
+ <sys:Double x:Key="MarkerSize">8</sys:Double>
+ <GridLength x:Key="FindingSeverityWidth">88</GridLength>
+ <GridLength x:Key="FindingCategoryWidth">96</GridLength>
+ <GridLength x:Key="FindingTimeWidth">80</GridLength>
+ <GridLength x:Key="FindingDurationWidth">76</GridLength>
+ <GridLength x:Key="FindingStateWidth">100</GridLength>
  <Thickness x:Key="Hairline">1</Thickness>
  <Thickness x:Key="PanelPadding">12</Thickness>
  <Thickness x:Key="ControlPadding">12,4</Thickness>
@@ -27,4 +34,5 @@
  <CornerRadius x:Key="ControlRadius">4</CornerRadius>
  <CornerRadius x:Key="PanelRadius">4</CornerRadius>
  <CornerRadius x:Key="PopupRadius">6</CornerRadius>
+ <CornerRadius x:Key="MarkerRadius">2</CornerRadius>
 </ResourceDictionary>

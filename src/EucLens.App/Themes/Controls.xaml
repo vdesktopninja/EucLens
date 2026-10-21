@@ -79,4 +79,38 @@
    <DataTrigger Binding="{Binding Monitor.Health}" Value="Critical"><Setter Property="Foreground" Value="{DynamicResource CriticalBrush}" /></DataTrigger>
   </Style.Triggers>
  </Style>
+ <!-- Diagnostics: compact technical tables, segmented filters and status markers. Colour only for Healthy / Warning / Critical. -->
+ <Style x:Key="SectionLabel" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}"><Setter Property="FontSize" Value="{StaticResource LabelFontSize}" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="{DynamicResource MutedBrush}" /><Setter Property="Margin" Value="0,12,0,6" /><Setter Property="TextWrapping" Value="Wrap" /></Style>
+ <Style x:Key="BodyMuted" TargetType="TextBlock" BasedOn="{StaticResource Muted}"><Setter Property="FontSize" Value="{StaticResource BodyFontSize}" /></Style>
+ <Style x:Key="StateMarker" TargetType="Border"><Setter Property="Width" Value="{StaticResource MarkerSize}" /><Setter Property="Height" Value="{StaticResource MarkerSize}" /><Setter Property="CornerRadius" Value="{StaticResource MarkerRadius}" /><Setter Property="BorderThickness" Value="{StaticResource Hairline}" /><Setter Property="BorderBrush" Value="{DynamicResource MutedBrush}" /><Setter Property="Background" Value="Transparent" /><Setter Property="VerticalAlignment" Value="Center" />
+  <Style.Triggers>
+   <Trigger Property="Tag" Value="Healthy"><Setter Property="Background" Value="{DynamicResource SuccessBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource SuccessBrush}" /></Trigger>
+   <Trigger Property="Tag" Value="Warning"><Setter Property="Background" Value="{DynamicResource WarningBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource WarningBrush}" /></Trigger>
+   <Trigger Property="Tag" Value="Critical"><Setter Property="Background" Value="{DynamicResource CriticalBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource CriticalBrush}" /></Trigger>
+  </Style.Triggers>
+ </Style>
+ <Style x:Key="StatusText" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}"><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+  <Style.Triggers>
+   <Trigger Property="Tag" Value="Healthy"><Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" /></Trigger>
+   <Trigger Property="Tag" Value="Warning"><Setter Property="Foreground" Value="{DynamicResource WarningBrush}" /></Trigger>
+   <Trigger Property="Tag" Value="Critical"><Setter Property="Foreground" Value="{DynamicResource CriticalBrush}" /></Trigger>
+  </Style.Triggers>
+ </Style>
+ <!-- A ListBox without its own ScrollViewer, so the page scrolls as one surface and the mouse wheel is never captured. -->
+ <Style x:Key="TableList" TargetType="ListBox"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /><Setter Property="Foreground" Value="{DynamicResource TextBrush}" /><Setter Property="KeyboardNavigation.DirectionalNavigation" Value="Contained" /><Setter Property="KeyboardNavigation.TabNavigation" Value="Once" />
+  <Setter Property="ItemsPanel"><Setter.Value><ItemsPanelTemplate><StackPanel /></ItemsPanelTemplate></Setter.Value></Setter>
+  <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBox"><Border Background="{TemplateBinding Background}"><ItemsPresenter /></Border></ControlTemplate></Setter.Value></Setter>
+ </Style>
+ <Style x:Key="TableRow" TargetType="ListBoxItem"><Setter Property="Foreground" Value="{DynamicResource TextBrush}" /><Setter Property="Padding" Value="8,6" /><Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="FocusVisualStyle" Value="{x:Null}" />
+  <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem"><Border x:Name="Focus" BorderBrush="Transparent" BorderThickness="{StaticResource Hairline}"><Border x:Name="Row" Background="Transparent" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="{TemplateBinding Padding}"><ContentPresenter /></Border></Border>
+   <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Row" Property="Background" Value="{DynamicResource ElevatedBrush}" /></Trigger><Trigger Property="IsSelected" Value="True"><Setter TargetName="Row" Property="Background" Value="{DynamicResource AccentSurfaceBrush}" /></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Focus" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+ </Style>
+ <Style x:Key="SegmentItem" TargetType="ListBoxItem"><Setter Property="Foreground" Value="{DynamicResource TextBrush}" /><Setter Property="Padding" Value="10,4" /><Setter Property="Margin" Value="0,0,4,4" /><Setter Property="MinHeight" Value="28" /><Setter Property="FocusVisualStyle" Value="{x:Null}" /><Setter Property="Cursor" Value="Hand" />
+  <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem"><Border x:Name="Segment" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="{StaticResource Hairline}" CornerRadius="{StaticResource ControlRadius}" Padding="{TemplateBinding Padding}"><ContentPresenter VerticalAlignment="Center" /></Border>
+   <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Segment" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /></Trigger><Trigger Property="IsSelected" Value="True"><Setter TargetName="Segment" Property="Background" Value="{DynamicResource AccentSurfaceBrush}" /><Setter TargetName="Segment" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /><Setter Property="Foreground" Value="{DynamicResource AccentBrush}" /></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Segment" Property="BorderThickness" Value="2" /><Setter TargetName="Segment" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+ </Style>
+ <Style x:Key="Segmented" TargetType="ListBox" BasedOn="{StaticResource TableList}"><Setter Property="ItemContainerStyle" Value="{StaticResource SegmentItem}" /><Setter Property="ItemsPanel"><Setter.Value><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></Setter.Value></Setter></Style>
+ <Style x:Key="ColumnHeader" TargetType="Button"><Setter Property="Foreground" Value="{DynamicResource MutedBrush}" /><Setter Property="FontSize" Value="{StaticResource LabelFontSize}" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="HorizontalAlignment" Value="Left" /><Setter Property="Cursor" Value="Hand" /><Setter Property="FocusVisualStyle" Value="{x:Null}" />
+  <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button"><Border x:Name="Body" Background="Transparent" BorderBrush="Transparent" BorderThickness="{StaticResource Hairline}" Padding="2"><ContentPresenter /></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Foreground" Value="{DynamicResource AccentBrush}" /></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Body" Property="BorderBrush" Value="{DynamicResource AccentBrush}" /></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+ </Style>
 </ResourceDictionary>

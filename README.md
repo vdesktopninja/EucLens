@@ -36,6 +36,12 @@ The active data source is always shown in the header banner and sidebar.
   possible causes, recommended actions and limitations. Sustained conditions use
   monotonic-time windows with hysteresis and recovery; brief spikes, idle desktops and
   software rendering do not raise warnings. Thresholds are configurable and validated.
+  The Diagnostics page (0.4.1) shows:
+  * a status line and health overview with key measurements and thresholds;
+  * an evidence-coverage indicator;
+  * RTT, FPS, CPU and packet-loss trends for 30/60/120 s;
+  * a sortable, filterable findings table, with an evidence and recommendations panel that can be copied to the clipboard.
+
   See [Diagnostic intelligence](docs/DIAGNOSTICS.md).
 - Start/stop timestamped recording, elapsed time, sample count and a historical
   RTT chart (latest 600 samples). JSON and CSV export to a chosen local file.

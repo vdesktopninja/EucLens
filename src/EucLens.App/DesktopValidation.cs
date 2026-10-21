@@ -64,10 +64,12 @@ internal static class DesktopValidation
                         throw new InvalidOperationException($"Client viewport {client.ActualWidth}×{client.ActualHeight} did not match requested {viewport.Width}×{viewport.Height}.");
                     CheckCharts(window, page);
                     CheckPanes(window);
+                    if (page is DiagnosticsPage) CheckText(window);
                     report.AppendLine($"PASS: {(dark ? "dark" : "light")} | {width}×{height} | {scale:P0} available-space simulation | {page.Name} | client viewport {client.ActualWidth:0}×{client.ActualHeight:0} DIP; host window {window.ActualWidth:0}×{window.ActualHeight:0} DIP");
-                    if (scale == 1 && (width == 1366 || width == 1920))
+                    // Diagnostics is also captured at 125 % and 150 %, where the evidence panel moves below the list.
+                    if ((scale == 1 && (width == 1366 || width == 1920)) || (page is DiagnosticsPage && width == 1366))
                     {
-                        Capture(window, client, Path.Combine(directory, $"{width}x{height}-{(dark ? "dark" : "light")}-{page.GetType().Name}.png"));
+                        Capture(window, client, Path.Combine(directory, $"{width}x{height}-{scale * 100:0}pct-{(dark ? "dark" : "light")}-{page.GetType().Name}.png"));
                     }
                 }
             }
@@ -81,7 +83,7 @@ internal static class DesktopValidation
     private static void CheckCharts(Window window, PageViewModel page)
     {
         var charts = Descendants<CartesianChart>(window).ToArray();
-        var expected = page is DashboardPage ? 2 : page is RecorderPage or SystemPage ? 1 : 0;
+        var expected = page is DashboardPage ? 2 : page is DiagnosticsPage ? 4 : page is RecorderPage or SystemPage ? 1 : 0;
         if (charts.Length != expected) throw new InvalidOperationException($"{page.Name}: expected {expected} charts, found {charts.Length}.");
         foreach (var chart in charts)
         {
@@ -93,6 +95,11 @@ internal static class DesktopValidation
                 AssertPaint(axis.LabelsPaint as SolidColorPaint, ChartTheme.GetText(chart), "axis labels");
             foreach (var axis in chart.YAxes.OfType<Axis>())
                 AssertPaint(axis.SeparatorsPaint as SolidColorPaint, ChartTheme.GetGrid(chart), "gridlines");
+            foreach (var section in chart.Sections?.OfType<RectangularSection>() ?? [])
+            {
+                AssertPaint(section.Stroke as SolidColorPaint, Equals(section.Tag, "Critical") ? ChartTheme.GetCritical(chart) : ChartTheme.GetWarning(chart), "threshold line");
+                if (section.Fill is not null) throw new InvalidOperationException("Threshold lines must not fill an area.");
+            }
             foreach (var series in chart.Series.OfType<LineSeries<DateTimePoint>>())
             {
                 AssertPaint(series.Stroke as SolidColorPaint, ChartTheme.GetLine(chart), "series stroke");
@@ -109,7 +116,7 @@ internal static class DesktopValidation
     }
     private static void CheckPanes(Window window)
     {
-        foreach (var panel in Descendants<AdaptiveColumnsPanel>(window))
+        foreach (var panel in Descendants<Panel>(window).Where(p => p is AdaptiveColumnsPanel or MasterDetailPanel))
         {
             var bounds = panel.Children.Cast<UIElement>().Where(child => child.Visibility == Visibility.Visible)
                 .Select(child => child.TransformToAncestor(panel).TransformBounds(new Rect(child.RenderSize))).ToArray();
@@ -123,6 +130,20 @@ internal static class DesktopValidation
                         throw new InvalidOperationException("Technical panes overlap.");
                 }
             }
+        }
+    }
+    /// <summary>Single-line text without trimming must fit its box; wrapping text reflows and is not clipped.</summary>
+    private static void CheckText(Window window)
+    {
+        var view = Descendants<Views.DiagnosticsView>(window).Single();
+        var dpi = VisualTreeHelper.GetDpi(window).PixelsPerDip;
+        foreach (var text in Descendants<TextBlock>(view))
+        {
+            if (!text.IsVisible || text.TextWrapping != TextWrapping.NoWrap || text.TextTrimming != TextTrimming.None || text.ActualWidth <= 0 || string.IsNullOrEmpty(text.Text)) continue;
+            var natural = new FormattedText(text.Text, System.Globalization.CultureInfo.CurrentCulture, text.FlowDirection,
+                new Typeface(text.FontFamily, text.FontStyle, text.FontWeight, text.FontStretch), text.FontSize, Brushes.Black, dpi).WidthIncludingTrailingWhitespace;
+            if (natural > text.ActualWidth + 1)
+                throw new InvalidOperationException($"Diagnostics text is clipped: '{text.Text}' needs {natural:0} DIP, has {text.ActualWidth:0} DIP.");
         }
     }
     private static void Capture(Window window, FrameworkElement visual, string path)

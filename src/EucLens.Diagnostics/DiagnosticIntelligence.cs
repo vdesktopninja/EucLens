@@ -240,7 +240,7 @@ public sealed class DiagnosticIntelligenceEngine : IDiagnosticEngine, IConfigura
                 : states.Length > 0 && states.All(s => s == HealthState.Healthy) ? HealthStatus.Healthy : HealthStatus.Unavailable;
             var snapshotState = new DiagnosticSnapshot(lastAssessments, lastActive, events.Count == 0 ? [] : events);
             return new(overall, [], Legacy(Domain(DiagnosticDomain.Connection)), Legacy(Domain(DiagnosticDomain.Guest)),
-                lastAssessments, findings, hypotheses, snapshotState);
+                lastAssessments, findings, hypotheses, snapshotState, HealthEvaluator.Inputs(context));
 
             HealthState Domain(DiagnosticDomain d) => lastAssessments.FirstOrDefault(a => a.Domain == d)?.State ?? HealthState.InsufficientData;
         }
@@ -258,9 +258,9 @@ public static class HealthEvaluator
         [DiagnosticMetrics.DiskActive] = "disk active time", [DiagnosticMetrics.Gpu] = "GPU", [DiagnosticMetrics.Vram] = "VRAM", [DiagnosticMetrics.Encoder] = "encoder",
     };
 
-    public static DomainAssessment[] Evaluate(DiagnosticContext c, IReadOnlyList<DiagnosticFinding> active)
+    /// <summary>Required and optional inputs per domain. Shared by the assessment and its presentation inputs.</summary>
+    private static (DiagnosticDomain Domain, string[] Required, string[] Optional, List<string> Notes)[] Specs(DiagnosticContext c)
     {
-        var t = c.Thresholds;
         var gpuOptional = c.HardwareGpu == true ? new[] { DiagnosticMetrics.Gpu, DiagnosticMetrics.Vram, DiagnosticMetrics.Encoder } : [];
         var connectionNotes = new List<string>();
         if (c.History.Has(DiagnosticMetrics.JitterRaw)) connectionNotes.Add("jitter and estimated bandwidth units unverified (shown raw, not evaluated)");
@@ -275,12 +275,67 @@ public static class HealthEvaluator
         guestNotes.Add("measured inside the VDI guest, not the hypervisor host");
         return
         [
-            Assess(c, active, DiagnosticDomain.Connection, [DiagnosticMetrics.Rtt], [DiagnosticMetrics.PacketLoss, DiagnosticMetrics.Reconnects], connectionNotes),
-            Assess(c, active, DiagnosticDomain.Graphics, [DiagnosticMetrics.Fps], [DiagnosticMetrics.DirtyFps, DiagnosticMetrics.QueueingUs, DiagnosticMetrics.Cpu],
+            (DiagnosticDomain.Connection, [DiagnosticMetrics.Rtt], [DiagnosticMetrics.PacketLoss, DiagnosticMetrics.Reconnects], connectionNotes),
+            (DiagnosticDomain.Graphics, [DiagnosticMetrics.Fps], [DiagnosticMetrics.DirtyFps, DiagnosticMetrics.QueueingUs, DiagnosticMetrics.Cpu],
                 [$"workload is user-selected ({c.Workload})"]),
-            Assess(c, active, DiagnosticDomain.Guest, [DiagnosticMetrics.Cpu, DiagnosticMetrics.Ram],
-                [DiagnosticMetrics.AvailableRamGiB, DiagnosticMetrics.DiskActive, .. gpuOptional], guestNotes),
+            (DiagnosticDomain.Guest, [DiagnosticMetrics.Cpu, DiagnosticMetrics.Ram], [DiagnosticMetrics.AvailableRamGiB, DiagnosticMetrics.DiskActive, .. gpuOptional], guestNotes),
         ];
+    }
+
+    public static DomainAssessment[] Evaluate(DiagnosticContext c, IReadOnlyList<DiagnosticFinding> active) =>
+        Specs(c).Select(x => Assess(c, active, x.Domain, x.Required, x.Optional, x.Notes)).ToArray();
+
+    /// <summary>
+    /// Presentation inputs: per domain, the statistic each metric is summarised by, the configured threshold it is judged
+    /// against and its sample sufficiency. Unverified-unit metrics are listed but never evaluated.
+    /// </summary>
+    public static AssessmentInput[] Inputs(DiagnosticContext c)
+    {
+        var t = c.Thresholds;
+        var window = t.StandardWindowSeconds;
+        var list = new List<AssessmentInput>();
+        foreach (var (domain, required, optional, _) in Specs(c))
+        foreach (var (key, isRequired) in required.Select(k => (k, true)).Concat(optional.Select(k => (k, false))))
+        {
+            var s = c.Stats(key, window);
+            var (statistic, value) = Statistic(s);
+            var state = s.IsSufficient(t) ? InputState.Evaluated : c.History.Has(key) && s.TotalSamples > 0 && s.ValidSamples + s.StaleSamples + s.FailedSamples > 0
+                ? InputState.Insufficient : InputState.NotCollected;
+            list.Add(new(domain, key, Names.GetValueOrDefault(key, key), isRequired, state, statistic, value, Unit(key), Threshold(c, key),
+                s.ValidSamples, s.TotalSamples, s.StaleSamples, s.FailedSamples, s.Coverage, window, s.LatestReason));
+        }
+        foreach (var (key, name) in new[] { (DiagnosticMetrics.JitterRaw, "jitter (uplink)"), (DiagnosticMetrics.EstimatedBandwidthRaw, "estimated bandwidth (uplink)") })
+        {
+            if (!c.History.Has(key)) continue;
+            var s = c.Stats(key, window);
+            list.Add(new(DiagnosticDomain.Connection, key, name, false, InputState.UnverifiedUnit, "mean", s.Mean, "raw", null,
+                s.ValidSamples, s.TotalSamples, s.StaleSamples, s.FailedSamples, s.Coverage, window, "Unit not documented; shown raw, not evaluated."));
+        }
+        return list.ToArray();
+    }
+
+    private static string? Threshold(DiagnosticContext c, string key)
+    {
+        var t = c.Thresholds;
+        string S(FormattableString f) => f.ToString(CultureInfo.InvariantCulture);
+        return key switch
+        {
+            DiagnosticMetrics.Rtt => S($"≥ {t.RttWarningMs:0.##} ms warning"),
+            DiagnosticMetrics.PacketLoss => S($"mean ≥ {t.PacketLossWarningPercent:0.##} % warning"),
+            DiagnosticMetrics.Reconnects => S($"+{t.ReconnectWarningCount} in {t.LongWindowSeconds:0} s"),
+            // Low FPS is only judged during declared active workloads.
+            DiagnosticMetrics.Fps => c.IsActiveWorkload ? S($"< {t.LowFps:0.##} FPS warning") : null,
+            DiagnosticMetrics.DirtyFps => S($"≥ {t.ActivityDirtyFps:0.##} FPS = screen changing"),
+            DiagnosticMetrics.QueueingUs => S($"≥ {t.QueueingWarningMicroseconds:0} µs (information only)"),
+            DiagnosticMetrics.Cpu => S($"≥ {t.CpuWarningPercent:0.##} % warning"),
+            DiagnosticMetrics.Ram => S($"≥ {t.MemoryWarningPercent:0.##} % warning"),
+            DiagnosticMetrics.AvailableRamGiB => S($"≤ {t.AvailableRamWarningGiB:0.##} GiB warning"),
+            DiagnosticMetrics.DiskActive => S($"≥ {t.DiskActiveWarningPercent:0.##} % warning"),
+            DiagnosticMetrics.Gpu => S($"≥ {t.GpuWarningPercent:0.##} % warning"),
+            DiagnosticMetrics.Vram => S($"≥ {t.VramWarningPercent:0.##} % warning"),
+            DiagnosticMetrics.Encoder => S($"≥ {t.EncoderWarningPercent:0.##} % warning"),
+            _ => null,
+        };
     }
 
     private static DomainAssessment Assess(DiagnosticContext c, IReadOnlyList<DiagnosticFinding> active, DiagnosticDomain domain,
@@ -313,14 +368,25 @@ public static class HealthEvaluator
         return new(domain, state, coverage, evidence, coverageNote, window);
     }
 
+    private static string Unit(string key) => key switch
+    {
+        DiagnosticMetrics.Rtt => "ms", DiagnosticMetrics.Fps or DiagnosticMetrics.DirtyFps => "FPS", DiagnosticMetrics.QueueingUs => "µs",
+        DiagnosticMetrics.AvailableRamGiB => "GiB", DiagnosticMetrics.Reconnects => "", _ => "%"
+    };
+
+    /// <summary>The statistic each metric is summarised by: mean for loss and available RAM, the cumulative total for reconnects, otherwise P95.</summary>
+    private static (string Label, double? Value) Statistic(WindowStats s) => s.Key switch
+    {
+        DiagnosticMetrics.AvailableRamGiB or DiagnosticMetrics.PacketLoss => ("mean", s.Mean),
+        DiagnosticMetrics.Reconnects => ("total", s.Latest),
+        DiagnosticMetrics.Fps => ("P50", s.P50),
+        _ => ("P95", s.P95),
+    };
+
     private static string Summary(WindowStats s)
     {
         var name = Names.GetValueOrDefault(s.Key, s.Key);
-        var unit = s.Key switch
-        {
-            DiagnosticMetrics.Rtt => " ms", DiagnosticMetrics.Fps or DiagnosticMetrics.DirtyFps => " FPS", DiagnosticMetrics.QueueingUs => " µs",
-            DiagnosticMetrics.AvailableRamGiB => " GiB", DiagnosticMetrics.Reconnects => "", _ => " %"
-        };
+        var unit = Unit(s.Key) is { Length: > 0 } u ? " " + u : "";
         var value = s.Key is DiagnosticMetrics.AvailableRamGiB or DiagnosticMetrics.PacketLoss ? s.Mean : s.Key == DiagnosticMetrics.Reconnects ? s.Latest : s.P95;
         var label = s.Key is DiagnosticMetrics.AvailableRamGiB or DiagnosticMetrics.PacketLoss ? "mean" : s.Key == DiagnosticMetrics.Reconnects ? "total" : "P95";
         return string.Create(CultureInfo.InvariantCulture, $"{name} {label} {value:0.##}{unit}");

@@ -40,54 +40,6 @@ public sealed record Choice<T>(T Value, string Label);
 public sealed record MetricCard(string Label, string Value, string Detail);
 public sealed record AdvancedMetricRow(string Category, string Name, string Value, string Unit, string Scope, string Status,
     string Source, string Timestamp, string Id);
-/// <summary>Stable view item for a finding so per-second evidence updates keep the expanded state.</summary>
-public sealed class FindingItem(FindingCard card) : ObservableObject
-{
-    private FindingCard card = card;
-    private bool expanded;
-    public string Key { get; } = card.RuleId + "|" + card.DetectedKey;
-    public FindingCard Card { get => card; set { if (Set(ref card, value)) Raise(string.Empty); } }
-    public bool IsExpanded { get => expanded; set => Set(ref expanded, value); }
-    public string Severity => card.Severity;
-    public string Title => card.Title;
-    public string Domain => card.Domain;
-    public string Description => card.Description;
-    public string Metrics => card.Metrics;
-    public string Window => card.Window;
-    public string Timeline => card.Timeline;
-    public string Evidence => card.Evidence;
-    public string DecisionRule => card.DecisionRule;
-    public string Causes => card.Causes;
-    public string Actions => card.Actions;
-    public string Limitations => card.Limitations;
-    public string RuleId => card.RuleId;
-}
-public sealed record HealthTile(string Domain, string State, string Coverage, string Evidence, string CoverageNote);
-public sealed record HypothesisCard(string Statement, string Confidence, string Verification);
-/// <summary>Display form of a finding: compact header plus expandable evidence, rule, causes, actions and limitations.</summary>
-public sealed record FindingCard(string RuleId, string Severity, string Title, string Domain, string Description, string Metrics, string Window,
-    string Timeline, string Evidence, string DecisionRule, string Causes, string Actions, string Limitations, bool IsActive, string DetectedKey)
-{
-    public static FindingCard From(EucLens.Core.DiagnosticFinding f)
-    {
-        static string Time(DateTimeOffset t) => t.ToLocalTime().ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
-        var severity = f.IsActive ? f.Severity switch { EucLens.Core.Severity.Critical => "CRITICAL", EucLens.Core.Severity.Warning => "WARNING", _ => "INFO" } : "RECOVERED";
-        var domain = f.Domain switch
-        {
-            EucLens.Core.DiagnosticDomain.Guest => "VDI guest", EucLens.Core.DiagnosticDomain.Gpu => "GPU", EucLens.Core.DiagnosticDomain.DataQuality => "Data quality",
-            _ => f.Domain.ToString()
-        };
-        var window = f.ObservationSeconds > 0 ? $"{f.ObservationSeconds:0} s window · {f.ValidSamples} valid of {f.TotalSamples} samples" : "Inventory-based";
-        var timeline = f.IsActive ? $"Detected {Time(f.DetectedAt)} · last confirmed {Time(f.LastConfirmedAt)}"
-            : $"Detected {Time(f.DetectedAt)} · ended {Time(f.RecoveredAt!.Value)} — {f.RecoveryReason}";
-        return new(f.RuleId, severity, f.Title, domain, f.Description,
-            string.Join(" · ", f.Evidence.Take(3).Select(e => $"{e.Metric}: {e.Value}")), window, timeline,
-            string.Join(Environment.NewLine, f.Evidence.Select(e => $"• {e.Metric}: {e.Value}{(e.Detail is null ? "" : $" ({e.Detail})")}")),
-            f.DecisionRule, string.Join(Environment.NewLine, f.PossibleCauses.Select(c => $"• {c}")),
-            string.Join(Environment.NewLine, f.RecommendedActions.Select((a, i) => $"{i + 1}. {a}")), f.Limitations, f.IsActive,
-            f.DetectedAt.UtcTicks.ToString(System.Globalization.CultureInfo.InvariantCulture));
-    }
-}
 public abstract class PageViewModel(MainViewModel monitor, string name, string glyph)
 {
     public MainViewModel Monitor { get; } = monitor;

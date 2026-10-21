@@ -30,6 +30,12 @@ public sealed class DesktopServices : IDesktopServices
         var theme = new ResourceDictionary { Source = new Uri($"Themes/{(dark ? "Dark" : "Light")}.xaml", UriKind.Relative) };
         dictionaries[0] = theme;
     }
+    public bool CopyText(string text)
+    {
+        // Another process can hold the clipboard open; report failure instead of throwing.
+        try { Clipboard.SetText(text); return true; }
+        catch (System.Runtime.InteropServices.ExternalException) { return false; }
+    }
     public async Task SavePreferencesAsync(Preferences preferences)
     {
         Directory.CreateDirectory(DataDirectory);

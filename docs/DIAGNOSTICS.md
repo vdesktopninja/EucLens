@@ -170,6 +170,68 @@ Low FPS during an active workload coincides with sustained guest CPU ≥ 90 %. B
 so CPU saturation may be contributing. Screen activity confirmed by Blast dirty frames.
 ```
 
+## Diagnostics page (0.4.1)
+
+The page is a presentation of the engine's report. `DiagnosticsViewModel` formats,
+filters and sorts; it draws no conclusions of its own, so the page cannot disagree
+with the engine, the recordings or the exports.
+
+From top to bottom:
+
+| Area | Content | Source |
+|---|---|---|
+| Status line | Whether any Warning/Critical finding is active, in which domain, and the most severe one; the engine's assessments with their "how to verify" steps. | Findings, assessments, hypotheses |
+| Health overview | Connection, Graphics and VDI Guest: state, observation window, coverage, key measurements with the statistic (P95, P50, mean, cumulative total) and the configured threshold, active problem count and a one-line explanation. Per-input sample counts and coverage notes are behind *Coverage details*. | `DomainAssessment`, `AssessmentInput` |
+| Evidence coverage | Full / Partial / Insufficient evidence, inputs evaluated vs unavailable, stale and failed samples, unverified-unit metrics, and raw collector availability, shown separately from diagnostic coverage. | `AssessmentInput`, latest snapshot |
+| Diagnostic trends | Session RTT, FPS, guest CPU and uplink packet loss for the 30 / 60 / 120 s windows (the configured short, standard and long windows) on one shared time axis. | The live samples already collected |
+| Findings | Sortable table (Severity, Finding, Category, First detected, Duration, State) with filters and counts: All, Active problems, Critical, Warning, Information, Recovered. | `DiagnosticFinding` |
+| Evidence & recommendations | The selected finding: explanation, timeline, observation, evidence table (Measurement · Observed · Threshold), decision rule, possible contributing factors, numbered recommended investigation, data limitations. *Copy* places all of it on the clipboard. | `DiagnosticFinding` |
+
+Presentation rules:
+
+* **Colour is reserved for state.** Green marks Healthy, amber Warning and red Critical.
+  Information, recovered findings and Insufficient Data stay neutral. No panel is filled with a status colour.
+* **Information is not a problem.** Software rendering, unavailable Blast counters and
+  unverified units appear as *Informational*. They never count as active problems and sort below recovered findings.
+* **Default order:** active Critical, active Warning, recently recovered, Information.
+  Clicking a column header sorts by that column; clicking again reverses it. Ties keep the default order.
+* **Thresholds are shown only where the engine compares against one.** For example, RTT P95
+  shows "≥ 150 ms warning · ≥ 300 ms critical" while the window mean shows none. Packet
+  loss is judged by its mean, so the threshold sits on the mean. Generic labels are
+  spelled out: "95th percentile (P95)", "Mean over window", "Latest sample", "cumulative counter".
+* **No healthy claim without evidence.** With no active problems, the page says what was
+  evaluated. If a domain could not be assessed, it says so ("Not assessed (insufficient data):
+  Connection …"), and the status marker stays neutral rather than green.
+* **Missing data is a gap.** Unavailable samples are null points, and collection pauses
+  longer than `MaximumSampleGapSeconds` break the line. Neither is drawn as zero.
+  Dashed reference lines are drawn only at configured thresholds:
+  RTT warning/critical, low FPS (judged for active workloads only), CPU warning and the
+  packet-loss warning. Each value axis includes the warning line, so headroom is visible.
+  A line above the plotted range is hidden rather than drawn outside the chart.
+* **Software rendering** is stated once per place: an *Informational* finding (Graphics
+  acceleration: Software rendering · Hardware GPU: Not detected · GPU diagnostics: Not
+  applicable) and a "GPU: Software rendering, Not applicable" row under VDI Guest.
+  Adapter text such as "No hardware GPU: Microsoft Basic Render Driver ×2 (DXGI software
+  adapter (Microsoft Basic Render Driver); CPU rendering.)" is shown as "Microsoft Basic Render
+  Driver ×2 — CPU rendering". GPU collection itself is unchanged.
+
+Layout and performance:
+
+* The health overview, evidence coverage and trend panes reflow at fixed widths
+  (4 columns at 1366 × 768 and 100 %). The evidence panel sits beside the findings table at
+  900 DIP or wider and below it when narrower, e.g. 1366 × 768 at 125 % or 150 %.
+* Rows, health tiles, coverage rows and evidence rows are updated in place by key or value.
+  Selection, expanded sections and scroll position therefore survive the per-second update, and unchanged rows are not re-rendered.
+* Until the administrator selects a finding, the evidence panel follows the most important one.
+* Trend history is bounded by the long window (at most 720 points per chart) and uses the
+  samples the dashboard already collects. Charts exist only while the page is open, with animations disabled.
+* The findings table and filters are keyboard-navigable lists with visible focus. The page scrolls as one
+  surface, because the lists have no nested scroll viewer to capture the mouse wheel.
+
+Future explanation panels (for example an optional local assistant) can bind to the same
+`DiagnosticReport` and `DiagnosticsViewModel` selection without changing rules or layout.
+None is included.
+
 ## Configuration
 
 Thresholds live in `%LOCALAPPDATA%\EucLens\diagnostics.json`.
@@ -219,6 +281,10 @@ Changes are append-only. Every 0.2/0.3 column and JSON property is unchanged.
   (e.g. `Detected connection.rtt.sustained Warning`). Full evidence is in the JSON export.
 * Unchanged assessments and finding lists are shared between samples, so recordings do
   not duplicate them.
+* 0.4.1 (append-only): each evidence item may carry `Threshold`, the configured limit it
+  was compared with; it is `null` where the rule compares none. `DiagnosticReport.Inputs` (per-domain
+  statistic, threshold and sample sufficiency) is used for presentation and is **not**
+  written to recordings, so 24-hour captures do not grow.
 * No user content, keystrokes, screenshots or application data are captured.
 
 ## Known limitations
@@ -233,5 +299,8 @@ Changes are append-only. Every 0.2/0.3 column and JSON property is unchanged.
   * out queueing time is treated as outbound queueing (information only).
 * Guest metrics cannot reveal hypervisor contention (CPU ready, ballooning, datastore latency).
 * Per-process attribution is not part of the findings; use Task Manager or Resource Monitor as recommended.
+* Page layout, DPI behaviour and chart rendering are validated by the Windows CI layout
+  matrix and screenshots: 1366 × 768 to 2560 × 1440, 100–150 % available-space simulation,
+  light and dark. Real Windows scaling changes still need manual acceptance.
 * Health uses the 60 s standard window. A new or reconnected session shows
   *Insufficient Data* for about 42–60 s.

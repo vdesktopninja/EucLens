@@ -182,6 +182,69 @@
     "targetType": "TextBlock"
   },
   {
+    "name": "SectionLabel",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "TextBlock"
+  },
+  {
+    "name": "BodyMuted",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "TextBlock"
+  },
+  {
+    "name": "StateMarker",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "Border"
+  },
+  {
+    "name": "StatusText",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "TextBlock"
+  },
+  {
+    "name": "TableList",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "ListBox"
+  },
+  {
+    "name": "TableRow",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "ListBoxItem"
+  },
+  {
+    "name": "SegmentItem",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "ListBoxItem"
+  },
+  {
+    "name": "Segmented",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "ListBox"
+  },
+  {
+    "name": "ColumnHeader",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "Button"
+  },
+  {
     "name": "DashboardView",
     "file": "src/EucLens.App/Views/DashboardView.xaml",
     "root": "src/EucLens.App/Views",

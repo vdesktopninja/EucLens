@@ -32,9 +32,15 @@ internal static class Fmt
     public static string S(FormattableString s) => s.ToString(CultureInfo.InvariantCulture);
     public static string Pct(double share) => S($"{share * 100:0}%");
 
-    public static List<DiagnosticEvidence> Window(WindowStats s, string unit) =>
+    /// <summary>Configured limits as shown next to evidence, e.g. "≥ 150 ms warning · ≥ 300 ms critical".</summary>
+    public static string Limits(double warning, double? critical, string unit, string op = "≥", string level = "warning") =>
+        S($"{op} {N(warning)} {unit} {level}{(critical is { } c ? $" · {op} {N(c)} {unit} critical" : "")}");
+    public static string Sustained(DiagnosticThresholds t) => S($"≥ {t.SustainedFraction * 100:0} % of covered time");
+
+    /// <summary>Window statistics; a threshold is attached only to the statistic the rule actually compares.</summary>
+    public static List<DiagnosticEvidence> Window(WindowStats s, string unit, string? p95Threshold = null, string? meanThreshold = null) =>
     [
-        new("Window mean", $"{N(s.Mean)} {unit}"), new("Window P95", $"{N(s.P95)} {unit}"),
+        new("Window mean", $"{N(s.Mean)} {unit}", Threshold: meanThreshold), new("Window P95", $"{N(s.P95)} {unit}", Threshold: p95Threshold),
         new("Window min / max", $"{N(s.Min)} / {N(s.Max)} {unit}"), new("Latest", s.Latest is null ? $"N/A ({s.LatestReason})" : $"{N(s.Latest)} {unit}"),
         new("Observation", S($"{s.WindowSeconds:0} s window · {s.ValidSamples} valid of {s.TotalSamples} samples · {s.Coverage:P0} covered"),
             s.StaleSamples + s.FailedSamples > 0 ? S($"{s.StaleSamples} stale, {s.FailedSamples} failed samples excluded") : null),
@@ -84,8 +90,9 @@ public abstract class SustainedThresholdRule : IDomainRule
             var sev = raised > MaximumSeverity ? MaximumSeverity : raised;
             var share = raised == Severity.Critical ? critShare : warnShare;
             var limit = raised == Severity.Critical ? critical!.Value : warning;
-            var evidence = Fmt.Window(s, Unit);
-            evidence.Insert(0, new($"Time at or above {Fmt.N(limit)} {Unit}", Fmt.S($"{share * s.CoveredSeconds:0} of {s.CoveredSeconds:0} s ({Fmt.Pct(share)})")));
+            var evidence = Fmt.Window(s, Unit, p95Threshold: Fmt.Limits(warning, critical, Unit, level: MaximumSeverity == Severity.Info ? "indicator" : "warning"));
+            evidence.Insert(0, new($"Time at or above {Fmt.N(limit)} {Unit}", Fmt.S($"{share * s.CoveredSeconds:0} of {s.CoveredSeconds:0} s ({Fmt.Pct(share)})"),
+                Threshold: Fmt.Sustained(t)));
             evidence.AddRange(ExtraEvidence(c));
             if (c.Snapshot is var snap && Current(snap) is { Source: { } source }) evidence.Add(new("Source", source));
             return RuleOutcome.Raise(sev, new(Title,
@@ -142,7 +149,8 @@ public sealed class RttInstabilityRule : IDomainRule
         if (s.Spread >= t.RttInstabilitySpreadMs)
         {
             var evidence = Fmt.Window(s, "ms");
-            evidence.Insert(0, new("RTT P25 → P75 (interquartile range)", $"{Fmt.N(s.P25)} → {Fmt.N(s.P75)} ms ({Fmt.N(s.Spread)} ms)"));
+            evidence.Insert(0, new("RTT P25 → P75 (interquartile range)", $"{Fmt.N(s.P25)} → {Fmt.N(s.P75)} ms ({Fmt.N(s.Spread)} ms)",
+                Threshold: Fmt.S($"spread ≥ {Fmt.N(t.RttInstabilitySpreadMs)} ms")));
             evidence.Insert(1, new("RTT standard deviation", $"{Fmt.N(s.StdDev)} ms"));
             return RuleOutcome.Raise(Severity.Warning, new("Unstable Blast round-trip time",
                 Fmt.S($"The middle 50 % of RTT samples spread over {Fmt.N(s.Spread)} ms ({Fmt.N(s.P25)}–{Fmt.N(s.P75)} ms) during {s.WindowSeconds:0} s. Persistently variable delay can make input feel inconsistent even when the average is acceptable."),
@@ -173,7 +181,7 @@ public sealed class PacketLossRule : IDomainRule
         if (severity is { } sev)
         {
             var withLoss = c.Share(DiagnosticMetrics.PacketLoss, t.StandardWindowSeconds, v => v > 0);
-            var evidence = Fmt.Window(s, "%");
+            var evidence = Fmt.Window(s, "%", meanThreshold: Fmt.Limits(t.PacketLossWarningPercent, t.PacketLossCriticalPercent, "%"));
             evidence.Insert(0, new("Time with non-zero uplink loss", Fmt.Pct(withLoss)));
             return RuleOutcome.Raise(sev, new("Uplink packet loss",
                 Fmt.S($"Blast reported an average uplink packet loss of {Fmt.N(s.Mean)} % over {s.WindowSeconds:0} s (P95 {Fmt.N(s.P95)} %). Loss in the client-to-agent direction can delay input and trigger retransmissions."),
@@ -205,7 +213,8 @@ public sealed class ReconnectRule : IDomainRule
             return RuleOutcome.Raise(Severity.Warning, new("Blast automatic reconnects",
                 Fmt.S($"The Blast automatic reconnect count increased by {delta:0} within {t.LongWindowSeconds:0} s (now {Fmt.N(s.Latest)})."),
                 t.LongWindowSeconds, s.ValidSamples, s.TotalSamples,
-                [new("Increase in window", Fmt.N(delta)), new("Current count", Fmt.N(s.Latest)),
+                [new("Increase in window", Fmt.N(delta), Threshold: Fmt.S($"≥ {t.ReconnectWarningCount} in {t.LongWindowSeconds:0} s")),
+                 new("Current count", Fmt.N(s.Latest), "cumulative counter for this session"),
                  new("Observation", Fmt.S($"{t.LongWindowSeconds:0} s window · {s.ValidSamples} valid samples"))],
                 Fmt.S($"Warning when the cumulative reconnect counter increases by ≥ {t.ReconnectWarningCount} within {t.LongWindowSeconds:0} s. Recovers when it does not increase for {t.LongWindowSeconds:0} s."),
                 ["Short network interruptions (Wi-Fi roaming, VPN renegotiation, ISP outages)", "Gateway or load balancer timeouts", "Client sleep/resume"],
@@ -265,10 +274,12 @@ public sealed class LowFpsRule : IDomainRule
         if (low == false) return Graphics.Recovered(c) || c.ScreenActivity == false ? RuleOutcome.Recovered(reason ?? "Frame rate recovered.") : RuleOutcome.Normal;
         var uncertain = c.ScreenActivity is null;
         var evidence = Fmt.Window(s, "FPS");
-        evidence.Insert(0, new($"Time below {Fmt.N(t.LowFps)} FPS", Fmt.Pct(c.Share(DiagnosticMetrics.Fps, t.StandardWindowSeconds, v => v < t.LowFps))));
+        evidence.Insert(0, new($"Time below {Fmt.N(t.LowFps)} FPS", Fmt.Pct(c.Share(DiagnosticMetrics.Fps, t.StandardWindowSeconds, v => v < t.LowFps)),
+            Threshold: Fmt.Sustained(t)));
         evidence.Add(new("Workload (user-selected)", c.Workload.ToString()));
         var dirty = c.Stats(DiagnosticMetrics.DirtyFps, t.StandardWindowSeconds);
-        evidence.Add(new("Dirty FPS mean", dirty.Mean is null ? "N/A (counter unavailable)" : $"{Fmt.N(dirty.Mean)} FPS"));
+        evidence.Add(new("Dirty FPS mean", dirty.Mean is null ? "N/A (counter unavailable)" : $"{Fmt.N(dirty.Mean)} FPS",
+            "screen activity indicator", Fmt.S($"≥ {Fmt.N(t.ActivityDirtyFps)} FPS = screen changing")));
         return RuleOutcome.Raise(Severity.Warning, new(uncertain ? "Low frame rate during declared active workload (activity unverified)" : "Low frame rate during active graphics workload",
             Fmt.S($"Delivered FPS stayed below {Fmt.N(t.LowFps)} for most of {s.WindowSeconds:0} s (P50 {Fmt.N(s.P50)} FPS). {Graphics.ActivityNote(c)}"),
             s.WindowSeconds, s.ValidSamples, s.TotalSamples, evidence,
@@ -297,7 +308,9 @@ public sealed class FrameDeliveryInstabilityRule : IDomainRule
             return RuleOutcome.Raise(Severity.Warning, new("Unstable frame delivery",
                 Fmt.S($"Delivered FPS fluctuated strongly (coefficient of variation {Fmt.N(fps.CoefficientOfVariation)}) while screen changes stayed steady (dirty FPS variation {Fmt.N(dirty.CoefficientOfVariation)})."),
                 fps.WindowSeconds, fps.ValidSamples, fps.TotalSamples,
-                [new("FPS mean / std. dev.", $"{Fmt.N(fps.Mean)} / {Fmt.N(fps.StdDev)} FPS"), new("Dirty FPS mean / std. dev.", $"{Fmt.N(dirty.Mean)} / {Fmt.N(dirty.StdDev)} FPS"),
+                [new("FPS coefficient of variation", Fmt.N(fps.CoefficientOfVariation), "std. dev. ÷ mean", Fmt.S($"≥ {Fmt.N(t.FpsInstabilityCoefficient)}")),
+                 new("Dirty FPS coefficient of variation", Fmt.N(dirty.CoefficientOfVariation), null, "< 0.25 (steady content)"),
+                 new("FPS mean / std. dev.", $"{Fmt.N(fps.Mean)} / {Fmt.N(fps.StdDev)} FPS"), new("Dirty FPS mean / std. dev.", $"{Fmt.N(dirty.Mean)} / {Fmt.N(dirty.StdDev)} FPS"),
                  new("Observation", Fmt.S($"{fps.WindowSeconds:0} s window · {fps.ValidSamples} valid samples"))],
                 Fmt.S($"Warning when FPS coefficient of variation ≥ {Fmt.N(t.FpsInstabilityCoefficient)} while dirty-FPS variation < 0.25 and dirty FPS ≥ {Fmt.N(t.ActivityDirtyFps)}, over {t.StandardWindowSeconds:0} s."),
                 ["Intermittent CPU or GPU saturation", "Bursty network conditions forcing frame-rate adaptation"],
@@ -348,14 +361,17 @@ public abstract class FrameRateBottleneckRule : IDomainRule
             ? RuleOutcome.Recovered("Low frame rate and resource pressure no longer coincide.") : RuleOutcome.Normal;
     }
 
-    protected static List<DiagnosticEvidence> Evidence(DiagnosticContext c, WindowStats fps, params (string Key, string Name, string Unit)[] metrics)
+    protected static List<DiagnosticEvidence> Evidence(DiagnosticContext c, WindowStats fps, params (string Key, string Name, string Unit, string? Threshold)[] metrics)
     {
         var t = c.Thresholds;
-        var list = new List<DiagnosticEvidence> { new("FPS P50", $"{Fmt.N(fps.P50)} FPS"), new("Workload (user-selected)", c.Workload.ToString()) };
-        foreach (var (key, name, unit) in metrics)
+        var list = new List<DiagnosticEvidence>
+        {
+            new("FPS P50", $"{Fmt.N(fps.P50)} FPS", Threshold: Fmt.S($"< {Fmt.N(t.LowFps)} FPS for {Fmt.Sustained(t)}")), new("Workload (user-selected)", c.Workload.ToString())
+        };
+        foreach (var (key, name, unit, threshold) in metrics)
         {
             var s = c.Stats(key, t.StandardWindowSeconds);
-            list.Add(new($"{name} mean / P95", $"{Fmt.N(s.Mean)} / {Fmt.N(s.P95)} {unit}"));
+            list.Add(new($"{name} mean / P95", $"{Fmt.N(s.Mean)} / {Fmt.N(s.P95)} {unit}", Threshold: threshold));
         }
         list.Add(new("Observation", Fmt.S($"{t.StandardWindowSeconds:0} s window")));
         return list;
@@ -379,7 +395,7 @@ public sealed class CpuBoundGraphicsRule : FrameRateBottleneckRule
         return new("Guest CPU saturation may be limiting frame rate",
             Fmt.S($"Low FPS during an active workload coincides with sustained guest CPU ≥ {Fmt.N(t.CpuWarningPercent)} %. Blast software encoding uses guest CPU, so CPU saturation may be contributing. {Graphics.ActivityNote(c)}"),
             t.StandardWindowSeconds, fps.ValidSamples, fps.TotalSamples,
-            Evidence(c, fps, (DiagnosticMetrics.Cpu, "Guest CPU", "%"), (DiagnosticMetrics.Rtt, "Blast RTT", "ms")),
+            Evidence(c, fps, (DiagnosticMetrics.Cpu, "Guest CPU", "%", Fmt.S($"≥ {Fmt.N(t.CpuWarningPercent)} % for {Fmt.Sustained(t)}")), (DiagnosticMetrics.Rtt, "Blast RTT", "ms", null)),
             Fmt.S($"Low-FPS condition (see graphics.fps.low) and CPU ≥ {Fmt.N(t.CpuWarningPercent)} % for ≥ {t.SustainedFraction:P0} of {t.StandardWindowSeconds:0} s."),
             ["Applications in the guest consuming CPU", "Software (CPU) encoding of a demanding workload", "Too few vCPUs for the workload"],
             ["Identify the busiest processes (Task Manager › Details).", "Compare with a test using fewer applications or a lower resolution.", "Review the vCPU allocation; check hypervisor CPU ready time separately."],
@@ -404,7 +420,7 @@ public sealed class GpuBoundGraphicsRule : FrameRateBottleneckRule
         return new("GPU saturation may be limiting frame rate",
             Fmt.S($"Low FPS during an active workload coincides with sustained GPU utilization ≥ {Fmt.N(t.GpuWarningPercent)} % (busiest engine). {Graphics.ActivityNote(c)}"),
             t.StandardWindowSeconds, fps.ValidSamples, fps.TotalSamples,
-            Evidence(c, fps, (DiagnosticMetrics.Gpu, "GPU", "%"), (DiagnosticMetrics.Encoder, "Video encoder", "%")),
+            Evidence(c, fps, (DiagnosticMetrics.Gpu, "GPU", "%", Fmt.S($"≥ {Fmt.N(t.GpuWarningPercent)} % for {Fmt.Sustained(t)}")), (DiagnosticMetrics.Encoder, "Video encoder", "%", null)),
             Fmt.S($"Low-FPS condition and GPU ≥ {Fmt.N(t.GpuWarningPercent)} % for ≥ {t.SustainedFraction:P0} of {t.StandardWindowSeconds:0} s."),
             ["Rendering load exceeding the GPU or vGPU profile", "vGPU scheduler time-slicing with other VMs"],
             ["Check which engine is busiest in Advanced Metrics.", "Compare with the vGPU profile and scheduler policy.", "Test with reduced resolution or monitor count."],
@@ -436,7 +452,8 @@ public sealed class NetworkGraphicsRule : FrameRateBottleneckRule
         return new("Network conditions may be limiting frame rate",
             Fmt.S($"Low FPS during an active workload coincides with elevated RTT or uplink packet loss. Blast adapts frame rate to network conditions, so the network may be contributing. {Graphics.ActivityNote(c)}"),
             t.StandardWindowSeconds, fps.ValidSamples, fps.TotalSamples,
-            Evidence(c, fps, (DiagnosticMetrics.Rtt, "Blast RTT", "ms"), (DiagnosticMetrics.PacketLoss, "Uplink packet loss", "%"), (DiagnosticMetrics.ImagingOutMbps, "Imaging outbound", "Mbps")),
+            Evidence(c, fps, (DiagnosticMetrics.Rtt, "Blast RTT", "ms", Fmt.S($"≥ {Fmt.N(t.RttWarningMs)} ms for {Fmt.Sustained(t)}")),
+                (DiagnosticMetrics.PacketLoss, "Uplink packet loss", "%", Fmt.S($"mean ≥ {Fmt.N(t.PacketLossWarningPercent)} %")), (DiagnosticMetrics.ImagingOutMbps, "Imaging outbound", "Mbps", null)),
             Fmt.S($"Low-FPS condition and (RTT ≥ {Fmt.N(t.RttWarningMs)} ms sustained or mean uplink loss ≥ {Fmt.N(t.PacketLossWarningPercent)} %) over {t.StandardWindowSeconds:0} s."),
             ["Congested or lossy network path", "Bandwidth limits on the path or in Blast policy"],
             ["Investigate the connection findings first.", "Compare imaging bandwidth with known link capacity.", "Repeat the test from a different network."],
@@ -493,8 +510,9 @@ public sealed class GuestMemoryPressureRule : IDomainRule
         var severity = byPercent > byAvailable || byAvailable is null ? byPercent : byAvailable;
         if (severity is { } sev)
         {
-            var evidence = Fmt.Window(ram, "%");
-            if (avail.Mean is not null) evidence.Insert(0, new("Available RAM mean / min", $"{Fmt.N(avail.Mean)} / {Fmt.N(avail.Min)} GiB"));
+            var evidence = Fmt.Window(ram, "%", p95Threshold: Fmt.Limits(t.MemoryWarningPercent, t.MemoryCriticalPercent, "%"));
+            if (avail.Mean is not null) evidence.Insert(0, new("Available RAM mean / min", $"{Fmt.N(avail.Mean)} / {Fmt.N(avail.Min)} GiB",
+                Threshold: Fmt.Limits(t.AvailableRamWarningGiB, t.AvailableRamCriticalGiB, "GiB", "≤")));
             return RuleOutcome.Raise(sev, new("Sustained guest memory pressure",
                 Fmt.S($"Physical RAM use averaged {Fmt.N(ram.Mean)} % over {w:0} s{(avail.Mean is null ? "" : $" with {Fmt.N(avail.Mean)} GiB available on average")}. Low available memory leads to paging and stalls."),
                 w, ram.ValidSamples, ram.TotalSamples, evidence,
@@ -590,7 +608,8 @@ public sealed class SoftwareRenderingRule : IDomainRule
     {
         false => RuleOutcome.Raise(Severity.Info, new("Software rendering in use (no hardware GPU)",
             "No hardware GPU was detected. Rendering and Blast encoding run on the guest CPU. This is a supported configuration and is not a problem by itself; GPU performance analysis is not applicable.",
-            0, 0, 0, [new("Graphics acceleration", "Software rendering"), new("Hardware GPU", "Not detected"), new("Adapter", c.Snapshot.Gpu.AdapterKind ?? "N/A")],
+            0, 0, 0, [new("Graphics acceleration", "Software rendering"), new("Hardware GPU", "Not detected"), new("GPU diagnostics", "Not applicable"),
+                new("Adapter", c.Snapshot.Gpu.AdapterKind ?? "N/A")],
             "Information when DXGI enumeration succeeds and finds no hardware GPU.",
             ["VM configured without a GPU or vGPU (intentional for many desktops)"],
             ["No action needed unless graphics workloads are slow; then review guest CPU findings, which carry the rendering load."],
@@ -619,7 +638,8 @@ public sealed class MeasurementQualityRule : IDomainRule
             return RuleOutcome.Raise(Severity.Warning, new("Measurements failing or stale",
                 $"{string.Join(", ", bad.Select(b => b.Name))}: at least half of the recent samples were stale or failed, so dependent assessments are limited.",
                 t.ShortWindowSeconds, 0, bad.Sum(b => b.S.TotalSamples),
-                bad.Select(b => new DiagnosticEvidence(b.Name, Fmt.S($"{b.S.StaleSamples} stale, {b.S.FailedSamples} failed of {b.S.TotalSamples}"), b.S.LatestReason)).ToArray(),
+                bad.Select(b => new DiagnosticEvidence(b.Name, Fmt.S($"{b.S.StaleSamples} stale, {b.S.FailedSamples} failed of {b.S.TotalSamples}"), b.S.LatestReason,
+                    "≥ 50 % of samples stale or failed")).ToArray(),
                 Fmt.S($"Warning when ≥ 50 % of a core metric's samples in {t.ShortWindowSeconds:0} s are stale or failed."),
                 ["Counter provider stopped updating", "Access denied to performance counters", "Session disconnected or reconnecting"],
                 ["Open Advanced Metrics to see the source and error of each metric.", "Check that the user can read performance counters (Performance Monitor Users)."],

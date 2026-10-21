@@ -7,7 +7,8 @@ public enum HealthState { Healthy, Warning, Critical, InsufficientData }
 public enum AssessmentCoverage { Full, Partial, None }
 public enum FindingTransition { Detected, Escalated, Downgraded, Recovered, Expired }
 
-public sealed record DiagnosticEvidence(string Metric, string Value, string? Detail = null);
+/// <summary>One measurement behind a finding. <see cref="Threshold"/> is set only where the rule compares this value with a configured limit.</summary>
+public sealed record DiagnosticEvidence(string Metric, string Value, string? Detail = null, string? Threshold = null);
 
 /// <summary>One diagnostic conclusion with the measurements and rule that produced it.</summary>
 public sealed record DiagnosticFinding(string RuleId, DiagnosticDomain Domain, Severity Severity, string Title, string Description,
@@ -26,6 +27,16 @@ public sealed record DomainAssessment(DiagnosticDomain Domain, HealthState State
 {
     public string StateLabel => State == HealthState.InsufficientData ? "Insufficient Data" : State.ToString();
 }
+
+public enum InputState { Evaluated, Insufficient, NotCollected, UnverifiedUnit }
+
+/// <summary>
+/// One measurement behind a domain assessment: the statistic shown, the configured threshold it is judged against (if any)
+/// and how much valid data the window held. Produced for presentation with each report; not stored in recordings.
+/// </summary>
+public sealed record AssessmentInput(DiagnosticDomain Domain, string Key, string Name, bool Required, InputState State,
+    string Statistic, double? Value, string Unit, string? Threshold, int ValidSamples, int TotalSamples, int StaleSamples,
+    int FailedSamples, double Coverage, double WindowSeconds, string? Reason);
 
 /// <summary>An evidence-based explanation. Correlation is never presented as proven causation.</summary>
 public sealed record DiagnosticHypothesis(string Id, string Statement, string Confidence,

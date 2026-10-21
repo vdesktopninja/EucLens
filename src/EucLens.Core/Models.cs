@@ -73,7 +73,8 @@ public sealed record DiagnosticResult(string RuleId, Severity Severity, MetricSt
 public sealed record DiagnosticReport(HealthStatus Health, IReadOnlyList<DiagnosticResult> Results,
     HealthStatus ConnectionHealth = HealthStatus.Unavailable, HealthStatus HostHealth = HealthStatus.Unavailable,
     IReadOnlyList<DomainAssessment>? Assessments = null, IReadOnlyList<DiagnosticFinding>? Findings = null,
-    IReadOnlyList<DiagnosticHypothesis>? Hypotheses = null, DiagnosticSnapshot? Snapshot = null);
+    IReadOnlyList<DiagnosticHypothesis>? Hypotheses = null, DiagnosticSnapshot? Snapshot = null,
+    IReadOnlyList<AssessmentInput>? Inputs = null);
 public interface IDiagnosticRule
 {
     DiagnosticResult Evaluate(SessionSnapshot snapshot);

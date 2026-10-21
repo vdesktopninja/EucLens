@@ -44,9 +44,6 @@ public sealed class MainViewModel : ObservableObject
     private readonly object diagnosticsGate = new();
     private const string InsufficientData = "Insufficient Data";
     private string connectionState = InsufficientData, graphicsState = InsufficientData, guestState = InsufficientData;
-    private IReadOnlyList<DiagnosticFinding> allFindings = [];
-    private Choice<Severity?> selectedFindingFilter;
-    private string findingSummary = "No findings yet.";
     private string thresholdStatus = "Default thresholds (initial tunable values).";
     private readonly ISessionRecorder recorder;
     private readonly IDesktopServices desktop;
@@ -89,12 +86,9 @@ public sealed class MainViewModel : ObservableObject
     public string GraphicsHealth => graphicsState;
     public string GuestHealth => guestState;
     public string ConnectionQuality => $"{connectionState} (rule assessment)";
-    public ObservableCollection<HealthTile> HealthTiles { get; } = [];
-    public ObservableCollection<FindingItem> FindingCards { get; } = [];
-    public ObservableCollection<HypothesisCard> Hypotheses { get; } = [];
-    public IReadOnlyList<Choice<Severity?>> FindingFilters { get; } = [new(null, "All"), new(Severity.Critical, "Critical"), new(Severity.Warning, "Warning"), new(Severity.Info, "Information")];
-    public Choice<Severity?> SelectedFindingFilter { get => selectedFindingFilter; set { if (Set(ref selectedFindingFilter, value)) RefreshFindings(); } }
-    public string FindingSummary { get => findingSummary; private set => Set(ref findingSummary, value); }
+    /// <summary>Diagnostics page presentation: health overview, evidence coverage, findings, evidence and trends.</summary>
+    public DiagnosticsViewModel Diagnostics { get; }
+    public ObservableCollection<DomainHealthItem> HealthTiles => Diagnostics.Domains;
     public string ThresholdStatus { get => thresholdStatus; private set => Set(ref thresholdStatus, value); }
     public ObservableCollection<MetricCard> ThresholdCards { get; } = [];
     public string ThresholdPath => diagnosticSettings?.Path ?? "Not configured";
@@ -146,7 +140,7 @@ public sealed class MainViewModel : ObservableObject
         IDesktopServices desktop, ILogger<MainViewModel> logger, IMetricsProvider? realProvider = null, IDiagnosticSettingsStore? diagnosticSettings = null)
     {
         this.diagnosticSettings = diagnosticSettings;
-        selectedFindingFilter = FindingFilters[0];
+        Diagnostics = new(desktop);
         this.realProvider = realProvider; selectedMode = Modes[realProvider is null ? 1 : 0];
         this.provider = provider; this.diagnostics = diagnostics; this.recorder = recorder; this.desktop = desktop; this.logger = logger;
         selectedProtocol = Protocols[0]; selectedScenario = Scenarios[0]; selectedWorkload = Workloads[realProvider is null ? 2 : 0];
@@ -208,6 +202,7 @@ public sealed class MainViewModel : ObservableObject
                 : restore ? await diagnosticSettings.RestoreDefaultsAsync() : await diagnosticSettings.LoadAsync();
             var thresholds = result?.Thresholds ?? DiagnosticThresholds.Defaults;
             lock (diagnosticsGate) { configurationVersion++; configurable?.Configure(thresholds); }
+            Diagnostics.Configure(thresholds);
             ThresholdStatus = result is null ? "Default thresholds (initial tunable values)."
                 : result.Errors.Count > 0 ? $"Invalid settings in {result.Path}; defaults in use: {string.Join(" ", result.Errors)}"
                 : thresholds == DiagnosticThresholds.Defaults ? $"Default thresholds (initial tunable values). Edit {result.Path} to tune them."
@@ -289,7 +284,7 @@ public sealed class MainViewModel : ObservableObject
         // Diagnostic state travels with the sample so recordings preserve findings and their transitions.
         if (report.Snapshot is not null) s = s with { Diagnostics = report.Snapshot };
         current = s;
-        ApplyDiagnostics(report);
+        ApplyDiagnostics(report, s);
         MetricCard C(string name, Metric metric) => new(name, metric.Display, s.Session.IsDemo ? metric.UnavailableReason ?? "Simulated measurement"
             : $"{metric.Status} · {(metric.Scope is { } scope ? ScopeLabel(scope) + " · " : "")}{metric.Source ?? "Not collected"} · {metric.Error ?? metric.UnavailableReason}");
         MetricCard T(string name, string? value) => new(name, value ?? "N/A", s.Session.IsDemo ? "Simulated session metadata" : "Local session metadata");
@@ -306,7 +301,7 @@ public sealed class MainViewModel : ObservableObject
         {
             // Software rendering is a supported configuration: a concise statement instead of rows of N/A.
             gpu.AddRange([new("Graphics acceleration", "Software rendering", "No hardware GPU; rendering and Blast encoding use the guest CPU."),
-                new("Hardware GPU", "Not detected", s.Gpu.AdapterKind ?? "DXGI enumeration found no hardware GPU."),
+                new("Hardware GPU", "Not detected", s.Gpu.AdapterKind is { } kind ? GpuText.Adapters(kind) : "DXGI enumeration found no hardware GPU."),
                 new("GPU performance analysis", "Not applicable", "GPU rules apply only when a hardware GPU and its counters are available.")]);
             OverviewCards[3] = new("GPU", "Software", "Software rendering; no hardware GPU detected.");
         }
@@ -352,58 +347,12 @@ public sealed class MainViewModel : ObservableObject
     {
         Raise(nameof(Health)); Raise(nameof(ConnectionHealth)); Raise(nameof(GraphicsHealth)); Raise(nameof(GuestHealth)); Raise(nameof(ConnectionQuality));
     }
-    private void ApplyDiagnostics(DiagnosticReport report)
+    private void ApplyDiagnostics(DiagnosticReport report, SessionSnapshot s)
     {
         health = report.Health;
-        IReadOnlyList<DomainAssessment> assessments = report.Assessments ??
-        [
-            // Legacy engines report only connection/host health.
-            new(DiagnosticDomain.Connection, Map(report.ConnectionHealth), AssessmentCoverage.Partial, "Legacy single-sample rules.", "", 0),
-            new(DiagnosticDomain.Graphics, HealthState.InsufficientData, AssessmentCoverage.None, "Not evaluated by this engine.", "", 0),
-            new(DiagnosticDomain.Guest, Map(report.HostHealth), AssessmentCoverage.Partial, "Legacy host rules.", "", 0),
-        ];
-        string State(DiagnosticDomain d) => assessments.FirstOrDefault(a => a.Domain == d)?.StateLabel ?? InsufficientData;
+        Diagnostics.Apply(report, s);
+        string State(DiagnosticDomain d) => Diagnostics.Domains.First(x => x.DomainKey == d).State;
         connectionState = State(DiagnosticDomain.Connection); graphicsState = State(DiagnosticDomain.Graphics); guestState = State(DiagnosticDomain.Guest);
-        Replace(HealthTiles, assessments.Select(a => new HealthTile(a.Domain switch
-        {
-            DiagnosticDomain.Connection => "Connection Health", DiagnosticDomain.Graphics => "Graphics Health", _ => "VDI Guest Health"
-        }, a.StateLabel, a.Coverage switch
-        {
-            AssessmentCoverage.Full => "Coverage: Full", AssessmentCoverage.Partial => "Coverage: Partial", _ => "Coverage: None"
-        } + (a.WindowSeconds > 0 ? $" · {a.WindowSeconds:0} s window" : ""), a.Evidence, a.CoverageNote)));
-        allFindings = report.Findings ?? report.Results.Select(r => new DiagnosticFinding(r.RuleId,
-            r.Area == DiagnosticArea.Host ? DiagnosticDomain.Guest : DiagnosticDomain.Connection, r.Status == MetricStatus.Available ? r.Severity : Severity.Info,
-            r.Title, r.Description, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null, null, 0, 0, 0,
-            r.SupportingMetrics.Select(p => new DiagnosticEvidence(p.Key, p.Value)).ToArray(), "Legacy rule.", [r.PossibleCause], [r.RecommendedAction], "")).ToArray();
-        Replace(Hypotheses, (report.Hypotheses ?? []).Select(h => new HypothesisCard(h.Statement, h.Confidence,
-            h.VerificationSteps.Count == 0 ? "" : "Verify: " + string.Join(" ", h.VerificationSteps.Select((step, i) => $"{i + 1}. {step}")))));
-        RefreshFindings();
-        static HealthState Map(HealthStatus h) => h switch
-        {
-            HealthStatus.Healthy => HealthState.Healthy, HealthStatus.Warning => HealthState.Warning, HealthStatus.Critical => HealthState.Critical, _ => HealthState.InsufficientData
-        };
-    }
-    private void RefreshFindings()
-    {
-        var filter = SelectedFindingFilter.Value;
-        SyncFindings(allFindings.Where(f => filter is null || f.Severity == filter).Select(FindingCard.From).ToArray());
-        var active = allFindings.Where(f => f.IsActive).ToArray();
-        FindingSummary = active.Length == 0 && allFindings.Count == 0 ? "No findings."
-            : $"{active.Length} active ({active.Count(f => f.Severity == Severity.Critical)} critical, {active.Count(f => f.Severity == Severity.Warning)} warning, {active.Count(f => f.Severity == Severity.Info)} information) · {allFindings.Count - active.Length} recently recovered";
-    }
-    /// <summary>Updates finding items in place by key; only new or vanished findings change the collection.</summary>
-    private void SyncFindings(FindingCard[] cards)
-    {
-        for (var i = 0; i < cards.Length; i++)
-        {
-            var key = cards[i].RuleId + "|" + cards[i].DetectedKey;
-            var existing = -1;
-            for (var j = i; j < FindingCards.Count; j++) if (FindingCards[j].Key == key) { existing = j; break; }
-            if (existing < 0) { FindingCards.Insert(i, new FindingItem(cards[i])); continue; }
-            if (existing != i) FindingCards.Move(existing, i);
-            FindingCards[i].Card = cards[i];
-        }
-        while (FindingCards.Count > cards.Length) FindingCards.RemoveAt(FindingCards.Count - 1);
     }
     private string ProtocolLabel(RemoteProtocol protocol) => protocol == RemoteProtocol.Unknown ? "Not detected"
         : Protocols.FirstOrDefault(p => p.Value == protocol)?.Label ?? protocol.ToString();
@@ -451,7 +400,7 @@ public sealed class MainViewModel : ObservableObject
     private void ClearLive()
     {
         current = null; health = HealthStatus.Unavailable; connectionState = graphicsState = guestState = InsufficientData;
-        allFindings = []; HealthTiles.Clear(); FindingCards.Clear(); Hypotheses.Clear(); FindingSummary = "No findings yet.";
+        Diagnostics.Clear();
         rttPoints.Clear(); fpsPoints.Clear(); cpuPoints.Clear(); AdvancedRows.Clear();
         AdvancedStatus = IsDemo ? "Advanced metrics list real collector output; Demo Mode has none." : "Waiting for the first sample.";
         OverviewCards.Clear(); ConnectionCards.Clear(); GraphicsCards.Clear(); GpuCards.Clear(); SystemCards.Clear(); SessionCards.Clear();
