@@ -41,6 +41,8 @@ public static class ChartTheme
         if (chart.IsLoaded) Apply(chart);
     }
     private static void Loaded(object sender, RoutedEventArgs args) => Apply((CartesianChart)sender);
+    /// <summary>Re-applies theme paints after a chart's series, axes or sections were replaced.</summary>
+    public static void Refresh(CartesianChart chart) { if (chart.IsLoaded) Apply(chart); }
     private static SolidColorPaint Paint(Brush brush, float thickness = 1)
     {
         var color = ((SolidColorBrush)brush).Color;

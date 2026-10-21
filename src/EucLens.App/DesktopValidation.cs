@@ -90,30 +90,31 @@ internal static class DesktopValidation
         window.Content = client;
     }
     /// <summary>LiveCharts measures asynchronously after a chart loads; wait (bounded) until every engine has laid out its axes.</summary>
-    private static async Task WaitForChartMeasureAsync(Window window)
+    internal static async Task WaitForChartMeasureAsync(Window window)
     {
         var deadline = DateTime.UtcNow.AddSeconds(3);
         while (DateTime.UtcNow < deadline && Descendants<CartesianChart>(window).Any(c =>
             ((LiveChartsCore.CartesianChartEngine)c.CoreChart) is var e && (e.XAxes.Length == 0 || e.ControlSize.Width <= 0)))
             await window.Dispatcher.InvokeAsync(() => Task.Delay(50), DispatcherPriority.Background).Task.Unwrap();
     }
-    private static void CheckCharts(Window window, PageViewModel page)
+    internal static void CheckCharts(Window window, PageViewModel page)
     {
         var charts = Descendants<CartesianChart>(window).ToArray();
         var expected = page is DashboardPage ? 2 : page is DiagnosticsPage ? 4 : page is RecorderPage or SystemPage ? 1 : 0;
         if (charts.Length != expected) throw new InvalidOperationException($"{page.Name}: expected {expected} charts, found {charts.Length}.");
         foreach (var chart in charts)
         {
-            // The engine must draw the axes and series the view model supplies, not LiveCharts' defaults.
-            if (chart.DataContext is TrendChart trend)
-            {
-                var engine = (LiveChartsCore.CartesianChartEngine)chart.CoreChart;
-                if (!ReferenceEquals(chart.XAxes?.FirstOrDefault(), trend.XAxes[0]) || !ReferenceEquals(chart.Series?.FirstOrDefault(), trend.Series[0])
-                    || engine.XAxes.Length == 0 || !ReferenceEquals(engine.XAxes[0], trend.XAxes[0]) || !engine.Series.Contains(trend.Series[0]))
-                    throw new InvalidOperationException($"{trend.Title} chart does not use its bound data: property axis bound={ReferenceEquals(chart.XAxes?.FirstOrDefault(), trend.XAxes[0])}, " +
-                        $"property series bound={ReferenceEquals(chart.Series?.FirstOrDefault(), trend.Series[0])}, engine axes={engine.XAxes.Length}, engine axis bound={engine.XAxes.Length > 0 && ReferenceEquals(engine.XAxes[0], trend.XAxes[0])}, " +
-                        $"engine series={engine.Series.Count()}, engine loaded={engine.IsLoaded}, control size={engine.ControlSize.Width:0}×{engine.ControlSize.Height:0}, sections={chart.Sections?.Count() ?? -1}.");
-            }
+            // Every chart owns its LiveCharts objects (built from the view model's ChartData), and the engine must draw
+            // exactly those, mirroring the current data and range, not LiveCharts' defaults.
+            var data = LiveChart.GetData(chart) ?? throw new InvalidOperationException($"{page.Name}: a chart is not bound through LiveChart.Data.");
+            var objects = LiveChart.GetObjects(chart)!;
+            var engine = (LiveChartsCore.CartesianChartEngine)chart.CoreChart;
+            if (!ReferenceEquals(chart.Series?.FirstOrDefault(), objects.Line) || engine.XAxes.Length == 0 || !ReferenceEquals(engine.XAxes[0], objects.XAxes[0])
+                || !engine.Series.Contains(objects.Line) || objects.Values.Count != data.Points.Count
+                || objects.XAxes[0].MinLimit != data.XMin || objects.XAxes[0].MaxLimit != data.XMax || objects.Sections.Length != data.References.Count)
+                throw new InvalidOperationException($"{data.Name} chart does not draw its data: series bound={ReferenceEquals(chart.Series?.FirstOrDefault(), objects.Line)}, " +
+                    $"engine axes={engine.XAxes.Length}, engine axis bound={engine.XAxes.Length > 0 && ReferenceEquals(engine.XAxes[0], objects.XAxes[0])}, engine series={engine.Series.Count()}, " +
+                    $"points {objects.Values.Count}/{data.Points.Count}, sections {objects.Sections.Length}/{data.References.Count}, engine loaded={engine.IsLoaded}, control size={engine.ControlSize.Width:0}×{engine.ControlSize.Height:0}.");
             if (!chart.IsLoaded || chart.ActualWidth <= 0 || chart.ActualHeight <= 0 || chart.AnimationsSpeed != TimeSpan.Zero)
                 throw new InvalidOperationException("Chart was not laid out with animation disabled.");
             AssertPaint(chart.TooltipTextPaint as SolidColorPaint, ChartTheme.GetText(chart), "tooltip text");

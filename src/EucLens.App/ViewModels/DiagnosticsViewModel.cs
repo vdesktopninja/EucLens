@@ -1,10 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using EucLens.Core;
-using LiveChartsCore;
-using LiveChartsCore.Defaults;
-using LiveChartsCore.Kernel;
-using LiveChartsCore.SkiaSharpView;
 
 namespace EucLens.App.ViewModels;
 
@@ -490,87 +486,43 @@ public sealed class DiagnosticsViewModel : ObservableObject
     }
 }
 
-/// <summary>A configured threshold drawn as a reference line; never a value the engine does not use.</summary>
-public sealed record ReferenceLine(string Level, double Value, string Label, string ChartLabel);
-
-/// <summary>Bounded time series for one trend chart. Unavailable samples are null points, which render as gaps.</summary>
+/// <summary>One diagnostic trend: its data (rendered by the view's own chart objects), latest value and threshold labels.</summary>
 public sealed class TrendChart : ObservableObject
 {
-    static TrendChart() => ChartsRuntime.EnsureInitialized();
     private const int Capacity = 720;
-    private readonly ObservableCollection<DateTimePoint> points = [];
-    private readonly double? minimum, maximum;
+    private readonly double? maximum;
     private string latest = "N/A", reference = "";
     private bool hasData;
-    private ReferenceLine[] lines = [];
 
     public TrendChart(string title, string unit, string description, double? minimum = null, double? maximum = null)
     {
-        Title = title; Unit = unit; Description = description; this.minimum = minimum; this.maximum = maximum;
-        Series = [new LineSeries<DateTimePoint>
-        {
-            Values = points, Name = title, GeometrySize = 0, LineSmoothness = 0, Stroke = null, Fill = null,
-            XToolTipLabelFormatter = p => p.Model?.DateTime.ToString("HH:mm:ss", CultureInfo.InvariantCulture) ?? "",
-            YToolTipLabelFormatter = p => $"{p.Coordinate.PrimaryValue.ToString("0.##", CultureInfo.InvariantCulture)} {unit}",
-        }];
-        XAxes = [new Axis
-        {
-            Labeler = v => v > 0 && v <= DateTime.MaxValue.Ticks ? new DateTime((long)v).ToString("HH:mm:ss", CultureInfo.InvariantCulture) : "",
-            UnitWidth = TimeSpan.TicksPerSecond, MinStep = TimeSpan.TicksPerSecond * 15, TextSize = 11, SeparatorsPaint = null,
-        }];
-        YAxes = [new Axis { MinLimit = minimum, MaxLimit = maximum, TextSize = 11, MinStep = unit == "%" && maximum is null ? 0.5 : 1 }];
+        Title = title; Unit = unit; Description = description; this.maximum = maximum;
+        Data = new ChartData(title, unit, Capacity, yMin: minimum, yMax: maximum, yMinStep: unit == "%" && maximum is null ? 0.5 : 1, xStepSeconds: 15);
     }
 
     public string Title { get; }
     public string Unit { get; }
     public string Description { get; }
+    public ChartData Data { get; }
+    public IReadOnlyList<TimeValue> Points => Data.Points;
     public string AutomationName => $"{Title} trend, {Unit}. Latest {Latest}. {Reference}";
-    public ISeries[] Series { get; }
-    public Axis[] XAxes { get; }
-    public Axis[] YAxes { get; }
-    /// <summary>Threshold lines; <see cref="LiveChartsCore.CoreSection.Tag"/> holds the level so the theme can colour them.</summary>
-    public IChartElement[] Sections { get; private set; } = [];
     public string Latest { get => latest; set { if (Set(ref latest, value)) Raise(nameof(AutomationName)); } }
     public string Reference { get => reference; private set => Set(ref reference, value); }
     public bool HasData { get => hasData; private set { if (Set(ref hasData, value)) Raise(nameof(ShowNoData)); } }
     public bool ShowNoData => !hasData;
-    public IReadOnlyList<DateTimePoint> Points => points;
 
     public void SetReferences(params ReferenceLine[] references)
     {
-        lines = references;
         Reference = string.Join(" · ", references.Select(r => r.Label));
-        // Sections are updated in place after the first call so the theme's paints stay attached.
-        if (Sections.Length == references.Length)
-        {
-            for (var i = 0; i < references.Length; i++)
-            {
-                var section = (RectangularSection)Sections[i];
-                section.Yi = section.Yj = references[i].Value; section.Tag = references[i].Level; section.Label = references[i].ChartLabel;
-            }
-            return;
-        }
-        Sections = references.Select(r => (IChartElement)new RectangularSection
-        {
-            Yi = r.Value, Yj = r.Value, Tag = r.Level, Label = r.ChartLabel, LabelSize = 11, Fill = null,
-        }).ToArray();
-        Raise(nameof(Sections));
+        Data.SetReferences(references);
     }
 
-    public void Add(DateTime at, double? value)
-    {
-        points.Add(new(at, value));
-        if (points.Count > Capacity) points.RemoveAt(0);
-    }
-
-    public void Trim(DateTime before)
-    {
-        while (points.Count > 0 && points[0].DateTime < before) points.RemoveAt(0);
-    }
+    public void Add(DateTime at, double? value) => Data.Add(at, value);
+    public void Trim(DateTime before) => Data.TrimBefore(before);
 
     public void Clear()
     {
-        points.Clear();
+        Data.Clear();
         Latest = "N/A";
         SetRange(null, null);
     }
@@ -578,16 +530,15 @@ public sealed class TrendChart : ObservableObject
     /// <summary>Shared time range; the value axis always includes the warning line so headroom stays visible.</summary>
     public void SetRange(DateTime? start, DateTime? end)
     {
-        XAxes[0].MinLimit = start?.Ticks;
-        XAxes[0].MaxLimit = end?.Ticks;
-        var visible = points.Where(p => p.Value is not null && (start is null || p.DateTime >= start)).Select(p => p.Value!.Value).ToArray();
+        Data.SetXRange(start, end);
+        var visible = Data.Points.Where(p => p.Value is not null && (start is null || p.At >= start)).Select(p => p.Value!.Value).ToArray();
         HasData = visible.Length > 0;
-        if (maximum is null)
-        {
-            var top = Math.Max(visible.Length == 0 ? 0 : visible.Max(), lines.Length == 0 ? 0 : lines[0].Value);
-            YAxes[0].MaxLimit = top <= 0 ? null : top * 1.15;
-            // Lines above the visible range are hidden rather than drawn outside the plot.
-            foreach (var section in Sections.OfType<RectangularSection>()) section.IsVisible = section.Yi <= (YAxes[0].MaxLimit ?? 0);
-        }
+        if (maximum is not null) return;
+        var lines = Data.References;
+        var top = Math.Max(visible.Length == 0 ? 0 : visible.Max(), lines.Count == 0 ? 0 : lines[0].Value);
+        var yMax = top <= 0 ? (double?)null : top * 1.15;
+        Data.SetYMax(yMax);
+        // Lines above the visible range are hidden rather than drawn outside the plot.
+        Data.SetReferences(lines.Select(r => r with { Visible = r.Value <= (yMax ?? 0) }).ToArray());
     }
 }

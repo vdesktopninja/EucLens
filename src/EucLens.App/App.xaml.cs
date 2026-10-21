@@ -80,7 +80,7 @@ public partial class App : Application
         Directory.CreateDirectory(directory);
         var evidence = new List<string>();
         void Check(bool condition, string message) { if (!condition) throw new InvalidOperationException(message + " Status: " + vm.Status); }
-        static double?[] Points(ISeries[] series) => ((LineSeries<DateTimePoint>)series[0]).Values!.Select(p => p.Value).ToArray();
+        static double?[] Points(ChartData chart) => chart.Points.Select(p => p.Value).ToArray();
         try
         {
             // CI runners have no Horizon Agent: Real Session must keep running and report N/A, never demo values.
@@ -104,7 +104,7 @@ public partial class App : Application
             Check(vm.SessionCards.Any(c => c.Label == "Active protocol" && c.Value == "Not detected"), "Session card shows a demo protocol in Real Session.");
             Check(vm.GpuCards.Count > 0 && vm.GraphicsCards.Any(c => c.Label == "Active monitors"), "GPU/display rows missing.");
             Check(vm.RecordingState.Contains("REAL SESSION", StringComparison.Ordinal) && vm.SampleCount >= 1, "Real Session recording failed.");
-            var realRtt = Points(vm.RttSeries);
+            var realRtt = Points(vm.RttChart);
             Check(realRtt.Length >= 1 && realRtt.All(v => v is null), "Real RTT chart must contain gaps, not fabricated values.");
             // Diagnostics: three independent domains; a few seconds of data must never read as Healthy.
             var d = vm.Diagnostics;
@@ -133,7 +133,7 @@ public partial class App : Application
             vm.SelectedPage = vm.Pages.Single(p => p is DiagnosticsPage);
             await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
             d.SelectedTrendWindow = d.TrendWindows[2];
-            Check(d.Cpu.XAxes[0].MaxLimit - d.Cpu.XAxes[0].MinLimit == TimeSpan.FromSeconds(120).Ticks && d.Rtt.XAxes[0].MinLimit == d.Cpu.XAxes[0].MinLimit,
+            Check(d.Cpu.Data.XMax - d.Cpu.Data.XMin == TimeSpan.FromSeconds(120).Ticks && d.Rtt.Data.XMin == d.Cpu.Data.XMin,
                 "Trend charts must share the selected 120 s window.");
             d.SelectedTrendWindow = d.TrendWindows[1];
             d.SelectedFilter = d.Filters.Single(f => f.Kind == FindingFilterKind.Information);
@@ -158,7 +158,7 @@ public partial class App : Application
                 $" | status: {d.Headline} | evidence coverage: {d.DataQuality.Level}, {d.DataQuality.Summary} " +
                 string.Join(", ", d.DataQuality.Rows.Select(r => $"{r.Label}={r.Value}")) +
                 " | findings: " + string.Join(", ", d.Findings.Select(f => $"{f.RuleId}:{f.Severity}/{f.State}")) + " | assessment: " + string.Join(" / ", d.Hypotheses.Select(h => h.Statement)));
-            Check(Points(vm.CpuSeries).Any(v => v is not null), "CPU history chart is empty.");
+            Check(Points(vm.CpuChart).Any(v => v is not null), "CPU history chart is empty.");
 
             // Advanced Metrics: raw rows, category filter and search.
             vm.SelectedPage = vm.Pages.Single(p => p is AdvancedPage);
@@ -196,13 +196,13 @@ public partial class App : Application
             Check(recorder.IsRecording && recorder.SampleCount == 0, "New demo recording did not replace the real recording.");
             await Task.Delay(2200);
             Check(vm.OverviewCards.Any(c => c.Value != "N/A" && c.Value != "Unavailable"), "Demo Mode did not produce values.");
-            Check(Points(vm.RttSeries).Any(v => v is not null) && Points(vm.FpsSeries).Any(v => v is not null), "Demo live charts are empty.");
-            Check(Points(vm.RecordingSeries).Any(v => v is not null), "Recording chart is empty.");
+            Check(Points(vm.RttChart).Any(v => v is not null) && Points(vm.FpsChart).Any(v => v is not null), "Demo live charts are empty.");
+            Check(Points(vm.RecordingChart).Any(v => v is not null), "Recording chart is empty.");
 
             // Switching mode during a recording must stop it, so demo and real samples never mix.
             vm.SelectedMode = vm.Modes.Single(m => m.Value == MonitoringMode.RealSession);
             Check(!recorder.IsRecording && vm.Status.Contains("Recording stopped", StringComparison.Ordinal), "Mode switch did not stop the recording.");
-            Check(Points(vm.RttSeries).Length == 0 && vm.OverviewCards.Count == 0, "Mode switch did not clear live data.");
+            Check(Points(vm.RttChart).Length == 0 && vm.OverviewCards.Count == 0, "Mode switch did not clear live data.");
             Check(recorder.Samples.All(s => s.Session.IsDemo), "Recording mixed real and demo samples.");
             await recorder.ExportCsvAsync(Path.Combine(directory, "demo.csv"));
             var demoCsv = await File.ReadAllLinesAsync(Path.Combine(directory, "demo.csv"));
@@ -283,7 +283,7 @@ public partial class App : Application
         await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
         await Task.Delay(1100);
         if (!ReferenceEquals(d.SelectedFinding, rtt)) throw new InvalidOperationException("User selection lost after a sample update.");
-        if (!d.Rtt.HasData || d.Rtt.Sections.Length != 2) throw new InvalidOperationException("RTT trend or its threshold lines missing.");
+        if (!d.Rtt.HasData || d.Rtt.Data.References.Count != 2) throw new InvalidOperationException("RTT trend or its threshold lines missing.");
 
         // Memory: charts are recreated on every visit; the managed heap must return to a stable size.
         async Task<long> Cycles()
@@ -305,6 +305,10 @@ public partial class App : Application
         var middle = await Cycles();
         var after = await Cycles();
         var workingAfter = Process.GetCurrentProcess().WorkingSet64;
+        // Charts rebuilt on every visit must still draw the current data after repeated navigation.
+        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+        await DesktopValidation.WaitForChartMeasureAsync(MainWindow);
+        DesktopValidation.CheckCharts(MainWindow, vm.SelectedPage);
         latencies.Sort();
         double Percentile(double p) => latencies[Math.Min(latencies.Count - 1, (int)(p * latencies.Count))];
         const double MiB = 1024 * 1024;

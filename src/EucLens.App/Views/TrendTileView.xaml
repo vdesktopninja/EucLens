@@ -7,7 +7,7 @@
  </Grid>
  <TextBlock Text="{Binding Reference}" Style="{StaticResource Muted}" Margin="0,2,0,4" />
  <Grid Height="{StaticResource TrendChartHeight}">
-  <lvc:CartesianChart Series="{Binding Series}" XAxes="{Binding XAxes}" YAxes="{Binding YAxes}" Sections="{Binding Sections}" AnimationsSpeed="0:0:0" Background="{DynamicResource ChartBackgroundBrush}" ui:ChartTheme.Text="{DynamicResource MutedBrush}" ui:ChartTheme.Surface="{DynamicResource SurfaceBrush}" ui:ChartTheme.Grid="{DynamicResource ChartGridBrush}" ui:ChartTheme.Line="{DynamicResource AccentBrush}" ui:ChartTheme.Warning="{DynamicResource WarningBrush}" ui:ChartTheme.Critical="{DynamicResource CriticalBrush}" AutomationProperties.Name="{Binding AutomationName}" />
+  <lvc:CartesianChart ui:LiveChart.Data="{Binding Data}" AnimationsSpeed="0:0:0" Background="{DynamicResource ChartBackgroundBrush}" ui:ChartTheme.Text="{DynamicResource MutedBrush}" ui:ChartTheme.Surface="{DynamicResource SurfaceBrush}" ui:ChartTheme.Grid="{DynamicResource ChartGridBrush}" ui:ChartTheme.Line="{DynamicResource AccentBrush}" ui:ChartTheme.Warning="{DynamicResource WarningBrush}" ui:ChartTheme.Critical="{DynamicResource CriticalBrush}" AutomationProperties.Name="{Binding AutomationName}" />
   <TextBlock Text="No valid samples in this window" Style="{StaticResource Muted}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding ShowNoData, Converter={StaticResource BoolToVisibility}}" />
  </Grid>
  </StackPanel></Border>

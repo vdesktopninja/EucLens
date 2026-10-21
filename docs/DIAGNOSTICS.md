@@ -225,6 +225,15 @@ Layout and performance:
 * Until the administrator selects a finding, the evidence panel follows the most important one.
 * Trend history is bounded by the long window (at most 720 points per chart) and uses the
   samples the dashboard already collects. Charts exist only while the page is open, with animations disabled.
+* **Chart ownership.** View models hold chart *data* only (`ChartData`: points, axis ranges, reference
+  lines). Each chart view builds its own LiveCharts series, axes, sections and point copies
+  (`ChartObjects`) and follows the data through weak subscriptions. This applies to every chart in the app.
+  * Why: LiveCharts 2.0 keeps every chart that ever drew a series reachable from that series (`Series.subscribedTo`
+    is never cleared), and records a per-chart visual on each point. When series were shared, every page visit kept
+    the previous page alive and kept updating it.
+  * Result: a closed page is collected without any unload hook. A chart that is unloaded and loaded again resyncs from the data.
+* LiveCharts configures itself on first use, and that first initialization is not thread-safe.
+  `ChartsRuntime.EnsureInitialized` runs it once, under a lock, before any view model creates chart objects.
 * The findings table and filters are keyboard-navigable lists with visible focus. The page scrolls as one
   surface, because the lists have no nested scroll viewer to capture the mouse wheel.
 

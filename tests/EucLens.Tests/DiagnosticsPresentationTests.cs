@@ -4,6 +4,7 @@ using EucLens.App.ViewModels;
 using EucLens.Core;
 using EucLens.Diagnostics;
 using EucLens.Providers;
+using EucLens.App.Presentation;
 using LiveChartsCore.SkiaSharpView;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -365,22 +366,23 @@ public sealed class DiagnosticsPresentationTests
         Assert.Equal(["20 s", "40 s", "90 s"], s.Vm.TrendWindows.Select(w => w.Label));
         s.Run(100, at => Snap(at));
         s.Vm.SelectedTrendWindow = s.Vm.TrendWindows[0];
-        var min = s.Vm.Rtt.XAxes[0].MinLimit;
-        Assert.All(s.Vm.Trends, c => Assert.Equal(min, c.XAxes[0].MinLimit));
-        Assert.Equal(TimeSpan.FromSeconds(20).Ticks, s.Vm.Cpu.XAxes[0].MaxLimit - min);
+        var min = s.Vm.Rtt.Data.XMin;
+        Assert.All(s.Vm.Trends, c => Assert.Equal(min, c.Data.XMin));
+        Assert.Equal(TimeSpan.FromSeconds(20).Ticks, s.Vm.Cpu.Data.XMax - min);
         // History is bounded by the long window, not by the number of samples received.
         Assert.InRange(s.Vm.Cpu.Points.Count, 90, 93);
-        Assert.Equal([120d, 250d], s.Vm.Rtt.Sections.Cast<RectangularSection>().Select(x => x.Yi!.Value));
-        Assert.Equal(85, Assert.Single(s.Vm.Cpu.Sections.Cast<RectangularSection>()).Yi);
+        Assert.Equal([120d, 250d], s.Vm.Rtt.Data.References.Select(x => x.Value));
+        Assert.Equal(85, Assert.Single(s.Vm.Cpu.Data.References).Value);
         Assert.Equal("Warning ≥ 120 ms · Critical ≥ 250 ms", s.Vm.Rtt.Reference);
         // The value axis includes the warning line; the critical line is hidden while outside the plotted range.
-        Assert.True(s.Vm.Rtt.YAxes[0].MaxLimit >= 120);
-        Assert.False(s.Vm.Rtt.Sections.Cast<RectangularSection>().Last().IsVisible);
+        Assert.True(s.Vm.Rtt.Data.YMax >= 120);
+        Assert.False(s.Vm.Rtt.Data.References.Last().Visible);
 
-        // Reloading thresholds updates the existing lines in place.
-        var first = s.Vm.Rtt.Sections[0];
+        // Reloading thresholds moves the existing lines in a chart view; its section objects (and paints) are kept.
+        var view = new ChartObjects(s.Vm.Rtt.Data);
+        var first = view.Sections[0];
         s.Vm.Configure(t with { RttWarningMs = 100 });
-        Assert.Same(first, s.Vm.Rtt.Sections[0]);
+        Assert.Same(first, view.Sections[0]);
         Assert.Equal(100, ((RectangularSection)first).Yi);
     }
 

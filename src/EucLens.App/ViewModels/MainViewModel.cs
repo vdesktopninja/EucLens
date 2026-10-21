@@ -1,16 +1,11 @@
 using System.Collections.ObjectModel;
 using EucLens.Core;
-using LiveChartsCore;
-using LiveChartsCore.Defaults;
-using LiveChartsCore.SkiaSharpView;
 using Microsoft.Extensions.Logging;
 
 namespace EucLens.App.ViewModels;
 
 public sealed class MainViewModel : ObservableObject
 {
-    // Runs before the axis property initializers below.
-    static MainViewModel() => ChartsRuntime.EnsureInitialized();
     private readonly IDemoMetricsProvider provider;
     private readonly IMetricsProvider? realProvider;
     private Choice<MonitoringMode> selectedMode;
@@ -50,12 +45,10 @@ public sealed class MainViewModel : ObservableObject
     private readonly ISessionRecorder recorder;
     private readonly IDesktopServices desktop;
     private readonly ILogger<MainViewModel> logger;
-    private readonly ObservableCollection<DateTimePoint> rttPoints = [], fpsPoints = [], recordedPoints = [];
     private SessionSnapshot? current;
     private bool dark;
     private string status = "Initializing monitoring…";
     private HealthStatus health = HealthStatus.Unavailable;
-    private readonly ObservableCollection<DateTimePoint> cpuPoints = [];
     private Choice<MetricCategory?> selectedAdvancedCategory;
     private string advancedSearch = "";
     private string advancedStatus = "Waiting for the first sample.";
@@ -118,20 +111,11 @@ public sealed class MainViewModel : ObservableObject
     public Choice<MetricCategory?> SelectedAdvancedCategory { get => selectedAdvancedCategory; set { if (Set(ref selectedAdvancedCategory, value)) RebuildAdvanced(); } }
     public string AdvancedSearch { get => advancedSearch; set { if (Set(ref advancedSearch, value ?? "")) RebuildAdvanced(); } }
     public string AdvancedStatus { get => advancedStatus; private set => Set(ref advancedStatus, value); }
-    public ISeries[] CpuSeries { get; }
-    public Axis[] CpuTimeAxes { get; } = CreateTimeAxes();
-    public Axis[] CpuAxes { get; } = [new() { Name = "CPU · %", MinLimit = 0, MaxLimit = 100, TextSize = 11 }];
-    public ISeries[] RttSeries { get; }
-    public ISeries[] FpsSeries { get; }
-    public ISeries[] RecordingSeries { get; }
-    public Axis[] TimeAxes { get; } = [new() { Labeler = value => value > 0 && value <= DateTime.MaxValue.Ticks ? new DateTime((long)value).ToString("HH:mm:ss") : "", UnitWidth = TimeSpan.TicksPerSecond, MinStep = TimeSpan.TicksPerSecond * 20, TextSize = 11, SeparatorsPaint = null }];
-    public Axis[] FpsTimeAxes { get; } = CreateTimeAxes();
-    public Axis[] RecordingTimeAxes { get; } = CreateTimeAxes();
-    public Axis[] RecordingAxes { get; } = CreateRttAxes();
-    private static Axis[] CreateTimeAxes() => [new() { Labeler = value => value > 0 && value <= DateTime.MaxValue.Ticks ? new DateTime((long)value).ToString("HH:mm:ss") : "", UnitWidth = TimeSpan.TicksPerSecond, MinStep = TimeSpan.TicksPerSecond * 20, TextSize = 11, SeparatorsPaint = null }];
-    private static Axis[] CreateRttAxes() => [new() { Name = "RTT · ms", MinLimit = 0, TextSize = 11 }];
-    public Axis[] RttAxes { get; } = [new() { Name = "RTT · ms", MinLimit = 0, TextSize = 11 }];
-    public Axis[] FpsAxes { get; } = [new() { Name = "Frames / second", MinLimit = 0, TextSize = 11 }];
+    /// <summary>Chart content only; each chart view builds its own LiveCharts objects from it.</summary>
+    public ChartData RttChart { get; } = new("RTT", "ms", 120, "RTT · ms", smoothness: .2);
+    public ChartData FpsChart { get; } = new("FPS", "FPS", 120, "Frames / second", smoothness: .2);
+    public ChartData CpuChart { get; } = new("CPU", "%", 120, "CPU · %", yMax: 100, smoothness: .2);
+    public ChartData RecordingChart { get; } = new("Recorded RTT", "ms", 600, "RTT · ms", smoothness: .2);
     public TimeSpan ChartAnimation => TimeSpan.Zero;
     public RelayCommand StartRecordingCommand { get; }
     public RelayCommand StopRecordingCommand { get; }
@@ -149,10 +133,6 @@ public sealed class MainViewModel : ObservableObject
         selectedAdvancedCategory = AdvancedCategories[0];
         Pages = [new DashboardPage(this), new DiagnosticsPage(this), new RecorderPage(this), new SystemPage(this), new AdvancedPage(this), new SettingsPage(this)];
         selectedPage = Pages[0];
-        RttSeries = [Series(rttPoints, "RTT", "ms")];
-        FpsSeries = [Series(fpsPoints, "FPS", "FPS")];
-        RecordingSeries = [Series(recordedPoints, "Recorded RTT", "ms")];
-        CpuSeries = [Series(cpuPoints, "CPU", "%")];
         StartRecordingCommand = new(StartRecording, () => ready && !recorder.IsRecording);
         StopRecordingCommand = new(() => { recorder.Stop(); Status = "Recording stopped. Export to save the collected metrics."; RefreshRecorder(); }, () => recorder.IsRecording);
         ExportJsonCommand = new(() => ExportAsync(true), () => recorder.SampleCount > 0);
@@ -161,13 +141,6 @@ public sealed class MainViewModel : ObservableObject
         ReloadThresholdsCommand = new(() => ApplyThresholdsAsync(restore: false), () => diagnosticSettings is not null);
         SavePreferencesCommand = new(SavePreferencesAsync);
     }
-    private static LineSeries<DateTimePoint> Series(ObservableCollection<DateTimePoint> values, string name, string unit) => new()
-    {
-        Values = values, Name = name, GeometrySize = 0, LineSmoothness = .2,
-        Stroke = null, Fill = null,
-        XToolTipLabelFormatter = point => point.Model?.DateTime.ToString("HH:mm:ss") ?? "",
-        YToolTipLabelFormatter = point => $"{point.Coordinate.PrimaryValue:0.##} {unit}"
-    };
     public async Task InitializeAsync(CancellationToken token)
     {
         try
@@ -333,12 +306,12 @@ public sealed class MainViewModel : ObservableObject
             }
             Status = s.CollectionStatus ?? "REAL SESSION";
         }
-        Append(rttPoints, s.Timestamp, ChartValue(s.Connection.RoundTripTime), 120);
-        Append(fpsPoints, s.Timestamp, ChartValue(s.Graphics.FramesPerSecond), 120);
-        Append(cpuPoints, s.Timestamp, ChartValue(s.System.CpuUtilization), 120);
+        RttChart.Add(s.Timestamp.LocalDateTime, ChartValue(s.Connection.RoundTripTime));
+        FpsChart.Add(s.Timestamp.LocalDateTime, ChartValue(s.Graphics.FramesPerSecond));
+        CpuChart.Add(s.Timestamp.LocalDateTime, ChartValue(s.System.CpuUtilization));
         var recording = recorder.IsRecording;
         recorder.Add(s);
-        if (recording) Append(recordedPoints, s.Timestamp, ChartValue(s.Connection.RoundTripTime), 600);
+        if (recording) RecordingChart.Add(s.Timestamp.LocalDateTime, ChartValue(s.Connection.RoundTripTime));
         if (recording && !recorder.IsRecording) Status = "Recording reached the 86,400 sample limit and stopped. Export to keep it.";
         RaiseHealth(); Raise(nameof(SessionDuration)); Raise(nameof(UpdatedAt));
         Raise(nameof(SessionIdentity)); Raise(nameof(NetworkReadout)); Raise(nameof(GraphicsReadout)); Raise(nameof(ProtocolDisplay)); Raise(nameof(ProtocolDetail));
@@ -403,7 +376,7 @@ public sealed class MainViewModel : ObservableObject
     {
         current = null; health = HealthStatus.Unavailable; connectionState = graphicsState = guestState = InsufficientData;
         Diagnostics.Clear();
-        rttPoints.Clear(); fpsPoints.Clear(); cpuPoints.Clear(); AdvancedRows.Clear();
+        RttChart.Clear(); FpsChart.Clear(); CpuChart.Clear(); AdvancedRows.Clear();
         AdvancedStatus = IsDemo ? "Advanced metrics list real collector output; Demo Mode has none." : "Waiting for the first sample.";
         OverviewCards.Clear(); ConnectionCards.Clear(); GraphicsCards.Clear(); GpuCards.Clear(); SystemCards.Clear(); SessionCards.Clear();
         RaiseHealth();
@@ -416,15 +389,10 @@ public sealed class MainViewModel : ObservableObject
         for (var i = 0; i < items.Length; i++) { if (i >= target.Count) target.Add(items[i]); else if (!Equals(target[i], items[i])) target[i] = items[i]; }
         while (target.Count > items.Length) target.RemoveAt(target.Count - 1);
     }
-    private static void Append(ObservableCollection<DateTimePoint> target, DateTimeOffset timestamp, double? value, int limit)
-    {
-        target.Add(new(timestamp.LocalDateTime, value));
-        if (target.Count > limit) target.RemoveAt(0);
-    }
     private void StartRecording()
     {
         if (recorder.SampleCount > 0 && !desktop.ConfirmNewRecording()) return;
-        recordingIsDemo = IsDemo; recorder.Start(); recordingGeneration++; exportedSamples = 0; recordedPoints.Clear(); Status = "Recording metrics. Export locally to save them."; RefreshRecorder();
+        recordingIsDemo = IsDemo; recorder.Start(); recordingGeneration++; exportedSamples = 0; RecordingChart.Clear(); Status = "Recording metrics. Export locally to save them."; RefreshRecorder();
     }
     private void RefreshRecorder()
     {
