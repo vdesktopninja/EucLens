@@ -48,10 +48,10 @@ public sealed class MasterDetailPanel : Panel
     {
         if (SideBySide(finalSize.Width))
         {
-            // Both panes share the row height so their borders line up.
+            // Each pane keeps its own height: a short findings list does not stretch into empty space.
             var master = finalSize.Width * MasterFraction;
-            InternalChildren[0].Arrange(new Rect(0, 0, master, finalSize.Height));
-            InternalChildren[1].Arrange(new Rect(master, 0, finalSize.Width - master, finalSize.Height));
+            InternalChildren[0].Arrange(new Rect(0, 0, master, InternalChildren[0].DesiredSize.Height));
+            InternalChildren[1].Arrange(new Rect(master, 0, finalSize.Width - master, InternalChildren[1].DesiredSize.Height));
             return finalSize;
         }
         double y = 0;

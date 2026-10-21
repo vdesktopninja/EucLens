@@ -95,6 +95,16 @@ internal static class DesktopValidation
         if (charts.Length != expected) throw new InvalidOperationException($"{page.Name}: expected {expected} charts, found {charts.Length}.");
         foreach (var chart in charts)
         {
+            // The engine must draw the axes and series the view model supplies, not LiveCharts' defaults.
+            if (chart.DataContext is TrendChart trend)
+            {
+                var engine = (LiveChartsCore.CartesianChartEngine)chart.CoreChart;
+                if (!ReferenceEquals(chart.XAxes?.FirstOrDefault(), trend.XAxes[0]) || !ReferenceEquals(chart.Series?.FirstOrDefault(), trend.Series[0])
+                    || engine.XAxes.Length == 0 || !ReferenceEquals(engine.XAxes[0], trend.XAxes[0]) || !engine.Series.Contains(trend.Series[0]))
+                    throw new InvalidOperationException($"{trend.Title} chart does not use its bound data: property axis bound={ReferenceEquals(chart.XAxes?.FirstOrDefault(), trend.XAxes[0])}, " +
+                        $"property series bound={ReferenceEquals(chart.Series?.FirstOrDefault(), trend.Series[0])}, engine axes={engine.XAxes.Length}, engine axis bound={engine.XAxes.Length > 0 && ReferenceEquals(engine.XAxes[0], trend.XAxes[0])}, " +
+                        $"engine series={engine.Series.Count()}, engine loaded={engine.IsLoaded}, control size={engine.ControlSize.Width:0}×{engine.ControlSize.Height:0}, sections={chart.Sections?.Count() ?? -1}.");
+            }
             if (!chart.IsLoaded || chart.ActualWidth <= 0 || chart.ActualHeight <= 0 || chart.AnimationsSpeed != TimeSpan.Zero)
                 throw new InvalidOperationException("Chart was not laid out with animation disabled.");
             AssertPaint(chart.TooltipTextPaint as SolidColorPaint, ChartTheme.GetText(chart), "tooltip text");

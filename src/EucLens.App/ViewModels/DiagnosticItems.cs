@@ -23,7 +23,10 @@ public sealed record EvidenceRow(string Measurement, string Observed, string Thr
 }
 
 /// <summary>Label, value and configured threshold of one supporting measurement; <see cref="Note"/> carries sample sufficiency.</summary>
-public sealed record MeasurementRow(string Label, string Value, string Threshold, string Note);
+public sealed record MeasurementRow(string Label, string Value, string Threshold, string Note)
+{
+    public bool HasThreshold => Threshold.Length > 0;
+}
 
 /// <summary>Display form of a finding. Everything shown comes from the <see cref="DiagnosticFinding"/>; nothing is inferred here.</summary>
 public sealed record FindingCard(string RuleId, string DetectedKey, string Severity, Severity Level, string SeverityLabel, string State, bool IsActive,

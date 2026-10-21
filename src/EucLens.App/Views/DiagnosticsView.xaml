@@ -9,12 +9,12 @@
     </Grid>
     <StackPanel Orientation="Horizontal" Margin="0,6,0,4"><Border Style="{StaticResource StateMarker}" Tag="{Binding State}" Margin="0,0,8,0" /><TextBlock Text="{Binding State}" Style="{StaticResource StatusText}" Tag="{Binding State}" FontSize="{StaticResource SectionFontSize}" /></StackPanel>
     <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" Margin="0,0,0,8" />
-    <ItemsControl ItemsSource="{Binding Measurements}" Grid.IsSharedSizeScope="True" Focusable="False"><ItemsControl.ItemTemplate><DataTemplate>
+    <ItemsControl ItemsSource="{Binding Measurements}" Focusable="False"><ItemsControl.ItemTemplate><DataTemplate>
      <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,4" ToolTip="{Binding Note}">
-      <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" SharedSizeGroup="Value" /><ColumnDefinition Width="Auto" SharedSizeGroup="Limit" /></Grid.ColumnDefinitions>
+      <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
        <TextBlock Text="{Binding Label}" Style="{StaticResource BodyMuted}" Margin="0,0,8,0" />
-       <TextBlock Grid.Column="1" Text="{Binding Value}" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" TextAlignment="Right" TextWrapping="Wrap" MaxWidth="120" />
-       <TextBlock Grid.Column="2" Text="{Binding Threshold}" Style="{StaticResource Muted}" Typography.NumeralAlignment="Tabular" MaxWidth="104" Margin="8,1,0,0" />
+       <TextBlock Grid.Column="1" Text="{Binding Value}" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" TextAlignment="Right" />
+       <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding Threshold}" Style="{StaticResource Muted}" Typography.NumeralAlignment="Tabular" TextAlignment="Right" Visibility="{Binding HasThreshold, Converter={StaticResource BoolToVisibility}}" />
       </Grid>
      </Border>
     </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
@@ -56,13 +56,13 @@
     <TextBlock Text="{Binding Description}" TextWrapping="Wrap" />
     <TextBlock Text="SUPPORTING MEASUREMENTS" Style="{StaticResource SectionLabel}" />
     <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,0,0,4">
-     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="4*" /><ColumnDefinition Width="3*" /><ColumnDefinition Width="3*" /></Grid.ColumnDefinitions>
+     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="8*" /><ColumnDefinition Width="5*" /><ColumnDefinition Width="7*" /></Grid.ColumnDefinitions>
       <TextBlock Text="Measurement" Style="{StaticResource Muted}" FontWeight="SemiBold" /><TextBlock Grid.Column="1" Text="Observed" Style="{StaticResource Muted}" FontWeight="SemiBold" Margin="8,0,0,0" /><TextBlock Grid.Column="2" Text="Threshold" Style="{StaticResource Muted}" FontWeight="SemiBold" Margin="8,0,0,0" />
      </Grid>
     </Border>
     <ItemsControl ItemsSource="{Binding Evidence}" Focusable="False" AutomationProperties.Name="Supporting measurements"><ItemsControl.ItemTemplate><DataTemplate>
      <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,4">
-      <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="4*" /><ColumnDefinition Width="3*" /><ColumnDefinition Width="3*" /></Grid.ColumnDefinitions>
+      <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="8*" /><ColumnDefinition Width="5*" /><ColumnDefinition Width="7*" /></Grid.ColumnDefinitions>
        <StackPanel><TextBlock Text="{Binding Measurement}" TextWrapping="Wrap" /><TextBlock Text="{Binding Note}" Style="{StaticResource Muted}" Visibility="{Binding HasNote, Converter={StaticResource BoolToVisibility}}" /></StackPanel>
        <TextBlock Grid.Column="1" Text="{Binding Observed}" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" TextWrapping="Wrap" Margin="8,0,0,0" />
        <TextBlock Grid.Column="2" Text="{Binding Threshold}" Style="{StaticResource BodyMuted}" Typography.NumeralAlignment="Tabular" Margin="8,0,0,0" />

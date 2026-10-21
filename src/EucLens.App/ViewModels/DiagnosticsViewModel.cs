@@ -195,12 +195,15 @@ public sealed class DiagnosticsViewModel : ObservableObject
         var label = i.Statistic == "total" ? $"{name} (total)" : $"{name} {i.Statistic}";
         var value = i.State switch
         {
-            InputState.Evaluated when i.Value is { } v => $"{v.ToString("0.##", CultureInfo.InvariantCulture)}{(i.Unit.Length > 0 ? " " + i.Unit : "")}",
+            InputState.Evaluated when i.Value is { } v => $"{Value(v)}{(i.Unit.Length > 0 ? " " + i.Unit : "")}",
             InputState.NotCollected => "Not available",
             _ => "Insufficient data",
         };
         return new(label, value, i.Threshold ?? "", SampleNote(i));
     }
+
+    /// <summary>Precision follows magnitude (253 ms, 51.3 %, 1.99 %), so the overview stays scannable.</summary>
+    public static string Value(double v) => v.ToString(Math.Abs(v) >= 100 ? "0" : Math.Abs(v) >= 10 ? "0.#" : "0.##", CultureInfo.InvariantCulture);
 
     private static string SampleNote(AssessmentInput i) => i.State == InputState.NotCollected
         ? $"No valid samples{(i.Reason is null ? "" : $" — {i.Reason}")}"
