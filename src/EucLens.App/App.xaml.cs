@@ -286,28 +286,35 @@ public partial class App : Application
         if (!d.Rtt.HasData || d.Rtt.Sections.Length != 2) throw new InvalidOperationException("RTT trend or its threshold lines missing.");
 
         // Memory: charts are recreated on every visit; the managed heap must return to a stable size.
+        async Task<long> Cycles()
+        {
+            for (var i = 0; i < 12; i++)
+            {
+                vm.SelectedPage = vm.Pages[0];
+                await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                vm.SelectedPage = vm.Pages.Single(p => p is DiagnosticsPage);
+                await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+                await Task.Delay(150);
+            }
+            GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+            return GC.GetTotalMemory(true);
+        }
         GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
         var before = GC.GetTotalMemory(true);
         var workingBefore = Process.GetCurrentProcess().WorkingSet64;
-        for (var i = 0; i < 12; i++)
-        {
-            vm.SelectedPage = vm.Pages[0];
-            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
-            vm.SelectedPage = vm.Pages.Single(p => p is DiagnosticsPage);
-            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
-            await Task.Delay(150);
-        }
-        GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
-        var after = GC.GetTotalMemory(true);
+        var middle = await Cycles();
+        var after = await Cycles();
         var workingAfter = Process.GetCurrentProcess().WorkingSet64;
         latencies.Sort();
         double Percentile(double p) => latencies[Math.Min(latencies.Count - 1, (int)(p * latencies.Count))];
         const double MiB = 1024 * 1024;
         var result = $"Diagnostics soak (Demo high latency, page open, 4 live charts): findings after {seconds:0} s ({string.Join(", ", d.Findings.Select(f => $"{f.RuleId}:{f.Severity}"))}); " +
             $"UI dispatcher latency over {latencies.Count} probes median {Percentile(.5):0.0} ms, P95 {Percentile(.95):0.0} ms, max {latencies[^1]:0.0} ms; " +
-            $"12 navigation cycles: managed heap {before / MiB:0.0} → {after / MiB:0.0} MiB, working set {workingBefore / MiB:0} → {workingAfter / MiB:0} MiB.";
+            $"2 × 12 navigation cycles: managed heap {before / MiB:0.0} → {middle / MiB:0.0} → {after / MiB:0.0} MiB, working set {workingBefore / MiB:0} → {workingAfter / MiB:0} MiB.";
         if (Percentile(.5) > 200 || latencies[^1] > 2000) throw new InvalidOperationException("Diagnostics page is not responsive. " + result);
         if (after - before > 48 * MiB) throw new InvalidOperationException("Managed heap grew across Diagnostics navigation. " + result);
+        // A leak grows with every visit; retained live-window history levels off after the first batch.
+        if (after - middle > 8 * MiB) throw new InvalidOperationException("Managed heap keeps growing per Diagnostics visit. " + result);
         if (d.Findings.Count > 0) d.SelectedFinding = d.Findings[0];
         return result;
     }

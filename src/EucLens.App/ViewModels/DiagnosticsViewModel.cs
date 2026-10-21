@@ -132,10 +132,12 @@ public sealed class DiagnosticsViewModel : ObservableObject
         Raise(nameof(TrendWindows));
         selectedTrendWindow = TrendWindows[index < 0 ? 1 : index];
         Raise(nameof(SelectedTrendWindow));
-        Rtt.SetReferences(new ReferenceLine("Warning", value.RttWarningMs, $"Warning ≥ {N(value.RttWarningMs)} ms"), new ReferenceLine("Critical", value.RttCriticalMs, $"Critical ≥ {N(value.RttCriticalMs)} ms"));
-        Fps.SetReferences(new ReferenceLine("Warning", value.LowFps, $"Low FPS < {N(value.LowFps)} (active workloads only)"));
-        Cpu.SetReferences(new ReferenceLine("Warning", value.CpuWarningPercent, $"Warning ≥ {N(value.CpuWarningPercent)} %"));
-        PacketLoss.SetReferences(new ReferenceLine("Warning", value.PacketLossWarningPercent, $"Warning: mean ≥ {N(value.PacketLossWarningPercent)} %"));
+        // Full wording in the chart header; a short label on the line itself so it never runs past a narrow plot.
+        Rtt.SetReferences(new ReferenceLine("Warning", value.RttWarningMs, $"Warning ≥ {N(value.RttWarningMs)} ms", $"Warning {N(value.RttWarningMs)}"),
+            new ReferenceLine("Critical", value.RttCriticalMs, $"Critical ≥ {N(value.RttCriticalMs)} ms", $"Critical {N(value.RttCriticalMs)}"));
+        Fps.SetReferences(new ReferenceLine("Warning", value.LowFps, $"Low FPS < {N(value.LowFps)} (active workloads only)", $"Low FPS {N(value.LowFps)}"));
+        Cpu.SetReferences(new ReferenceLine("Warning", value.CpuWarningPercent, $"Warning ≥ {N(value.CpuWarningPercent)} %", $"Warning {N(value.CpuWarningPercent)} %"));
+        PacketLoss.SetReferences(new ReferenceLine("Warning", value.PacketLossWarningPercent, $"Warning: mean ≥ {N(value.PacketLossWarningPercent)} %", $"Warning {N(value.PacketLossWarningPercent)} %"));
         UpdateTrendAxes();
     }
 
@@ -489,7 +491,7 @@ public sealed class DiagnosticsViewModel : ObservableObject
 }
 
 /// <summary>A configured threshold drawn as a reference line; never a value the engine does not use.</summary>
-public sealed record ReferenceLine(string Level, double Value, string Label);
+public sealed record ReferenceLine(string Level, double Value, string Label, string ChartLabel);
 
 /// <summary>Bounded time series for one trend chart. Unavailable samples are null points, which render as gaps.</summary>
 public sealed class TrendChart : ObservableObject
@@ -543,13 +545,13 @@ public sealed class TrendChart : ObservableObject
             for (var i = 0; i < references.Length; i++)
             {
                 var section = (RectangularSection)Sections[i];
-                section.Yi = section.Yj = references[i].Value; section.Tag = references[i].Level; section.Label = references[i].Label;
+                section.Yi = section.Yj = references[i].Value; section.Tag = references[i].Level; section.Label = references[i].ChartLabel;
             }
             return;
         }
         Sections = references.Select(r => (IChartElement)new RectangularSection
         {
-            Yi = r.Value, Yj = r.Value, Tag = r.Level, Label = r.Label, LabelSize = 11, Fill = null,
+            Yi = r.Value, Yj = r.Value, Tag = r.Level, Label = r.ChartLabel, LabelSize = 11, Fill = null,
         }).ToArray();
         Raise(nameof(Sections));
     }
