@@ -12,7 +12,7 @@ concurrency:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
@@ -43,7 +43,7 @@ jobs:
             throw 'Portable publish must contain exactly EucLens.exe'
           }
           $app = Start-Process artifacts/win-x64/EucLens.exe -ArgumentList '--smoke-test' -PassThru
-          if (-not $app.WaitForExit(180000)) {
+          if (-not $app.WaitForExit(300000)) {
             $app.Kill()
             throw 'WPF smoke test timed out'
           }

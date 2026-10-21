@@ -64,7 +64,15 @@ internal static class DesktopValidation
                         throw new InvalidOperationException($"Client viewport {client.ActualWidth}×{client.ActualHeight} did not match requested {viewport.Width}×{viewport.Height}.");
                     CheckCharts(window, page);
                     CheckPanes(window);
-                    if (page is DiagnosticsPage) CheckText(window);
+                    if (page is DiagnosticsPage)
+                    {
+                        CheckText(window);
+                        CheckScrolling(window);
+                        // Whole page, not just the viewport, for visual review. Scale cases simulate DIP space only.
+                        if (scale == 1 || width == 1366)
+                            Capture(window, Descendants<Views.DiagnosticsView>(window).Single(),
+                                Path.Combine(directory, $"diagnostics-fullpage-{width}x{height}-{scale * 100:0}pct-{(dark ? "dark" : "light")}.png"));
+                    }
                     report.AppendLine($"PASS: {(dark ? "dark" : "light")} | {width}×{height} | {scale:P0} available-space simulation | {page.Name} | client viewport {client.ActualWidth:0}×{client.ActualHeight:0} DIP; host window {window.ActualWidth:0}×{window.ActualHeight:0} DIP");
                     // Diagnostics is also captured at 125 % and 150 %, where the evidence panel moves below the list.
                     if ((scale == 1 && (width == 1366 || width == 1920)) || (page is DiagnosticsPage && width == 1366))
@@ -130,6 +138,21 @@ internal static class DesktopValidation
                         throw new InvalidOperationException("Technical panes overlap.");
                 }
             }
+        }
+    }
+    /// <summary>The page scrolls as one surface: no nested scroll viewer inside it, and the end of the page is reachable.</summary>
+    private static void CheckScrolling(Window window)
+    {
+        var view = Descendants<Views.DiagnosticsView>(window).Single();
+        if (Descendants<ScrollViewer>(view).Any(v => v.IsVisible)) throw new InvalidOperationException("Diagnostics contains a nested scroll viewer that would capture the mouse wheel.");
+        var page = Descendants<ScrollViewer>(window).First(v => v.IsAncestorOf(view));
+        if (page.ScrollableHeight > 0)
+        {
+            page.ScrollToEnd();
+            page.UpdateLayout();
+            if (Math.Abs(page.VerticalOffset - page.ScrollableHeight) > 1) throw new InvalidOperationException("Diagnostics page cannot scroll to its end.");
+            page.ScrollToHome();
+            page.UpdateLayout();
         }
     }
     /// <summary>Single-line text without trimming must fit its box; wrapping text reflows and is not clipped.</summary>

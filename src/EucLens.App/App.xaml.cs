@@ -220,6 +220,7 @@ public partial class App : Application
             await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
             await Task.Delay(350);
         }
+        var soak = await DiagnosticsSoakAsync(vm);
         vm.IsDark = false;
         vm.SelectedPage = vm.Pages[0];
         await Task.Delay(500);
@@ -237,10 +238,73 @@ public partial class App : Application
         if (errors.Errors.Count > 0) throw new InvalidOperationException("WPF binding errors: " + string.Join("\n", errors.Errors));
         GC.Collect(); GC.WaitForPendingFinalizers();
         if (unhandled.Count > 0) throw new InvalidOperationException("Unhandled exceptions: " + string.Join("\n", unhandled));
-        await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"), "PASS: startup, diagnostics (3 independent domains, Insufficient Data and no conclusion on short observation, evidence coverage vs collector availability, software rendering as neutral information, trends with gaps and a shared window, filters with counts and empty states, sorting, stable selection with evidence, clipboard, diag export columns), Real Session without Horizon Agent (Blast N/A, real CPU/RAM, recording + JSON/CSV with host columns), protocol display, Advanced Metrics filter/search, NVML-absent initialization, Real↔Demo switching, demo sampling and live charts, all six views, themes, recording, JSON/CSV export, themed charts, navigation/resize layout matrix, WPF client captures, no WPF binding errors. Actual Windows DPI changes require manual acceptance.\n" + string.Join("\n", evidence));
+        await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"), "PASS: startup, diagnostics (3 independent domains, Insufficient Data and no conclusion on short observation, evidence coverage vs collector availability, software rendering as neutral information, trends with gaps and a shared window, filters with counts and empty states, sorting, stable selection with evidence, clipboard, diag export columns), Real Session without Horizon Agent (Blast N/A, real CPU/RAM, recording + JSON/CSV with host columns), protocol display, Advanced Metrics filter/search, NVML-absent initialization, Real↔Demo switching, demo sampling and live charts, all six views, themes, recording, JSON/CSV export, themed charts, navigation/resize layout matrix, WPF client captures, no WPF binding errors. Actual Windows DPI changes require manual acceptance.\n" + soak + "\n" + string.Join("\n", evidence));
         await StopAsync();
         closing = true;
         Shutdown(0);
+    }
+    /// <summary>
+    /// Demo high-latency scenario on the Diagnostics page: sustained findings must appear with evidence, the UI thread
+    /// must stay responsive with four live charts, and repeated navigation must not grow the managed heap.
+    /// </summary>
+    private async Task<string> DiagnosticsSoakAsync(MainViewModel vm)
+    {
+        var d = vm.Diagnostics;
+        vm.SelectedMode = vm.Modes.Single(m => m.Value == MonitoringMode.DemoMode);
+        vm.SelectedScenario = vm.Scenarios.Single(s => s.Value == DemoScenario.HighNetworkLatency);
+        vm.SelectedPage = vm.Pages.Single(p => p is DiagnosticsPage);
+        var latencies = new List<double>();
+        var clock = Stopwatch.StartNew();
+        while (clock.Elapsed < TimeSpan.FromSeconds(90) && !(d.HasActiveProblems && d.Findings.Any(f => f.RuleId == "connection.packetloss.uplink")))
+        {
+            var probe = Stopwatch.StartNew();
+            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Input);
+            latencies.Add(probe.Elapsed.TotalMilliseconds);
+            await Task.Delay(250);
+        }
+        var seconds = clock.Elapsed.TotalSeconds;
+        if (!d.HasActiveProblems || d.HeadlineState != "Warning" && d.HeadlineState != "Critical")
+            throw new InvalidOperationException($"High-latency demo raised no sustained finding after {seconds:0} s: {d.Headline}");
+        var rtt = d.Findings.SingleOrDefault(f => f.RuleId == "connection.rtt.sustained") ?? throw new InvalidOperationException("Sustained RTT finding missing.");
+        if (!rtt.IsProblem || !rtt.Evidence.Any(e => e.Measurement == "95th percentile (P95)" && e.Threshold.StartsWith("≥ 150 ms", StringComparison.Ordinal)) || rtt.Actions.Count == 0)
+            throw new InvalidOperationException("RTT finding lacks P95 evidence with its configured threshold or recommended actions.");
+        if (d.Domains[0].State is not ("Warning" or "Critical")) throw new InvalidOperationException("Connection Health did not reflect the RTT finding.");
+        d.SelectedFilter = d.Filters.Single(f => f.Kind == FindingFilterKind.ActiveProblems);
+        if (d.Findings.Count == 0 || !d.Findings.All(f => f.IsProblem)) throw new InvalidOperationException("Active-problems filter failed on real findings.");
+        d.SortBy(FindingSortKey.Severity, false);
+        if (d.Findings.Zip(d.Findings.Skip(1)).Any(p => p.First.Card.Rank > p.Second.Card.Rank)) throw new InvalidOperationException("Default severity order violated.");
+        d.SelectedFilter = d.Filters[0];
+        d.SelectedFinding = rtt;
+        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+        await Task.Delay(1100);
+        if (!ReferenceEquals(d.SelectedFinding, rtt)) throw new InvalidOperationException("User selection lost after a sample update.");
+        if (!d.Rtt.HasData || d.Rtt.Sections.Length != 2) throw new InvalidOperationException("RTT trend or its threshold lines missing.");
+
+        // Memory: charts are recreated on every visit; the managed heap must return to a stable size.
+        GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+        var before = GC.GetTotalMemory(true);
+        var workingBefore = Process.GetCurrentProcess().WorkingSet64;
+        for (var i = 0; i < 12; i++)
+        {
+            vm.SelectedPage = vm.Pages[0];
+            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+            vm.SelectedPage = vm.Pages.Single(p => p is DiagnosticsPage);
+            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+            await Task.Delay(150);
+        }
+        GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+        var after = GC.GetTotalMemory(true);
+        var workingAfter = Process.GetCurrentProcess().WorkingSet64;
+        latencies.Sort();
+        double Percentile(double p) => latencies[Math.Min(latencies.Count - 1, (int)(p * latencies.Count))];
+        const double MiB = 1024 * 1024;
+        var result = $"Diagnostics soak (Demo high latency, page open, 4 live charts): findings after {seconds:0} s ({string.Join(", ", d.Findings.Select(f => $"{f.RuleId}:{f.Severity}"))}); " +
+            $"UI dispatcher latency over {latencies.Count} probes median {Percentile(.5):0.0} ms, P95 {Percentile(.95):0.0} ms, max {latencies[^1]:0.0} ms; " +
+            $"12 navigation cycles: managed heap {before / MiB:0.0} → {after / MiB:0.0} MiB, working set {workingBefore / MiB:0} → {workingAfter / MiB:0} MiB.";
+        if (Percentile(.5) > 200 || latencies[^1] > 2000) throw new InvalidOperationException("Diagnostics page is not responsive. " + result);
+        if (after - before > 48 * MiB) throw new InvalidOperationException("Managed heap grew across Diagnostics navigation. " + result);
+        if (d.Findings.Count > 0) d.SelectedFinding = d.Findings[0];
+        return result;
     }
     private async void WindowClosing(object? sender, CancelEventArgs e)
     {
