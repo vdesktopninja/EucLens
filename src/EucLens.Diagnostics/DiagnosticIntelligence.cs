@@ -301,8 +301,11 @@ public static class HealthEvaluator
             var (statistic, value) = Statistic(s);
             var state = s.IsSufficient(t) ? InputState.Evaluated : c.History.Has(key) && s.TotalSamples > 0 && s.ValidSamples + s.StaleSamples + s.FailedSamples > 0
                 ? InputState.Insufficient : InputState.NotCollected;
+            // Low FPS is judged only for a declared active workload while the screen is not static; it is shown as
+            // applicable only when dirty frames confirm activity, never from the workload selection alone.
+            bool? applies = key == DiagnosticMetrics.Fps ? c.IsActiveWorkload && c.ScreenActivity == true : null;
             list.Add(new(domain, key, Names.GetValueOrDefault(key, key), isRequired, state, statistic, value, Unit(key), Threshold(c, key),
-                s.ValidSamples, s.TotalSamples, s.StaleSamples, s.FailedSamples, s.Coverage, window, s.LatestReason));
+                s.ValidSamples, s.TotalSamples, s.StaleSamples, s.FailedSamples, s.Coverage, window, s.LatestReason, applies));
         }
         foreach (var (key, name) in new[] { (DiagnosticMetrics.JitterRaw, "jitter (uplink)"), (DiagnosticMetrics.EstimatedBandwidthRaw, "estimated bandwidth (uplink)") })
         {

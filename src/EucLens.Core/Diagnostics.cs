@@ -34,9 +34,13 @@ public enum InputState { Evaluated, Insufficient, NotCollected, UnverifiedUnit }
 /// One measurement behind a domain assessment: the statistic shown, the configured threshold it is judged against (if any)
 /// and how much valid data the window held. Produced for presentation with each report; not stored in recordings.
 /// </summary>
+/// <remarks>
+/// <see cref="ThresholdApplies"/> is null for unconditional thresholds. For conditional ones (low FPS) it is true only when
+/// the engine has established the condition from measurements, not from the user's selection alone.
+/// </remarks>
 public sealed record AssessmentInput(DiagnosticDomain Domain, string Key, string Name, bool Required, InputState State,
     string Statistic, double? Value, string Unit, string? Threshold, int ValidSamples, int TotalSamples, int StaleSamples,
-    int FailedSamples, double Coverage, double WindowSeconds, string? Reason);
+    int FailedSamples, double Coverage, double WindowSeconds, string? Reason, bool? ThresholdApplies = null);
 
 /// <summary>An evidence-based explanation. Correlation is never presented as proven causation.</summary>
 public sealed record DiagnosticHypothesis(string Id, string Statement, string Confidence,
