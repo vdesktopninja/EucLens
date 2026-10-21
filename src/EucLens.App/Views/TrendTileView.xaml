@@ -1,14 +1,20 @@
 <UserControl x:Class="EucLens.App.Views.TrendTileView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:ui="clr-namespace:EucLens.App.Presentation" xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF">
- <!-- Compact trend: shared time axis, gaps for missing samples, dashed lines only at configured thresholds. DataContext: TrendChart. -->
- <Border Style="{StaticResource ChartSurface}"><StackPanel>
- <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-  <TextBlock TextWrapping="Wrap"><Run Text="{Binding Title, Mode=OneWay}" FontWeight="SemiBold" /><Run Text=" · " Foreground="{DynamicResource MutedBrush}" /><Run Text="{Binding Unit, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}" /></TextBlock>
-  <TextBlock Grid.Column="1" Text="{Binding Latest}" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" Margin="8,0,0,0" ToolTip="Latest sample" />
- </Grid>
- <TextBlock Text="{Binding Reference}" Style="{StaticResource Muted}" Margin="0,2,0,4" />
- <Grid Height="{StaticResource TrendChartHeight}">
-  <lvc:CartesianChart ui:LiveChart.Data="{Binding Data}" AnimationsSpeed="0:0:0" Background="{DynamicResource ChartBackgroundBrush}" ui:ChartTheme.Text="{DynamicResource MutedBrush}" ui:ChartTheme.Surface="{DynamicResource SurfaceBrush}" ui:ChartTheme.Grid="{DynamicResource ChartGridBrush}" ui:ChartTheme.Line="{DynamicResource AccentBrush}" ui:ChartTheme.Warning="{DynamicResource WarningBrush}" ui:ChartTheme.Critical="{DynamicResource CriticalBrush}" AutomationProperties.Name="{Binding AutomationName}" />
-  <TextBlock Text="No valid samples in this window" Style="{StaticResource Muted}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding ShowNoData, Converter={StaticResource BoolToVisibility}}" />
- </Grid>
- </StackPanel></Border>
+ <!-- One trend: title and latest value, threshold description, then a tall plot. Shared time axis, gaps for missing samples, dashed lines only at
+      thresholds that apply. The header row is a shared-size group, so plots in one row start at the same height. DataContext: TrendChart. -->
+ <Border Style="{StaticResource ChartSurface}">
+  <Grid>
+   <Grid.RowDefinitions><RowDefinition Height="Auto" SharedSizeGroup="TrendHeader" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+   <StackPanel Margin="0,0,0,6">
+    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+     <TextBlock TextWrapping="Wrap" FontSize="{StaticResource ReadingFontSize}"><Run Text="{Binding Title, Mode=OneWay}" FontWeight="SemiBold" /><Run Text=" · " Foreground="{DynamicResource MutedBrush}" /><Run Text="{Binding Unit, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}" /></TextBlock>
+     <TextBlock Grid.Column="1" Text="{Binding Latest}" Style="{StaticResource ValueText}" FontSize="{StaticResource StateFontSize}" Margin="8,0,0,0" ToolTip="Latest sample" />
+    </Grid>
+    <TextBlock Text="{Binding Reference}" Style="{StaticResource Meta}" Margin="0,2,0,0" />
+   </StackPanel>
+   <Grid Grid.Row="1" Height="{StaticResource TrendChartHeight}">
+    <lvc:CartesianChart ui:LiveChart.Data="{Binding Data}" AnimationsSpeed="0:0:0" Background="{DynamicResource ChartBackgroundBrush}" ui:ChartTheme.Text="{DynamicResource MutedBrush}" ui:ChartTheme.Surface="{DynamicResource SurfaceBrush}" ui:ChartTheme.Grid="{DynamicResource ChartGridBrush}" ui:ChartTheme.Line="{DynamicResource AccentBrush}" ui:ChartTheme.Warning="{DynamicResource WarningBrush}" ui:ChartTheme.Critical="{DynamicResource CriticalBrush}" ui:ChartTheme.TooltipTextSize="{StaticResource TooltipFontSize}" AutomationProperties.Name="{Binding AutomationName}" />
+    <TextBlock Text="No valid samples in this window" Style="{StaticResource Reading}" Foreground="{DynamicResource MutedBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding ShowNoData, Converter={StaticResource BoolToVisibility}}" />
+   </Grid>
+  </Grid>
+ </Border>
 </UserControl>

@@ -41,9 +41,10 @@ public sealed class DiagnosticsPresentationTests
         : new(null, unit, "Blast counters not found", "synthetic", SampleStatus: MetricStatus.Unavailable);
 
     private static SessionSnapshot Snap(DateTimeOffset at, double? rtt = 30, double? loss = 0, double? fps = 30, double? cpu = 20, double? ram = 40,
-        bool? hardwareGpu = false, double? jitter = null, WorkloadContext workload = WorkloadContext.Idle)
+        bool? hardwareGpu = false, double? jitter = null, WorkloadContext workload = WorkloadContext.Idle, double? dirty = null)
     {
         var blast = new Dictionary<string, Metric> { ["rtt"] = M(rtt, "ms") };
+        if (dirty is not null) blast["dirtyFps"] = M(dirty, "FPS");
         if (jitter is not null) { blast["jitter"] = M(jitter, "raw (unit unverified)"); blast["estimatedBandwidth"] = M(5000, "raw (unit unverified)"); }
         var host = new List<MetricEntry>
         {
@@ -431,5 +432,185 @@ public sealed class DiagnosticsPresentationTests
             .ToHashSet();
         Assert.NotEmpty(used);
         Assert.All(used, key => Assert.Contains(key, light));
+    }
+
+    // ---------- 0.4.2: conditional thresholds, compact status, health rows ----------
+
+    private static DomainHealthItem Tile(Session s, DiagnosticDomain d) => s.Vm.Domains.Single(x => x.DomainKey == d);
+
+    [Fact]
+    public void LowFpsThresholdIsShownAsApplicableOnlyWhenTheEngineVerifiesAnActiveWorkload()
+    {
+        // Idle desktop: conditional, hidden, and said to be hidden. Unconditional thresholds are unaffected.
+        var idle = new Session();
+        idle.Run(70, at => Snap(at, fps: 2));
+        var line = Assert.Single(idle.Vm.Fps.Data.References);
+        Assert.True(line.Conditional);
+        Assert.False(line.Applies);
+        Assert.False(line.Visible);
+        Assert.Contains("conditional: applies during verified active graphics workload; line hidden", idle.Vm.Fps.Reference);
+        Assert.All(idle.Vm.Rtt.Data.References, r => Assert.True(r.Applies));
+        Assert.All(idle.Vm.Cpu.Data.References, r => Assert.True(r.Applies && !r.Conditional));
+
+        // Selecting an active workload is not verification: without dirty frames the line stays hidden.
+        var declared = new Session();
+        declared.Run(70, at => Snap(at, fps: 30, workload: WorkloadContext.InteractiveGraphics));
+        Assert.False(Assert.Single(declared.Vm.Fps.Data.References).Applies);
+        var declaredRow = Tile(declared, DiagnosticDomain.Graphics).Measurements.Single(m => m.Label == "FPS P50");
+        Assert.StartsWith("Low-FPS rule inactive", declaredRow.Condition);
+        Assert.Equal("< 15 FPS warning", declaredRow.Threshold);
+
+        // A static screen (dirty frames below the activity threshold) is not an active workload either.
+        var staticScreen = new Session();
+        staticScreen.Run(70, at => Snap(at, fps: 2, dirty: 1, workload: WorkloadContext.InteractiveGraphics));
+        Assert.False(Assert.Single(staticScreen.Vm.Fps.Data.References).Applies);
+
+        // Active workload with a changing screen confirmed by dirty frames: applies, drawn, and says so.
+        var verified = new Session();
+        var report = verified.Run(70, at => Snap(at, fps: 30, dirty: 25, workload: WorkloadContext.InteractiveGraphics));
+        var active = Assert.Single(verified.Vm.Fps.Data.References);
+        Assert.True(active.Applies && active.Visible);
+        Assert.Contains("applies now (verified active graphics workload)", verified.Vm.Fps.Reference);
+        Assert.StartsWith("Low-FPS rule active", Tile(verified, DiagnosticDomain.Graphics).Measurements.Single(m => m.Label == "FPS P50").Condition);
+        // Applicability is metadata for FPS only; every other threshold is unconditional.
+        Assert.All(report.Inputs!.Where(i => i.Key != DiagnosticMetrics.Fps), i => Assert.Null(i.ThresholdApplies));
+        Assert.True(report.Inputs!.Single(i => i.Key == DiagnosticMetrics.Fps).ThresholdApplies);
+
+        // Back to an idle workload: the next sample hides it again.
+        verified.Run(1, at => Snap(at, fps: 30, dirty: 25, workload: WorkloadContext.Idle));
+        Assert.False(Assert.Single(verified.Vm.Fps.Data.References).Applies);
+        Assert.False(verified.Vm.Fps.Data.References[0].Visible);
+    }
+
+    [Fact]
+    public void HiddenConditionalLineDoesNotStretchTheValueAxis()
+    {
+        var idle = new Session();
+        idle.Run(70, at => Snap(at, fps: 2));
+        Assert.True(idle.Vm.Fps.Data.YMax < 5); // 2 FPS × 1.15, not stretched to the 15 FPS line
+        var verified = new Session();
+        verified.Run(70, at => Snap(at, fps: 30, dirty: 25, workload: WorkloadContext.InteractiveGraphics));
+        Assert.True(verified.Vm.Fps.Data.YMax > 30);
+    }
+
+    [Fact]
+    public void HealthTilesKeepRequiredAndAvailableRowsAndExplainPartialCoverage()
+    {
+        var s = new Session();
+        s.Run(70, at => Snap(at, jitter: 3));
+        var connection = Tile(s, DiagnosticDomain.Connection);
+        Assert.DoesNotContain(connection.Measurements, m => m.Label.StartsWith("Reconnects", StringComparison.Ordinal));
+        Assert.Contains("reconnects unavailable", connection.CoverageReason);
+        Assert.Contains("units unverified", connection.CoverageReason);
+        // The sample-level detail of an unavailable input stays behind the expander.
+        Assert.Contains(connection.Details, d => d.StartsWith("Reconnects:", StringComparison.Ordinal));
+        var graphics = Tile(s, DiagnosticDomain.Graphics);
+        Assert.DoesNotContain(graphics.Measurements, m => m.Label.StartsWith("Dirty FPS", StringComparison.Ordinal) || m.Label.StartsWith("Out queueing", StringComparison.Ordinal));
+        Assert.Contains("dirty fps", graphics.CoverageReason);
+        Assert.Contains("unavailable", graphics.CoverageReason);
+        Assert.Contains(Tile(s, DiagnosticDomain.Guest).Measurements, m => m.Label == "CPU P95");
+        Assert.Contains("disk active time unavailable", Tile(s, DiagnosticDomain.Guest).CoverageReason);
+        Assert.All(s.Vm.Domains, d => Assert.Contains("Partial", d.AutomationName.Replace("Coverage Partial", "Partial", StringComparison.Ordinal)));
+
+        // A required input that is missing stays visible as "Not available" (never silently hidden).
+        var missing = new Session();
+        missing.Run(70, at => Snap(at, rtt: null));
+        Assert.Contains(Tile(missing, DiagnosticDomain.Connection).Measurements, m => m is { Label: "RTT P95", Value: "Not available" });
+        Assert.Equal("required inputs have too few valid samples", Tile(missing, DiagnosticDomain.Connection).CoverageReason);
+    }
+
+    [Fact]
+    public void StatusAreaCountsActiveFindingsByLevelAndSummarisesTheAssessment()
+    {
+        var vm = WithFindings(Mixed);
+        Assert.Equal((1, 1, 1), (vm.CriticalCount, vm.WarningCount, vm.InfoCount)); // the recovered warning is not counted
+        Assert.Equal("Critical 1 · Warning 1 · Information 1", vm.CountsLabel);
+        Assert.Equal("Assessment", vm.AssessmentSummary);
+
+        var s = new Session();
+        s.Run(70, at => Snap(at, rtt: 200));
+        Assert.StartsWith("Assessment — ", s.Vm.AssessmentSummary);
+        Assert.Contains(s.Vm.Hypotheses[0].Statement, s.Vm.AssessmentSummary);
+        Assert.True(s.Vm.CriticalCount + s.Vm.WarningCount >= 1);
+        s.Vm.Clear();
+        Assert.Equal("Critical 0 · Warning 0 · Information 0", s.Vm.CountsLabel);
+        Assert.Equal("Assessment", s.Vm.AssessmentSummary);
+    }
+
+    [Fact]
+    public void TrendChartsUseALargerLabelSizeThanTheDashboardDefault()
+    {
+        var s = new Session();
+        Assert.All(s.Vm.Trends, t => Assert.Equal(TrendChart.LabelSize, t.Data.LabelSize));
+        Assert.True(TrendChart.LabelSize > new ChartData("x", "ms", 10).LabelSize);
+        var view = new ChartObjects(s.Vm.Rtt.Data);
+        Assert.Equal(TrendChart.LabelSize, view.XAxes[0].TextSize);
+        Assert.Equal(TrendChart.LabelSize, view.YAxes[0].TextSize);
+        Assert.All(view.Sections.Cast<RectangularSection>(), x => Assert.Equal(TrendChart.LabelSize, x.LabelSize));
+        var dashboard = new ChartObjects(new ChartData("RTT", "ms", 10));
+        Assert.Equal(11, dashboard.XAxes[0].TextSize);
+    }
+
+    // ---------- static checks of the XAML (WPF itself is validated on Windows) ----------
+
+    private static readonly System.Xml.Linq.XNamespace X = "http://schemas.microsoft.com/winfx/2006/xaml";
+
+    private static System.Xml.Linq.XDocument Xaml(string relative) => System.Xml.Linq.XDocument.Load(Path.Combine(Repo(), "src/EucLens.App", relative));
+
+    [Fact]
+    public void DiagnosticsXamlUsesTokensForTypographyAndResolvesEveryResource()
+    {
+        var files = new[] { "Views/DiagnosticsView.xaml", "Views/TrendTileView.xaml" };
+        string[] sources = ["Themes/Foundations.xaml", "Themes/Controls.xaml", "Themes/Light.xaml", "App.xaml", .. files];
+        var keys = sources
+            .SelectMany(f => Xaml(f).Descendants().Select(e => (string?)e.Attribute(X + "Key")).OfType<string>()).ToHashSet();
+        foreach (var file in files)
+        {
+            var text = File.ReadAllText(Path.Combine(Repo(), "src/EucLens.App", file));
+            var missing = System.Text.RegularExpressions.Regex.Matches(text, @"\{StaticResource (\w+)\}").Select(m => m.Groups[1].Value).Where(k => !keys.Contains(k)).Distinct().ToArray();
+            Assert.True(missing.Length == 0, $"{file} uses undefined resources: {string.Join(", ", missing)}");
+            // Font sizes come from the shared typography tokens, never from numbers scattered through the view.
+            Assert.DoesNotMatch(@"FontSize=""\d", text);
+        }
+        var tokens = Xaml("Themes/Foundations.xaml").Descendants().Select(e => (string?)e.Attribute(X + "Key")).OfType<string>().ToHashSet();
+        Assert.All(new[] { "ReadingFontSize", "ValueFontSize", "StateFontSize", "MetaFontSize", "TooltipFontSize", "TrendChartHeight", "FindingsRegionReserve", "FindingsRegionMinHeight" }, k => Assert.Contains(k, tokens));
+        // Taller trend plots than the 0.4.1 compact charts.
+        var height = (string)Xaml("Themes/Foundations.xaml").Descendants().Single(e => (string?)e.Attribute(X + "Key") == "TrendChartHeight");
+        Assert.True(double.Parse(height, System.Globalization.CultureInfo.InvariantCulture) >= 180);
+    }
+
+    [Fact]
+    public void FindingsAndEvidenceAreKeyboardReachableAndScrollIndependently()
+    {
+        var all = Xaml("Views/DiagnosticsView.xaml").Descendants().ToArray();
+        System.Xml.Linq.XElement Named(string name) => all.Single(e => (string?)e.Attribute(X + "Name") == name);
+        string Attr(System.Xml.Linq.XElement e, string local) => e.Attributes().Single(a => a.Name.LocalName == local).Value;
+        var evidence = Named("EvidenceScroll");
+        Assert.Equal("True", Attr(evidence, "Focusable"));
+        Assert.Equal("True", Attr(evidence, "IsTabStop"));
+        Assert.Equal("True", Attr(evidence, "WheelChaining.Enabled"));
+        Assert.Equal("True", Attr(Named("FindingsScroll"), "WheelChaining.Enabled"));
+        Assert.Equal("{StaticResource SplitterThumb}", Attr(Named("FindingsSplitter"), "Style"));
+        // Only the two panes scroll on their own, and the page scrolls around them.
+        Assert.Equal(["EvidenceScroll", "FindingsScroll"], all.Where(e => e.Name.LocalName == "ScrollViewer").Select(e => (string?)e.Attribute(X + "Name")).OfType<string>().Order());
+        // The region fills the visible page height and is a split with exactly master, splitter and detail.
+        var region = Named("FindingsRegion");
+        Assert.Equal(3, region.Elements().Count());
+        // Its height follows the visible page through an explicit subscription that is removed on unload (no long-lived reference to the view).
+        var code = File.ReadAllText(Path.Combine(Repo(), "src/EucLens.App/Views/DiagnosticsView.xaml.cs"));
+        Assert.Contains("page.ScrollChanged += OnPageScrollChanged", code);
+        Assert.Contains("page.ScrollChanged -= OnPageScrollChanged", code);
+        Assert.Contains("Unloaded += OnUnloaded", code);
+    }
+
+    [Fact]
+    public void BothThemesDefineEveryDynamicResourceTheTrendTileUses()
+    {
+        var light = Xaml("Themes/Light.xaml").Root!.Elements().Select(e => (string?)e.Attribute(X + "Key")).OfType<string>().ToHashSet();
+        var dark = Xaml("Themes/Dark.xaml").Root!.Elements().Select(e => (string?)e.Attribute(X + "Key")).OfType<string>().ToHashSet();
+        var used = System.Text.RegularExpressions.Regex.Matches(File.ReadAllText(Path.Combine(Repo(), "src/EucLens.App/Views/TrendTileView.xaml")), @"\{DynamicResource (\w+)\}")
+            .Select(m => m.Groups[1].Value).ToHashSet();
+        Assert.NotEmpty(used);
+        Assert.All(used, k => { Assert.Contains(k, light); Assert.Contains(k, dark); });
     }
 }

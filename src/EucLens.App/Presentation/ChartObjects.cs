@@ -41,9 +41,9 @@ public sealed class ChartObjects
         XAxes = [new Axis
         {
             Labeler = v => v > 0 && v <= DateTime.MaxValue.Ticks ? new DateTime((long)v).ToString("HH:mm:ss", CultureInfo.InvariantCulture) : "",
-            UnitWidth = TimeSpan.TicksPerSecond, MinStep = TimeSpan.TicksPerSecond * data.XStepSeconds, TextSize = 11, SeparatorsPaint = null,
+            UnitWidth = TimeSpan.TicksPerSecond, MinStep = TimeSpan.TicksPerSecond * data.XStepSeconds, TextSize = data.LabelSize, SeparatorsPaint = null,
         }];
-        YAxes = [new Axis { Name = data.AxisName, MinLimit = data.YMin, TextSize = 11, MinStep = data.YMinStep }];
+        YAxes = [new Axis { Name = data.AxisName, MinLimit = data.YMin, TextSize = data.LabelSize, MinStep = data.YMinStep }];
         Resync();
         // Weak: the view model never keeps a chart view alive.
         WeakSubscription.Collection(data.Points, this, static (self, e) => self.OnPoints(e));
@@ -113,7 +113,7 @@ public sealed class ChartObjects
         }
         Sections = lines.Select(r => (IChartElement)new RectangularSection
         {
-            Yi = r.Value, Yj = r.Value, Tag = r.Level, Label = r.ChartLabel, LabelSize = 11, Fill = null, IsVisible = r.Visible,
+            Yi = r.Value, Yj = r.Value, Tag = r.Level, Label = r.ChartLabel, LabelSize = data.LabelSize, Fill = null, IsVisible = r.Visible,
         }).ToArray();
         SectionsReplaced?.Invoke();
     }

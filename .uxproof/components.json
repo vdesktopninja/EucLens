@@ -189,7 +189,35 @@
     "targetType": "TextBlock"
   },
   {
-    "name": "BodyMuted",
+    "name": "SubLabel",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "TextBlock"
+  },
+  {
+    "name": "Reading",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "TextBlock"
+  },
+  {
+    "name": "ReadingMuted",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "TextBlock"
+  },
+  {
+    "name": "Meta",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "TextBlock"
+  },
+  {
+    "name": "ValueText",
     "file": "src/EucLens.App/Themes/Controls.xaml",
     "root": "src/EucLens.App/Themes",
     "kind": "Style",
@@ -222,6 +250,13 @@
     "root": "src/EucLens.App/Themes",
     "kind": "Style",
     "targetType": "ListBoxItem"
+  },
+  {
+    "name": "SplitterThumb",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "Thumb"
   },
   {
     "name": "SegmentItem",

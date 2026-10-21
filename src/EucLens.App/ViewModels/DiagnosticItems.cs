@@ -23,9 +23,11 @@ public sealed record EvidenceRow(string Measurement, string Observed, string Thr
 }
 
 /// <summary>Label, value and configured threshold of one supporting measurement; <see cref="Note"/> carries sample sufficiency.</summary>
-public sealed record MeasurementRow(string Label, string Value, string Threshold, string Note)
+/// <remarks><see cref="Condition"/> states whether a conditional rule currently applies (shown only for such measurements).</remarks>
+public sealed record MeasurementRow(string Label, string Value, string Threshold, string Note, string Condition = "")
 {
     public bool HasThreshold => Threshold.Length > 0;
+    public bool HasCondition => Condition.Length > 0;
 }
 
 /// <summary>Display form of a finding. Everything shown comes from the <see cref="DiagnosticFinding"/>; nothing is inferred here.</summary>
@@ -165,7 +167,7 @@ public sealed class FindingColumn : ObservableObject
 public sealed class DomainHealthItem(DiagnosticDomain domain, string title) : ObservableObject
 {
     private string state = "Insufficient Data", coverage = "None", observation = "Waiting for samples", problems = "No active warnings", summary = "Waiting for samples.",
-        evidence = "", coverageNote = "";
+        evidence = "", coverageNote = "", coverageReason = "";
     private bool expanded;
     public DiagnosticDomain DomainKey { get; } = domain;
     /// <summary>Display name, e.g. "Connection Health".</summary>
@@ -179,10 +181,12 @@ public sealed class DomainHealthItem(DiagnosticDomain domain, string title) : Ob
     /// <summary>The engine's own evidence and coverage text, kept for tooltips and the details section.</summary>
     public string Evidence { get => evidence; set => Set(ref evidence, value); }
     public string CoverageNote { get => coverageNote; set => Set(ref coverageNote, value); }
+    /// <summary>Short reason for the coverage level, e.g. "dirty FPS, out queueing time unavailable".</summary>
+    public string CoverageReason { get => coverageReason; set => Set(ref coverageReason, value); }
     public bool IsExpanded { get => expanded; set => Set(ref expanded, value); }
     public ObservableCollection<MeasurementRow> Measurements { get; } = [];
     public ObservableCollection<string> Details { get; } = [];
-    public string AutomationName => $"{Domain}: {State}. Coverage {Coverage}. {ActiveProblems}. {Summary}";
+    public string AutomationName => $"{Domain}: {State}. Coverage {Coverage}{(CoverageReason.Length > 0 ? ", " + CoverageReason : "")}. {ActiveProblems}. {Summary}";
     public void Refresh() => Raise(nameof(AutomationName));
 }
 

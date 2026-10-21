@@ -17,7 +17,7 @@
       },
       {
         "file": "src/EucLens.App/Themes/Foundations.xaml",
-        "tokenCount": 35
+        "tokenCount": 44
       },
       {
         "file": "src/EucLens.App/Themes/Light.xaml",
@@ -133,9 +133,9 @@
   ],
   "warnings": [],
   "counts": {
-    "tokens": 89,
+    "tokens": 98,
     "colorTokens": 54,
-    "components": 42,
+    "components": 47,
     "proposedColors": 0
   },
   "evidenceLimits": [

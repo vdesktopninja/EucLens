@@ -40,7 +40,9 @@ The active data source is always shown in the header banner and sidebar.
   * a status line and health overview with key measurements and thresholds;
   * an evidence-coverage indicator;
   * RTT, FPS, CPU and packet-loss trends for 30/60/120 s;
-  * a sortable, filterable findings table, with an evidence and recommendations panel that can be copied to the clipboard.
+  * a sortable, filterable findings table beside a resizable evidence and recommendations panel (copyable), each pane scrolling on its own.
+
+  0.4.2 refines readability only: a typography hierarchy, a compact status line, taller trend charts and low-FPS thresholds drawn only while the engine verifies they apply.
 
   See [Diagnostic intelligence](docs/DIAGNOSTICS.md).
 - Start/stop timestamped recording, elapsed time, sample count and a historical

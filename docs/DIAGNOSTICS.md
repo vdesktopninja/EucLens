@@ -217,9 +217,7 @@ Presentation rules:
 
 Layout and performance:
 
-* The health overview, evidence coverage and trend panes reflow at fixed widths
-  (4 columns at 1366 × 768 and 100 %). The evidence panel sits beside the findings table at
-  900 DIP or wider and below it when narrower, e.g. 1366 × 768 at 125 % or 150 %.
+* Layout is described under *Layout (0.4.2)* below.
 * Rows, health tiles, coverage rows and evidence rows are updated in place by key or value.
   Selection, expanded sections and scroll position therefore survive the per-second update, and unchanged rows are not re-rendered.
 * Until the administrator selects a finding, the evidence panel follows the most important one.
@@ -234,8 +232,67 @@ Layout and performance:
   * Result: a closed page is collected without any unload hook. A chart that is unloaded and loaded again resyncs from the data.
 * LiveCharts configures itself on first use, and that first initialization is not thread-safe.
   `ChartsRuntime.EnsureInitialized` runs it once, under a lock, before any view model creates chart objects.
-* The findings table and filters are keyboard-navigable lists with visible focus. The page scrolls as one
-  surface, because the lists have no nested scroll viewer to capture the mouse wheel.
+* The findings table, filters, splitter and evidence pane are keyboard reachable with visible focus (see 0.4.2).
+
+## Layout (0.4.2)
+
+0.4.2 polishes readability and layout only. No diagnostic rule, threshold, severity or conclusion changed, and the
+chart memory architecture above is untouched.
+
+**Typography.** Shared tokens in `Themes/Foundations.xaml`; the views contain no font-size numbers (a test enforces it).
+
+| Role | Token | DIP |
+|---|---|---|
+| Body and explanations | `ReadingFontSize` | 14 |
+| Key values (P95, mean, evidence) | `ValueFontSize`, tabular numerals | 15 |
+| State, headline, latest chart value | `StateFontSize` | 16 |
+| Technical metadata (rule, source, thresholds under values) | `MetaFontSize` | 12 |
+| Page section headings | `SectionFontSize`, semibold | 14 |
+
+Muted text keeps the existing theme brushes (about 6:1 on the light and 8:1 on the dark surface).
+
+**Status area.** One line: state marker, headline, counts by level (Critical / Warning / Information), observation
+window and evidence coverage. Below it one detail line. The assessment is collapsed; its header shows the engine's
+first statement, so the conclusion is visible without expanding ("How to verify" stays one click away).
+
+**Health overview.** Tiles show state and active-problem count, a one-line summary, and compact rows of
+label · value · threshold. Required inputs always appear (a missing one reads "Not available", never 0). Optional inputs
+without data are not listed as rows. The coverage line names them ("Partial — dirty fps, out queueing time unavailable;
+jitter and estimated bandwidth units unverified"), and per-input sample counts stay under *Coverage details*.
+Four tiles use 4 columns when each can have 320 DIP, otherwise 2, never an orphan row (`AdaptiveColumnsPanel.BalanceRows`).
+
+**Trends.** Plots are 190 DIP high (116 before), axis and line labels 12 DIP, tooltips 13 DIP, threshold lines 1.5 px dashed.
+Four columns from 400 DIP per chart, two columns otherwise. Chart headers share one height, so plots line up.
+
+**Conditional thresholds.** Thresholds are either unconditional or conditional.
+* Unconditional (RTT, packet loss, CPU, …): always drawn when configured.
+* Low FPS is conditional. The engine evaluates it only for a declared active workload while Blast dirty frames show a
+  changing screen. The engine reports this through `AssessmentInput.ThresholdApplies` (null for every
+  other input). The Frame-rate chart draws the line only when it is true, and its header states the condition either way:
+  "Low FPS < 15 — applies now (verified active graphics workload)" or "— conditional: applies during verified active graphics
+  workload; line hidden". The Graphics tile says "Low-FPS rule inactive / active".
+* The workload selector alone never makes the line applicable. A hidden conditional line does not stretch the value axis.
+  If the engine supplies no applicability, the line stays hidden.
+
+**Findings and evidence.** `ResponsiveSplitPanel` (rules in the WPF-free, unit-tested `SplitLayout`):
+* Side by side from 900 DIP (findings ≥ 520, evidence ≥ 360 DIP); stacked below (findings ≥ 160, evidence ≥ 320 DIP).
+  The region fills the visible page height (at least 520 DIP), so the evidence is never pushed below the window; the page scrolls to it,
+  and picking a finding with the keyboard or mouse scrolls the region into view.
+* The splitter is a draggable, focusable thumb; the arrow keys move it by 24 DIP. Neither pane can go below its minimum.
+  It resets when the page is opened again (not persisted).
+* Each pane scrolls on its own. At the end of a pane, the mouse wheel continues to the page (`WheelChaining`), so scrolling never sticks.
+* The selected finding stays pinned above the scrolling evidence (severity, state, title, Copy). The evidence is a tab stop,
+  so PageUp/PageDown and the arrow keys work. Order: explanation, supporting measurements (Measurement · Observed · Threshold),
+  decision rule and thresholds, possible contributing factors, recommended investigation, data limitations, technical details.
+* Rows are 36 DIP or taller with a selection bar, a tooltip with the description, and wrapped (never truncated) titles.
+  Findings are not virtualized: the list is bounded (about 20 active plus the last 50 recovered findings).
+* Information and recovered findings stay neutral; only active warnings and critical findings are coloured.
+
+**Validation.** `DesktopValidation` runs on Windows over 2 themes × 4 sizes (1366 × 768, 1536 × 864, 1920 × 1080, 2560 × 1440) × 3
+scales. Beyond the 0.4.1 checks it verifies, for Diagnostics: arrangement matches the width, both panes keep their
+minimum size, the evidence can be brought into view, the pane scrolls independently and chains the wheel to the page at its end,
+the splitter responds to the keyboard within its limits, the selection survives layout changes, and the page has no horizontal overflow.
+The 125 % and 150 % cases **simulate the available DIP space; they do not change Windows DPI.** Real Windows scaling needs manual acceptance.
 
 Future explanation panels (for example an optional local assistant) can bind to the same
 `DiagnosticReport` and `DiagnosticsViewModel` selection without changing rules or layout.
@@ -308,6 +365,7 @@ Changes are append-only. Every 0.2/0.3 column and JSON property is unchanged.
   * out queueing time is treated as outbound queueing (information only).
 * Guest metrics cannot reveal hypervisor contention (CPU ready, ballooning, datastore latency).
 * Per-process attribution is not part of the findings; use Task Manager or Resource Monitor as recommended.
+* The findings/evidence split position is not remembered between visits, and it has no splitter between the status area and the page.
 * Page layout, DPI behaviour and chart rendering are validated by the Windows CI layout
   matrix and screenshots: 1366 × 768 to 2560 × 1440, 100–150 % available-space simulation,
   light and dark. Real Windows scaling changes still need manual acceptance.

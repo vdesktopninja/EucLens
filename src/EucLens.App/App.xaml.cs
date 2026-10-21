@@ -130,6 +130,13 @@ public partial class App : Application
             Check(!d.Findings.Any(f => f.IsProblem) && d.Filters.Single(f => f.Kind == FindingFilterKind.ActiveProblems).Count == 0, "No warning may be raised from a few seconds of data.");
             Check(d.Trends.Count == 4 && d.Cpu.Points.Any(p => p.Value is not null) && d.Rtt.Points.All(p => p.Value is null) && !d.Rtt.HasData,
                 "Diagnostic trends must show measured CPU and leave unavailable RTT as gaps.");
+            // The low-FPS threshold is conditional: with an idle workload and no verified screen activity it is neither drawn nor called applicable.
+            Check(d.Fps.Data.References is [{ Conditional: true, Applies: false, Visible: false }] && d.Fps.Reference.Contains("conditional", StringComparison.Ordinal),
+                "The conditional low-FPS threshold must be hidden and labelled conditional when it does not apply: " + d.Fps.Reference);
+            Check(d.Domains.Single(x => x.Domain == "Graphics Health").Measurements.Any(m => m.Label == "FPS P50" && m.Condition.StartsWith("Low-FPS rule inactive", StringComparison.Ordinal)),
+                "The Graphics tile must say that the low-FPS rule is inactive.");
+            Check(d.CountsLabel.StartsWith("Critical 0 · Warning 0 · Information ", StringComparison.Ordinal) && d.AssessmentSummary.StartsWith("Assessment — ", StringComparison.Ordinal),
+                $"Status counts or assessment summary wrong: {d.CountsLabel} / {d.AssessmentSummary}");
             vm.SelectedPage = vm.Pages.Single(p => p is DiagnosticsPage);
             await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
             d.SelectedTrendWindow = d.TrendWindows[2];
@@ -243,7 +250,7 @@ public partial class App : Application
         if (errors.Errors.Count > 0) throw new InvalidOperationException("WPF binding errors: " + string.Join("\n", errors.Errors));
         GC.Collect(); GC.WaitForPendingFinalizers();
         if (unhandled.Count > 0) throw new InvalidOperationException("Unhandled exceptions: " + string.Join("\n", unhandled));
-        await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"), "PASS: startup, diagnostics (3 independent domains, Insufficient Data and no conclusion on short observation, evidence coverage vs collector availability, software rendering as neutral information, trends with gaps and a shared window, filters with counts and empty states, sorting, stable selection with evidence, clipboard, diag export columns), Real Session without Horizon Agent (Blast N/A, real CPU/RAM, recording + JSON/CSV with host columns), protocol display, Advanced Metrics filter/search, NVML-absent initialization, Real↔Demo switching, demo sampling and live charts, all six views, themes, recording, JSON/CSV export, themed charts, navigation/resize layout matrix, WPF client captures, no WPF binding errors. Actual Windows DPI changes require manual acceptance.\n" + soak + "\n" + string.Join("\n", evidence));
+        await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"), "PASS: startup, diagnostics (3 independent domains, Insufficient Data and no conclusion on short observation, evidence coverage vs collector availability, software rendering as neutral information, trends with gaps and a shared window, conditional low-FPS threshold hidden at idle, compact status counts, resizable findings/evidence split with independent scrolling, wheel chaining and keyboard access, filters with counts and empty states, sorting, stable selection with evidence, clipboard, diag export columns), Real Session without Horizon Agent (Blast N/A, real CPU/RAM, recording + JSON/CSV with host columns), protocol display, Advanced Metrics filter/search, NVML-absent initialization, Real↔Demo switching, demo sampling and live charts, all six views, themes, recording, JSON/CSV export, themed charts, navigation/resize layout matrix, WPF client captures, no WPF binding errors. Actual Windows DPI changes require manual acceptance.\n" + soak + "\n" + string.Join("\n", evidence));
         await StopAsync();
         closing = true;
         Shutdown(0);
@@ -284,6 +291,10 @@ public partial class App : Application
         await Task.Delay(1100);
         if (!ReferenceEquals(d.SelectedFinding, rtt)) throw new InvalidOperationException("User selection lost after a sample update.");
         if (!d.Rtt.HasData || d.Rtt.Data.References.Count != 2) throw new InvalidOperationException("RTT trend or its threshold lines missing.");
+        if (d.Fps.Data.References is not [{ Conditional: true, Applies: false, Visible: false }] || !d.Rtt.Data.References.All(r => r.Applies) || !d.Cpu.Data.References.All(r => r.Applies))
+            throw new InvalidOperationException("Idle desktop: the low-FPS threshold must stay hidden while unconditional thresholds apply. " + d.Fps.Reference);
+        if (d.CriticalCount + d.WarningCount != d.Findings.Count(f => f.IsProblem) || d.CountsLabel.Length == 0)
+            throw new InvalidOperationException("Status counts do not match the findings list: " + d.CountsLabel);
 
         // Memory: charts are recreated on every visit; the managed heap must return to a stable size.
         async Task<long> Cycles()

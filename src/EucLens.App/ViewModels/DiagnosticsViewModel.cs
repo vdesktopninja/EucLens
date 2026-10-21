@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using EucLens.Core;
+using EucLens.Diagnostics;
 
 namespace EucLens.App.ViewModels;
 
@@ -25,6 +26,8 @@ public sealed class DiagnosticsViewModel : ObservableObject
         observation = "Waiting for samples", copyStatus = "", listEmptyTitle = "", listEmptyDetail = "", evaluatedSummary = "",
         noProblemsTitle = "", noProblemsDetail = "";
     private bool hasActiveProblems;
+    private int criticalCount, warningCount, infoCount;
+    private string assessmentSummary = "Assessment";
     private DateTime? lastPoint;
 
     public DiagnosticsViewModel(IDesktopServices desktop)
@@ -92,6 +95,18 @@ public sealed class DiagnosticsViewModel : ObservableObject
     public string EvaluatedSummary { get => evaluatedSummary; private set => Set(ref evaluatedSummary, value); }
     public string ListEmptyTitle { get => listEmptyTitle; private set => Set(ref listEmptyTitle, value); }
     public string ListEmptyDetail { get => listEmptyDetail; private set => Set(ref listEmptyDetail, value); }
+    /// <summary>Header of the collapsed assessment: the engine's first statement, so the conclusion is visible without expanding.</summary>
+    public string AssessmentSummary { get => assessmentSummary; private set => Set(ref assessmentSummary, value); }
+    public int CriticalCount { get => criticalCount; private set => Set(ref criticalCount, value); }
+    public int WarningCount { get => warningCount; private set => Set(ref warningCount, value); }
+    public int InfoCount { get => infoCount; private set => Set(ref infoCount, value); }
+    /// <summary>Active findings by level; information is counted but never as a problem.</summary>
+    public string CountsLabel => string.Create(CultureInfo.InvariantCulture, $"Critical {criticalCount} · Warning {warningCount} · Information {infoCount}");
+    private void SetCounts(int critical, int warning, int info)
+    {
+        CriticalCount = critical; WarningCount = warning; InfoCount = info;
+        Raise(nameof(CountsLabel));
+    }
     public bool IsListEmpty => Findings.Count == 0;
     public bool HasFindings => Findings.Count > 0;
     public bool HasNoSelection => selectedFinding is null;
@@ -131,7 +146,9 @@ public sealed class DiagnosticsViewModel : ObservableObject
         // Full wording in the chart header; a short label on the line itself so it never runs past a narrow plot.
         Rtt.SetReferences(new ReferenceLine("Warning", value.RttWarningMs, $"Warning ≥ {N(value.RttWarningMs)} ms", $"Warning {N(value.RttWarningMs)}"),
             new ReferenceLine("Critical", value.RttCriticalMs, $"Critical ≥ {N(value.RttCriticalMs)} ms", $"Critical {N(value.RttCriticalMs)}"));
-        Fps.SetReferences(new ReferenceLine("Warning", value.LowFps, $"Low FPS < {N(value.LowFps)} (active workloads only)", $"Low FPS {N(value.LowFps)}"));
+        // Low FPS is judged only during a declared active workload with a changing screen: the line is conditional.
+        Fps.SetReferences(new ReferenceLine("Warning", value.LowFps, $"Low FPS < {N(value.LowFps)}", $"Low FPS {N(value.LowFps)}",
+            Conditional: true, Condition: "verified active graphics workload"));
         Cpu.SetReferences(new ReferenceLine("Warning", value.CpuWarningPercent, $"Warning ≥ {N(value.CpuWarningPercent)} %", $"Warning {N(value.CpuWarningPercent)} %"));
         PacketLoss.SetReferences(new ReferenceLine("Warning", value.PacketLossWarningPercent, $"Warning: mean ≥ {N(value.PacketLossWarningPercent)} %", $"Warning {N(value.PacketLossWarningPercent)} %"));
         UpdateTrendAxes();
@@ -147,14 +164,17 @@ public sealed class DiagnosticsViewModel : ObservableObject
         foreach (var d in Domains)
         {
             d.State = InsufficientData; d.Coverage = "None"; d.Observation = "Waiting for samples"; d.ActiveProblems = "No active warnings";
-            d.Summary = "Waiting for samples."; d.Evidence = ""; d.CoverageNote = "";
+            d.Summary = "Waiting for samples."; d.Evidence = ""; d.CoverageNote = ""; d.CoverageReason = "";
             d.Measurements.Clear(); d.Details.Clear(); d.Refresh();
         }
         DataQuality.Level = "Insufficient evidence"; DataQuality.Summary = "Waiting for samples."; DataQuality.Rows.Clear(); DataQuality.Details.Clear();
         Hypotheses.Clear();
+        AssessmentSummary = "Assessment";
         foreach (var t in Trends) t.Clear();
         Headline = "No conclusion yet"; HeadlineState = InsufficientData; HeadlineDetail = "Waiting for the first sample.";
         Observation = "Waiting for samples"; EvaluatedSummary = ""; HasActiveProblems = false; CopyStatus = "";
+        SetCounts(0, 0, 0);
+        Fps.SetCondition(false);
         userSelected = false;
         RefreshFindings();
     }
@@ -172,7 +192,12 @@ public sealed class DiagnosticsViewModel : ObservableObject
         ApplyDataQuality(assessments, inputs, sample);
         Replace(Hypotheses, (report.Hypotheses ?? []).Select(h => new HypothesisCard(h.Statement, h.Confidence,
             h.VerificationSteps.Select((step, i) => $"{i + 1}. {step}").ToArray())), (a, b) => a.Statement == b.Statement && a.Confidence == b.Confidence && a.Steps.SequenceEqual(b.Steps));
+        AssessmentSummary = Hypotheses.Count == 0 ? "Assessment" : "Assessment — " + Hypotheses[0].Statement + (Hypotheses.Count > 1 ? $" (+{Hypotheses.Count - 1} more)" : "");
         ApplyHeadline(assessments, active, inputs);
+        SetCounts(active.Count(f => f.Severity == Severity.Critical), active.Count(f => f.Severity == Severity.Warning),
+            findings.Count(f => f.IsActive && f.Severity == Severity.Info));
+        // The engine decides whether the low-FPS threshold applies; with no such input it is treated as not applicable.
+        Fps.SetCondition(inputs.FirstOrDefault(i => i.Key == DiagnosticMetrics.Fps)?.ThresholdApplies == true);
         cards = findings.Select(FindingCard.From).ToArray();
         RefreshFindings();
         AppendTrends(sample);
@@ -197,7 +222,14 @@ public sealed class DiagnosticsViewModel : ObservableObject
             InputState.NotCollected => "Not available",
             _ => "Insufficient data",
         };
-        return new(label, value, i.Threshold ?? "", SampleNote(i));
+        // Only the low-FPS threshold is conditional; the engine says whether it applies right now.
+        var condition = i.ThresholdApplies switch
+        {
+            true => "Low-FPS rule active: active workload with verified screen activity.",
+            false => "Low-FPS rule inactive: applies only during a verified active graphics workload.",
+            _ => "",
+        };
+        return new(label, value, i.Threshold ?? "", SampleNote(i), condition);
     }
 
     /// <summary>Precision follows magnitude (253 ms, 51.3 %, 1.99 %), so the overview stays scannable.</summary>
@@ -227,7 +259,19 @@ public sealed class DiagnosticsViewModel : ObservableObject
                 : a.Coverage == AssessmentCoverage.Full ? "Within configured thresholds." : "Within configured thresholds; some inputs are unavailable.";
         item.Evidence = a.Evidence;
         item.CoverageNote = a.CoverageNote;
-        var rows = mine.Select(Row).ToList();
+        // Optional inputs without data stay out of the main rows (their sample detail is under Coverage details);
+        // the coverage reason names them so Partial is explained without a wall of "Not available" rows.
+        var unavailable = mine.Where(i => !i.Required && i.State != InputState.Evaluated).ToArray();
+        var unverified = a.CoverageNote.Split("; ", StringSplitOptions.RemoveEmptyEntries).Where(n => n.Contains("unverified", StringComparison.Ordinal))
+            .Select(n => n.Split(" (")[0]).ToArray();
+        item.CoverageReason = a.Coverage switch
+        {
+            AssessmentCoverage.Full => "all inputs evaluated",
+            AssessmentCoverage.None => "required inputs have too few valid samples",
+            _ => string.Join("; ", (unavailable.Length > 0 ? new[] { string.Join(", ", unavailable.Select(i => Labels.GetValueOrDefault(i.Name, i.Name).ToLowerInvariant())) + " unavailable" } : [])
+                .Concat(unverified)) is { Length: > 0 } reason ? reason : "not every input is evaluated",
+        };
+        var rows = mine.Where(i => i.Required || i.State == InputState.Evaluated).Select(Row).ToList();
         if (a.Domain == DiagnosticDomain.Guest && sample.Gpu.HardwareAcceleration is not true)
             rows.Add(sample.Gpu.HardwareAcceleration == false
                 ? new("GPU", "Software rendering", "Not applicable", "No hardware GPU detected; GPU diagnostics do not apply.")
@@ -489,15 +533,20 @@ public sealed class DiagnosticsViewModel : ObservableObject
 /// <summary>One diagnostic trend: its data (rendered by the view's own chart objects), latest value and threshold labels.</summary>
 public sealed class TrendChart : ObservableObject
 {
+    /// <summary>Axis and threshold-line label size in DIPs; larger than the dashboard charts for detailed analysis.</summary>
+    public const double LabelSize = 12;
     private const int Capacity = 720;
     private readonly double? maximum;
+    private ReferenceLine[] configured = [];
+    private bool conditionMet;
+    private DateTime? rangeStart;
     private string latest = "N/A", reference = "";
     private bool hasData;
 
     public TrendChart(string title, string unit, string description, double? minimum = null, double? maximum = null)
     {
         Title = title; Unit = unit; Description = description; this.maximum = maximum;
-        Data = new ChartData(title, unit, Capacity, yMin: minimum, yMax: maximum, yMinStep: unit == "%" && maximum is null ? 0.5 : 1, xStepSeconds: 15);
+        Data = new ChartData(title, unit, Capacity, yMin: minimum, yMax: maximum, yMinStep: unit == "%" && maximum is null ? 0.5 : 1, xStepSeconds: 15, labelSize: LabelSize);
     }
 
     public string Title { get; }
@@ -507,14 +556,23 @@ public sealed class TrendChart : ObservableObject
     public IReadOnlyList<TimeValue> Points => Data.Points;
     public string AutomationName => $"{Title} trend, {Unit}. Latest {Latest}. {Reference}";
     public string Latest { get => latest; set { if (Set(ref latest, value)) Raise(nameof(AutomationName)); } }
-    public string Reference { get => reference; private set => Set(ref reference, value); }
+    /// <summary>Threshold description for the chart header, including whether conditional thresholds apply right now.</summary>
+    public string Reference { get => reference; private set { if (Set(ref reference, value)) Raise(nameof(AutomationName)); } }
     public bool HasData { get => hasData; private set { if (Set(ref hasData, value)) Raise(nameof(ShowNoData)); } }
     public bool ShowNoData => !hasData;
 
     public void SetReferences(params ReferenceLine[] references)
     {
-        Reference = string.Join(" · ", references.Select(r => r.Label));
-        Data.SetReferences(references);
+        configured = references;
+        Publish();
+    }
+
+    /// <summary>Whether the engine has established the condition of the conditional threshold lines; unconditional lines are unaffected.</summary>
+    public void SetCondition(bool met)
+    {
+        if (conditionMet == met) return;
+        conditionMet = met;
+        Publish();
     }
 
     public void Add(DateTime at, double? value) => Data.Add(at, value);
@@ -527,18 +585,31 @@ public sealed class TrendChart : ObservableObject
         SetRange(null, null);
     }
 
-    /// <summary>Shared time range; the value axis always includes the warning line so headroom stays visible.</summary>
+    /// <summary>Shared time range; the value axis includes the applicable warning line so headroom stays visible.</summary>
     public void SetRange(DateTime? start, DateTime? end)
     {
+        rangeStart = start;
         Data.SetXRange(start, end);
-        var visible = Data.Points.Where(p => p.Value is not null && (start is null || p.At >= start)).Select(p => p.Value!.Value).ToArray();
+        Publish();
+    }
+
+    private void Publish()
+    {
+        var visible = Data.Points.Where(p => p.Value is not null && (rangeStart is null || p.At >= rangeStart)).Select(p => p.Value!.Value).ToArray();
         HasData = visible.Length > 0;
-        if (maximum is not null) return;
-        var lines = Data.References;
-        var top = Math.Max(visible.Length == 0 ? 0 : visible.Max(), lines.Count == 0 ? 0 : lines[0].Value);
-        var yMax = top <= 0 ? (double?)null : top * 1.15;
-        Data.SetYMax(yMax);
-        // Lines above the visible range are hidden rather than drawn outside the plot.
-        Data.SetReferences(lines.Select(r => r with { Visible = r.Value <= (yMax ?? 0) }).ToArray());
+        bool Applies(ReferenceLine r) => !r.Conditional || conditionMet;
+        double? yMax = maximum;
+        if (maximum is null)
+        {
+            // A hidden conditional line does not stretch the axis.
+            var first = configured.FirstOrDefault(Applies);
+            var top = Math.Max(visible.Length == 0 ? 0 : visible.Max(), first?.Value ?? 0);
+            yMax = top <= 0 ? null : top * 1.15;
+            Data.SetYMax(yMax);
+        }
+        Reference = string.Join(" · ", configured.Select(r => !r.Conditional ? r.Label
+            : conditionMet ? $"{r.Label} — applies now ({r.Condition})" : $"{r.Label} — conditional: applies during {r.Condition}; line hidden"));
+        // Lines above the plotted range are hidden rather than drawn outside the chart.
+        Data.SetReferences(configured.Select(r => r with { Applies = Applies(r), Visible = Applies(r) && (maximum is not null || r.Value <= (yMax ?? 0)) }).ToArray());
     }
 }

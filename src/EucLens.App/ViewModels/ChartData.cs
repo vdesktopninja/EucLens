@@ -6,7 +6,12 @@ namespace EucLens.App.ViewModels;
 public readonly record struct TimeValue(DateTime At, double? Value);
 
 /// <summary>A configured threshold drawn as a reference line; never a value the engine does not use.</summary>
-public sealed record ReferenceLine(string Level, double Value, string Label, string ChartLabel, bool Visible = true);
+/// <remarks>
+/// <see cref="Conditional"/> lines are drawn only while their condition holds (see <see cref="Applies"/>); <see cref="Condition"/>
+/// explains it in words. <see cref="Visible"/> additionally hides a line that lies outside the plotted value range.
+/// </remarks>
+public sealed record ReferenceLine(string Level, double Value, string Label, string ChartLabel, bool Visible = true, bool Conditional = false,
+    bool Applies = true, string? Condition = null);
 
 /// <summary>
 /// Chart content owned by a view model: bounded points, axis ranges and reference lines. It holds no LiveCharts
@@ -14,7 +19,7 @@ public sealed record ReferenceLine(string Level, double Value, string Label, str
 /// so each chart view builds its own series, axes and sections from this data (see Presentation.ChartObjects).
 /// </summary>
 public sealed class ChartData(string name, string unit, int capacity, string? axisName = null, double? yMin = 0, double? yMax = null,
-    double yMinStep = 1, double xStepSeconds = 20, double smoothness = 0) : ObservableObject
+    double yMinStep = 1, double xStepSeconds = 20, double smoothness = 0, double labelSize = 11) : ObservableObject
 {
     private double? xMin, xMax, yMaxLimit = yMax;
     private IReadOnlyList<ReferenceLine> references = [];
@@ -26,6 +31,8 @@ public sealed class ChartData(string name, string unit, int capacity, string? ax
     public double YMinStep { get; } = yMinStep;
     public double XStepSeconds { get; } = xStepSeconds;
     public double Smoothness { get; } = smoothness;
+    /// <summary>Axis and threshold-line label size in DIPs.</summary>
+    public double LabelSize { get; } = labelSize;
     public ObservableCollection<TimeValue> Points { get; } = [];
     /// <summary>Visible time range in DateTime ticks; null lets the chart fit the data.</summary>
     public double? XMin { get => xMin; private set => Set(ref xMin, value); }

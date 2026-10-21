@@ -19,6 +19,10 @@ public static class ChartTheme
     /// <summary>Colours of threshold reference lines; a section's Tag ("Warning" or "Critical") selects the brush.</summary>
     public static readonly DependencyProperty WarningProperty = Register("Warning");
     public static readonly DependencyProperty CriticalProperty = Register("Critical");
+    /// <summary>Tooltip text size; charts that do not set it keep 12 DIPs.</summary>
+    public static readonly DependencyProperty TooltipTextSizeProperty = DependencyProperty.RegisterAttached("TooltipTextSize", typeof(double), typeof(ChartTheme), new PropertyMetadata(12d));
+    public static double GetTooltipTextSize(DependencyObject target) => (double)target.GetValue(TooltipTextSizeProperty);
+    public static void SetTooltipTextSize(DependencyObject target, double value) => target.SetValue(TooltipTextSizeProperty, value);
     private static DependencyProperty Register(string name) => DependencyProperty.RegisterAttached(name,
         typeof(Brush), typeof(ChartTheme), new PropertyMetadata(null, Changed));
     public static Brush? GetText(DependencyObject target) => (Brush?)target.GetValue(TextProperty);
@@ -54,7 +58,7 @@ public static class ChartTheme
             GetGrid(chart) is not SolidColorBrush grid || GetLine(chart) is not SolidColorBrush line) return;
         chart.TooltipTextPaint = Paint(text);
         chart.TooltipBackgroundPaint = Paint(surface);
-        chart.TooltipTextSize = 12;
+        chart.TooltipTextSize = GetTooltipTextSize(chart);
         foreach (var axis in chart.XAxes.OfType<Axis>())
         {
             axis.LabelsPaint = Paint(text); axis.NamePaint = Paint(text); axis.SeparatorsPaint = null;
@@ -70,7 +74,7 @@ public static class ChartTheme
         foreach (var section in chart.Sections?.OfType<RectangularSection>() ?? [])
         {
             if ((Equals(section.Tag, "Critical") ? GetCritical(chart) : GetWarning(chart)) is not SolidColorBrush level) continue;
-            var stroke = Paint(level);
+            var stroke = Paint(level, 1.5f);
             stroke.PathEffect = new DashEffect([4f, 3f], 0);
             section.Stroke = stroke; section.Fill = null; section.LabelPaint = Paint(level);
         }

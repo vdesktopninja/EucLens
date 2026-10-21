@@ -14,9 +14,19 @@ public sealed class AdaptiveColumnsPanel : Panel
         nameof(MaximumColumns), typeof(int), typeof(AdaptiveColumnsPanel),
         new FrameworkPropertyMetadata(2, FrameworkPropertyMetadataOptions.AffectsMeasure),
         value => value is int count && count > 0);
+    /// <summary>Avoids an orphan row: with 4 children and room for 3 columns, uses 2 so the rows stay even.</summary>
+    public static readonly DependencyProperty BalanceRowsProperty = DependencyProperty.Register(
+        nameof(BalanceRows), typeof(bool), typeof(AdaptiveColumnsPanel), new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsMeasure));
+    public bool BalanceRows { get => (bool)GetValue(BalanceRowsProperty); set => SetValue(BalanceRowsProperty, value); }
     public double MinimumColumnWidth { get => (double)GetValue(MinimumColumnWidthProperty); set => SetValue(MinimumColumnWidthProperty, value); }
     public int MaximumColumns { get => (int)GetValue(MaximumColumnsProperty); set => SetValue(MaximumColumnsProperty, value); }
-    private int Columns(double width) => double.IsInfinity(width) ? MaximumColumns : Math.Max(1, Math.Min(MaximumColumns, (int)(width / MinimumColumnWidth)));
+    private int Columns(double width)
+    {
+        var columns = double.IsInfinity(width) ? MaximumColumns : Math.Max(1, Math.Min(MaximumColumns, (int)(width / MinimumColumnWidth)));
+        var count = InternalChildren.Count;
+        if (BalanceRows && count > 1) while (columns > 1 && (columns > count || count % columns != 0)) columns--;
+        return columns;
+    }
     protected override Size MeasureOverride(Size availableSize)
     {
         var columns = Columns(availableSize.Width);

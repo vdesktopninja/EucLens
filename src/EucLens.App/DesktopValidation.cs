@@ -2,6 +2,8 @@ using System.IO;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -68,11 +70,17 @@ internal static class DesktopValidation
                     if (page is DiagnosticsPage)
                     {
                         CheckText(window);
-                        CheckScrolling(window);
+                        await CheckDiagnosticsLayoutAsync(window, vm);
                         // Whole page, not just the viewport, for visual review. Scale cases simulate DIP space only.
                         if (scale == 1 || width == 1366)
-                            Capture(window, Descendants<Views.DiagnosticsView>(window).Single(),
-                                Path.Combine(directory, $"diagnostics-fullpage-{width}x{height}-{scale * 100:0}pct-{(dark ? "dark" : "light")}.png"));
+                        {
+                            var tag = $"{width}x{height}-{scale * 100:0}pct-{(dark ? "dark" : "light")}";
+                            Capture(window, Descendants<Views.DiagnosticsView>(window).Single(), Path.Combine(directory, $"diagnostics-fullpage-{tag}.png"));
+                            // The findings and evidence region as the administrator sees it after selecting a finding.
+                            await ScrollToFindingsAsync(window);
+                            Capture(window, client, Path.Combine(directory, $"diagnostics-findings-{tag}.png"));
+                            await ScrollPageAsync(window, home: true);
+                        }
                     }
                     report.AppendLine($"PASS: {(dark ? "dark" : "light")} | {width}×{height} | {scale:P0} available-space simulation | {page.Name} | client viewport {client.ActualWidth:0}×{client.ActualHeight:0} DIP; host window {window.ActualWidth:0}×{window.ActualHeight:0} DIP");
                     // Diagnostics is also captured at 125 % and 150 %, where the evidence panel moves below the list.
@@ -144,7 +152,7 @@ internal static class DesktopValidation
     }
     private static void CheckPanes(Window window)
     {
-        foreach (var panel in Descendants<Panel>(window).Where(p => p is AdaptiveColumnsPanel or MasterDetailPanel))
+        foreach (var panel in Descendants<Panel>(window).Where(p => p is AdaptiveColumnsPanel or ResponsiveSplitPanel))
         {
             var bounds = panel.Children.Cast<UIElement>().Where(child => child.Visibility == Visibility.Visible)
                 .Select(child => child.TransformToAncestor(panel).TransformBounds(new Rect(child.RenderSize))).ToArray();
@@ -160,20 +168,114 @@ internal static class DesktopValidation
             }
         }
     }
-    /// <summary>The page scrolls as one surface: no nested scroll viewer inside it, and the end of the page is reachable.</summary>
-    private static void CheckScrolling(Window window)
+    private static ScrollViewer PageScroll(Window window) =>
+        Descendants<ScrollViewer>(window).First(v => v.IsAncestorOf(Descendants<Views.DiagnosticsView>(window).Single()));
+
+    private static async Task ScrollPageAsync(Window window, bool home)
+    {
+        var page = PageScroll(window);
+        if (home) page.ScrollToHome(); else page.ScrollToEnd();
+        await window.Dispatcher.InvokeAsync(page.UpdateLayout, DispatcherPriority.ApplicationIdle);
+    }
+
+    private static async Task ScrollToFindingsAsync(Window window)
     {
         var view = Descendants<Views.DiagnosticsView>(window).Single();
-        if (Descendants<ScrollViewer>(view).Any(v => v.IsVisible)) throw new InvalidOperationException("Diagnostics contains a nested scroll viewer that would capture the mouse wheel.");
-        var page = Descendants<ScrollViewer>(window).First(v => v.IsAncestorOf(view));
-        if (page.ScrollableHeight > 0)
+        ((FrameworkElement)view.FindName("FindingsRegion")).BringIntoView();
+        await window.Dispatcher.InvokeAsync(() => PageScroll(window).UpdateLayout(), DispatcherPriority.ApplicationIdle);
+    }
+
+    private static void RaiseKey(UIElement target, Key key) => target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(target)!, 0, key) { RoutedEvent = Keyboard.KeyDownEvent });
+    /// <summary>Raises what the input system raises for a real wheel turn: the preview event, then (unless handled) the bubbling event.</summary>
+    private static void RaiseWheel(UIElement target, int delta)
+    {
+        var preview = new MouseWheelEventArgs(Mouse.PrimaryDevice, Environment.TickCount, delta) { RoutedEvent = UIElement.PreviewMouseWheelEvent, Source = target };
+        target.RaiseEvent(preview);
+        if (!preview.Handled) target.RaiseEvent(new MouseWheelEventArgs(Mouse.PrimaryDevice, Environment.TickCount, delta) { RoutedEvent = UIElement.MouseWheelEvent, Source = target });
+    }
+
+    /// <summary>
+    /// Findings and evidence layout: responsive arrangement, usable minimum sizes, reachability below the fold, independent
+    /// scrolling with wheel chaining, keyboard access, selection that survives resizing, and no horizontal overflow of the page.
+    /// </summary>
+    private static async Task CheckDiagnosticsLayoutAsync(Window window, MainViewModel vm)
+    {
+        var view = Descendants<Views.DiagnosticsView>(window).Single();
+        var region = (ResponsiveSplitPanel)view.FindName("FindingsRegion");
+        var findings = (ScrollViewer)view.FindName("FindingsScroll");
+        var evidence = (ScrollViewer)view.FindName("EvidenceScroll");
+        var splitter = (Thumb)view.FindName("FindingsSplitter");
+        var list = (ListBox)view.FindName("FindingsList");
+        var page = PageScroll(window);
+        var where = $"viewport {page.ViewportWidth:0}×{page.ViewportHeight:0}, region {region.ActualWidth:0}×{region.ActualHeight:0}";
+        Task Idle() => window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle).Task;
+
+        // No horizontal overflow: the page never needs a horizontal scroll bar.
+        if (view.DesiredSize.Width > page.ViewportWidth + 1) throw new InvalidOperationException($"Diagnostics is wider than the page ({view.DesiredSize.Width:0} > {page.ViewportWidth:0} DIP).");
+
+        // The region fills the visible page height, with a floor so both panes stay usable.
+        var expectedHeight = SplitLayout.RegionHeight(page.ViewportHeight, (double)view.FindResource("FindingsRegionReserve"), (double)view.FindResource("FindingsRegionMinHeight"));
+        if (Math.Abs(region.ActualHeight - expectedHeight) > 1.5) throw new InvalidOperationException($"Findings region height {region.ActualHeight:0} does not follow the visible page height ({expectedHeight:0}; {where}).");
+
+        // Responsive arrangement follows the available width and keeps both panes usable.
+        var expectedSide = SplitLayout.IsSideBySide(region.ActualWidth, SplitOptions.Default with { SplitWidth = region.SplitWidth, MinMasterWidth = region.MinMasterWidth, MinDetailWidth = region.MinDetailWidth, Thickness = region.SplitterThickness });
+        if (region.IsSideBySide != expectedSide) throw new InvalidOperationException($"Findings region arranged {(region.IsSideBySide ? "side by side" : "stacked")} but width {region.ActualWidth:0} DIP requires the opposite.");
+        if (evidence.ActualWidth < region.MinDetailWidth - 4 || evidence.ActualHeight < 140 || findings.ActualHeight < 60 || findings.ActualWidth < 200)
+            throw new InvalidOperationException($"A findings pane is too small to use: findings {findings.ActualWidth:0}×{findings.ActualHeight:0}, evidence {evidence.ActualWidth:0}×{evidence.ActualHeight:0} ({where}).");
+
+        // Selection survives resizing and relayout, and the evidence belongs to it.
+        if (vm.Diagnostics.SelectedFinding is { } selected)
         {
-            page.ScrollToEnd();
-            page.UpdateLayout();
-            if (Math.Abs(page.VerticalOffset - page.ScrollableHeight) > 1) throw new InvalidOperationException("Diagnostics page cannot scroll to its end.");
-            page.ScrollToHome();
-            page.UpdateLayout();
+            if (!ReferenceEquals(list.SelectedItem, selected) || list.ItemContainerGenerator.ContainerFromItem(selected) is not ListBoxItem { IsSelected: true })
+                throw new InvalidOperationException("The selected finding is no longer selected in the list after a layout change.");
+            if (((ContentControl)((StackPanel)evidence.Content).Children[1]).Content != selected) throw new InvalidOperationException("The evidence panel shows a different finding than the selection.");
         }
+
+        // The evidence panel is reachable: scrolling the page brings its top into the viewport.
+        evidence.BringIntoView();
+        await Idle();
+        var top = evidence.TransformToAncestor(page).Transform(new Point(0, 0)).Y;
+        if (top < -1 || top >= page.ViewportHeight - 20) throw new InvalidOperationException($"The evidence panel cannot be brought into view (top {top:0} of {page.ViewportHeight:0}).");
+
+        // Independent scrolling: moving through the evidence does not move the page; at its end the wheel continues to the page.
+        page.ScrollToHome(); evidence.ScrollToHome(); await Idle();
+        if (evidence.ScrollableHeight > 1)
+        {
+            var pageBefore = page.VerticalOffset;
+            RaiseWheel(evidence, -120);
+            await Idle();
+            if (evidence.VerticalOffset <= 0 || Math.Abs(page.VerticalOffset - pageBefore) > 0.5) throw new InvalidOperationException("The wheel did not scroll the evidence pane on its own.");
+            evidence.ScrollToEnd(); await Idle();
+        }
+        if (page.ScrollableHeight > 1)
+        {
+            var pageBefore = page.VerticalOffset;
+            RaiseWheel(evidence, -120);
+            await Idle();
+            if (page.VerticalOffset <= pageBefore) throw new InvalidOperationException($"The wheel did not continue to the page after the evidence pane reached its end ({where}).");
+        }
+        evidence.ScrollToHome(); await ScrollPageAsync(window, home: true);
+
+        // Keyboard access: evidence and splitter are focusable tab stops, and the splitter moves with the arrow keys within its limits.
+        if (!evidence.Focusable || !evidence.IsTabStop || !splitter.Focusable || !splitter.IsTabStop || !list.IsTabStop)
+            throw new InvalidOperationException("Findings, splitter or evidence cannot be reached with the keyboard.");
+        // The effective position of the splitter is the master pane's extent; at a limit one direction cannot move, the other can.
+        double Extent() => region.IsSideBySide ? findings.ActualWidth : findings.ActualHeight;
+        var (wide, stacked) = (region.WideFraction, region.StackedFraction);
+        var (grow, shrink) = region.IsSideBySide ? (Key.Right, Key.Left) : (Key.Down, Key.Up);
+        var positions = new List<double> { Extent() };
+        foreach (var key in new[] { grow, shrink, shrink })
+        {
+            RaiseKey(splitter, key);
+            await Idle();
+            positions.Add(Extent());
+        }
+        if (positions.Zip(positions.Skip(1), (a, b) => Math.Abs(b - a)).Max() < 0.5) throw new InvalidOperationException($"The splitter did not respond to the keyboard ({where}).");
+        if (evidence.ActualWidth < region.MinDetailWidth - 4 || evidence.ActualHeight < 140 || findings.ActualHeight < 60)
+            throw new InvalidOperationException("Moving the splitter shrank a pane below its minimum.");
+        // The view is rebuilt on every visit; restore the starting layout so captures show the default split.
+        region.WideFraction = wide; region.StackedFraction = stacked;
+        await Idle();
     }
     /// <summary>Single-line text without trimming must fit its box; wrapping text reflows and is not clipped.</summary>
     private static void CheckText(Window window)

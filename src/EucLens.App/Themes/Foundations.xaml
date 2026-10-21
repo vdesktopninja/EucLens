@@ -3,6 +3,12 @@
  <FontFamily x:Key="BodyFont">Segoe UI</FontFamily>
  <FontFamily x:Key="IconFont">Segoe MDL2 Assets</FontFamily>
  <sys:Double x:Key="LabelFontSize">12</sys:Double>
+ <!-- Diagnostics reading hierarchy: body 14, key values 15, state 16, technical metadata 12. -->
+ <sys:Double x:Key="ReadingFontSize">14</sys:Double>
+ <sys:Double x:Key="ValueFontSize">15</sys:Double>
+ <sys:Double x:Key="StateFontSize">16</sys:Double>
+ <sys:Double x:Key="MetaFontSize">12</sys:Double>
+ <sys:Double x:Key="TooltipFontSize">13</sys:Double>
  <sys:Double x:Key="BodyFontSize">13</sys:Double>
  <sys:Double x:Key="SectionFontSize">14</sys:Double>
  <sys:Double x:Key="HeadingFontSize">18</sys:Double>
@@ -18,13 +24,17 @@
  <GridLength x:Key="AdvancedStatusWidth">92</GridLength>
  <GridLength x:Key="AdvancedTimeWidth">96</GridLength>
  <sys:Double x:Key="ChartHeight">176</sys:Double>
- <sys:Double x:Key="TrendChartHeight">116</sys:Double>
+ <sys:Double x:Key="TrendChartHeight">190</sys:Double>
+ <sys:Double x:Key="FindingsRowHeight">36</sys:Double>
+ <sys:Double x:Key="SplitterThickness">6</sys:Double>
+ <sys:Double x:Key="FindingsRegionReserve">80</sys:Double>
+ <sys:Double x:Key="FindingsRegionMinHeight">520</sys:Double>
  <sys:Double x:Key="MarkerSize">8</sys:Double>
- <GridLength x:Key="FindingSeverityWidth">88</GridLength>
+ <GridLength x:Key="FindingSeverityWidth">92</GridLength>
  <GridLength x:Key="FindingCategoryWidth">96</GridLength>
- <GridLength x:Key="FindingTimeWidth">80</GridLength>
+ <GridLength x:Key="FindingTimeWidth">76</GridLength>
  <GridLength x:Key="FindingDurationWidth">76</GridLength>
- <GridLength x:Key="FindingStateWidth">100</GridLength>
+ <GridLength x:Key="FindingStateWidth">104</GridLength>
  <Thickness x:Key="Hairline">1</Thickness>
  <Thickness x:Key="PanelPadding">12</Thickness>
  <Thickness x:Key="ControlPadding">12,4</Thickness>
