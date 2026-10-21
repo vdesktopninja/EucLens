@@ -86,8 +86,12 @@ public partial class App : Application
             // CI runners have no Horizon Agent: Real Session must keep running and report N/A, never demo values.
             vm.SelectedMode = vm.Modes.Single(m => m.Value == MonitoringMode.RealSession);
             vm.StartRecordingCommand.Execute(null);
-            await Task.Delay(2200);
+            // The first real sample includes counter discovery, which is slower on a cold runner: wait for samples, not a fixed time.
+            var firstSample = Stopwatch.StartNew();
+            while (vm.SampleCount < 3 && firstSample.Elapsed < TimeSpan.FromSeconds(30)) await Task.Delay(200);
             vm.StopRecordingCommand.Execute(null);
+            evidence.Add($"Real Session: {vm.SampleCount} samples recorded {firstSample.Elapsed.TotalSeconds:0.0} s after recording started.");
+            Check(vm.SampleCount >= 3, "Real Session produced fewer than 3 samples in 30 s.");
             Check(vm.Status.StartsWith("REAL SESSION", StringComparison.Ordinal) || vm.Status.StartsWith("Recording stopped", StringComparison.Ordinal), "Real Session status missing.");
             Check(vm.ModeBanner.StartsWith("REAL SESSION", StringComparison.Ordinal), "Real Session banner missing.");
             // No Horizon Agent: Blast fields are N/A. Host CPU is protocol-independent and must be measured.
