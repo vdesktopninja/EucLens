@@ -38,9 +38,28 @@ public static class ChartTheme
         if (target is not CartesianChart chart) return;
         chart.Loaded -= Loaded;
         chart.Loaded += Loaded;
+        chart.Unloaded -= Unloaded;
+        chart.Unloaded += Unloaded;
         if (chart.IsLoaded) Apply(chart);
     }
     private static void Loaded(object sender, RoutedEventArgs args) => Apply((CartesianChart)sender);
+    /// <summary>
+    /// Series, axes, sections and points are owned by view models and outlive the chart, while LiveCharts keeps
+    /// per-chart state on each of them (every point maps chart view → visual). Releasing it on unload stops each page
+    /// visit from retaining the previous chart instances.
+    /// </summary>
+    private static void Unloaded(object sender, RoutedEventArgs args)
+    {
+        var chart = (CartesianChart)sender;
+        foreach (var series in chart.Series ?? [])
+        {
+            series.SoftDeleteOrDispose(chart);
+            if (series.Values is System.Collections.IEnumerable values)
+                foreach (var entity in values.OfType<LiveChartsCore.Kernel.IChartEntity>()) entity.MetaData?.ChartPoints?.Remove(chart);
+        }
+        foreach (var element in (chart.XAxes ?? []).Cast<LiveChartsCore.Kernel.IChartElement>().Concat(chart.YAxes ?? []).Concat(chart.Sections ?? []))
+            element.RemoveFromUI(chart.CoreChart);
+    }
     private static SolidColorPaint Paint(Brush brush, float thickness = 1)
     {
         var color = ((SolidColorBrush)brush).Color;
