@@ -496,6 +496,7 @@ public sealed record ReferenceLine(string Level, double Value, string Label, str
 /// <summary>Bounded time series for one trend chart. Unavailable samples are null points, which render as gaps.</summary>
 public sealed class TrendChart : ObservableObject
 {
+    static TrendChart() => ChartsRuntime.EnsureInitialized();
     private const int Capacity = 720;
     private readonly ObservableCollection<DateTimePoint> points = [];
     private readonly double? minimum, maximum;

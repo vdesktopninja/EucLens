@@ -9,6 +9,8 @@ namespace EucLens.App.ViewModels;
 
 public sealed class MainViewModel : ObservableObject
 {
+    // Runs before the axis property initializers below.
+    static MainViewModel() => ChartsRuntime.EnsureInitialized();
     private readonly IDemoMetricsProvider provider;
     private readonly IMetricsProvider? realProvider;
     private Choice<MonitoringMode> selectedMode;
