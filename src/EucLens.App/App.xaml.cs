@@ -302,9 +302,11 @@ public partial class App : Application
         GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
         var before = GC.GetTotalMemory(true);
         var workingBefore = Process.GetCurrentProcess().WorkingSet64;
-        var middle = await Cycles();
-        var after = await Cycles();
-        var workingAfter = Process.GetCurrentProcess().WorkingSet64;
+        // 4 × 12 cycles; the heap after a full GC is recorded after each batch to show whether retained memory levels off.
+        var batches = new List<(long Heap, long WorkingSet)>();
+        for (var batch = 0; batch < 4; batch++) batches.Add((await Cycles(), Process.GetCurrentProcess().WorkingSet64));
+        var after = batches[^1].Heap;
+        var workingAfter = batches[^1].WorkingSet;
         // Charts rebuilt on every visit must still draw the current data after repeated navigation.
         await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
         await DesktopValidation.WaitForChartMeasureAsync(MainWindow);
@@ -314,11 +316,13 @@ public partial class App : Application
         const double MiB = 1024 * 1024;
         var result = $"Diagnostics soak (Demo high latency, page open, 4 live charts): findings after {seconds:0} s ({string.Join(", ", d.Findings.Select(f => $"{f.RuleId}:{f.Severity}"))}); " +
             $"UI dispatcher latency over {latencies.Count} probes median {Percentile(.5):0.0} ms, P95 {Percentile(.95):0.0} ms, max {latencies[^1]:0.0} ms; " +
-            $"2 × 12 navigation cycles: managed heap {before / MiB:0.0} → {middle / MiB:0.0} → {after / MiB:0.0} MiB, working set {workingBefore / MiB:0} → {workingAfter / MiB:0} MiB.";
+            $"4 × 12 navigation cycles: managed heap {before / MiB:0.0} → {string.Join(" → ", batches.Select(b => (b.Heap / MiB).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)))} MiB, " +
+            $"working set {workingBefore / MiB:0} → {string.Join(" → ", batches.Select(b => (b.WorkingSet / MiB).ToString("0", System.Globalization.CultureInfo.InvariantCulture)))} MiB.";
         if (Percentile(.5) > 200 || latencies[^1] > 2000) throw new InvalidOperationException("Diagnostics page is not responsive. " + result);
         if (after - before > 48 * MiB) throw new InvalidOperationException("Managed heap grew across Diagnostics navigation. " + result);
         // A leak grows with every visit; retained live-window history levels off after the first batch.
-        if (after - middle > 8 * MiB) throw new InvalidOperationException("Managed heap keeps growing per Diagnostics visit. " + result);
+        for (var batch = 1; batch < batches.Count; batch++)
+            if (batches[batch].Heap - batches[batch - 1].Heap > 8 * MiB) throw new InvalidOperationException($"Managed heap keeps growing per Diagnostics visit (batch {batch + 1}). " + result);
         if (d.Findings.Count > 0) d.SelectedFinding = d.Findings[0];
         return result;
     }
