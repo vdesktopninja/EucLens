@@ -40,7 +40,7 @@ public sealed class DiagnosticsPresentationTests
         ? new(v, unit, Source: "synthetic", SampleStatus: MetricStatus.Available)
         : new(null, unit, "Blast counters not found", "synthetic", SampleStatus: MetricStatus.Unavailable);
 
-    private static SessionSnapshot Snap(DateTimeOffset at, double? rtt = 30, double? loss = 0, double? fps = 30, double? cpu = 20, double? ram = 40,
+    internal static SessionSnapshot Snap(DateTimeOffset at, double? rtt = 30, double? loss = 0, double? fps = 30, double? cpu = 20, double? ram = 40,
         bool? hardwareGpu = false, double? jitter = null, WorkloadContext workload = WorkloadContext.Idle, double? dirty = null)
     {
         var blast = new Dictionary<string, Metric> { ["rtt"] = M(rtt, "ms") };

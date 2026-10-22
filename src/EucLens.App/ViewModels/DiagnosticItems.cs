@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using EucLens.App.Presentation;
 using EucLens.Core;
 
 namespace EucLens.App.ViewModels;
@@ -107,6 +108,8 @@ public sealed class FindingItem : ObservableObject
     public string SeverityLabel => card.SeverityLabel;
     /// <summary>Colour key: only active warnings and critical findings are coloured; information and recovered stay neutral.</summary>
     public string Marker => card.IsProblem ? card.SeverityLabel : "Neutral";
+    /// <summary>Icon (<see cref="SeverityKind"/> name): the engine severity while active, "Recovered" afterwards. Independent of <see cref="Marker"/>, which only colours problem text.</summary>
+    public string IconKind => SeverityKinds.ForFinding(card.Level, card.IsActive).ToString();
     public string State => card.State;
     public bool IsProblem => card.IsProblem;
     public bool IsActive => card.IsActive;
@@ -172,7 +175,9 @@ public sealed class DomainHealthItem(DiagnosticDomain domain, string title) : Ob
     public DiagnosticDomain DomainKey { get; } = domain;
     /// <summary>Display name, e.g. "Connection Health".</summary>
     public string Domain { get; } = title;
-    public string State { get => state; set => Set(ref state, value); }
+    public string State { get => state; set { if (Set(ref state, value)) Raise(nameof(StateIcon)); } }
+    /// <summary>Icon (<see cref="SeverityKind"/> name) of the health state; the state text stays next to it.</summary>
+    public string StateIcon => SeverityKinds.ForState(state).ToString();
     public string Coverage { get => coverage; set => Set(ref coverage, value); }
     public string Observation { get => observation; set => Set(ref observation, value); }
     public string ActiveProblems { get => problems; set => Set(ref problems, value); }

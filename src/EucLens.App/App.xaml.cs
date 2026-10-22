@@ -127,7 +127,7 @@ public partial class App : Application
             Check(vm.GpuCards.Any(c => c.Label == "Graphics acceleration") || vm.GpuCards.Any(c => c.Label == "GPU model"), "GPU acceleration state missing.");
             if (vm.GpuCards.Any(c => c.Label == "Graphics acceleration"))
             {
-                Check(d.Findings.Any(f => f.RuleId == "gpu.software-rendering" && f.Severity == "INFO" && f.State == "Informational" && f.Marker == "Neutral"),
+                Check(d.Findings.Any(f => f.RuleId == "gpu.software-rendering" && f.Severity == "INFO" && f.State == "Informational" && f.Marker == "Neutral" && f.IconKind == "Info"),
                     "Software rendering must be a neutral information finding, not a warning.");
                 Check(d.Domains.Single(x => x.Domain == "VDI Guest Health").Measurements.Any(m => m.Label == "GPU" && m.Value == "Software rendering" && m.Threshold == "Not applicable"),
                     "Guest health must state software rendering once, as not applicable.");

@@ -46,6 +46,14 @@ internal static class DesktopValidation
             var expectedBackground = (SolidColorBrush)window.FindResource("WindowBrush");
             if (window.Background is not SolidColorBrush actualBackground || actualBackground.Color != expectedBackground.Color || !window.UseLayoutRounding)
                 throw new InvalidOperationException("Window foundation style or active theme background was not applied.");
+            try { report.AppendLine(CheckSeveritySpecimens(window, directory, dark)); }
+            catch (Exception ex)
+            {
+                SmokeLog.Write($"severity icon specimens FAILED ({(dark ? "dark" : "light")}): {ex.Message}");
+                report.AppendLine($"FAIL: severity icon specimens ({(dark ? "dark" : "light")}) | {ex.GetType().Name}: {ex.Message}");
+                await File.WriteAllTextAsync(Path.Combine(directory, "layout-results.txt"), report.ToString());
+                throw;
+            }
             foreach (var (width, height) in cases)
             foreach (var scale in new[] { 1d, 1.25d, 1.5d })
             {
@@ -74,6 +82,7 @@ internal static class DesktopValidation
                     if (page is DiagnosticsPage)
                     {
                         CheckText(window);
+                        report.AppendLine($"    severity icons: {CheckSeverityIcons(window, vm)}");
                         var keyboard = await CheckDiagnosticsLayoutAsync(window, vm);
                         var emptyState = await CheckEmptyFindingsAsync(window, vm, Descendants<Views.DiagnosticsView>(window).Single());
                         report.AppendLine($"    keyboard: {keyboard}");
@@ -437,6 +446,135 @@ internal static class DesktopValidation
         await Idle();
         return keyboard;
     }
+    // ---------- severity icons ----------
+    private static readonly (SeverityKind Kind, string Label, string Brush)[] SeveritySpecimens =
+    [
+        (SeverityKind.Info, "Information", "AccentBrush"), (SeverityKind.Warning, "Warning", "WarningBrush"), (SeverityKind.Critical, "Critical", "CriticalBrush"),
+        (SeverityKind.Healthy, "Healthy", "SuccessBrush"), (SeverityKind.Recovered, "Recovered", "MutedBrush"), (SeverityKind.NoData, "Insufficient data", "MutedBrush")
+    ];
+
+    private static double Luminance(Color c)
+    {
+        static double Channel(byte v) { var s = v / 255d; return s <= 0.03928 ? s / 12.92 : Math.Pow((s + 0.055) / 1.055, 2.4); }
+        return 0.2126 * Channel(c.R) + 0.7152 * Channel(c.G) + 0.0722 * Channel(c.B);
+    }
+
+    private static double Contrast(Color a, Color b)
+    {
+        var (x, y) = (Luminance(a), Luminance(b));
+        return (Math.Max(x, y) + 0.05) / (Math.Min(x, y) + 0.05);
+    }
+
+    /// <summary>
+    /// Every severity icon on the Diagnostics page must be a real, visible shape: populated geometry of the right kind, the style's size,
+    /// the theme colour (3:1 against the surface), a text label next to it, and vertical alignment with that label.
+    /// </summary>
+    private static string CheckSeverityIcons(Window window, MainViewModel vm)
+    {
+        var view = Descendants<Views.DiagnosticsView>(window).Single();
+        var style = (Style)window.FindResource("SeverityIcon");
+        var size = (double)window.FindResource("SeverityIconSize");
+        var surface = ((SolidColorBrush)window.FindResource("SurfaceBrush")).Color;
+        var counts = new SortedDictionary<string, int>();
+        foreach (var icon in Descendants<System.Windows.Shapes.Path>(view).Where(p => ReferenceEquals(p.Style, style) && p.IsVisible))
+        {
+            if (!Enum.TryParse<SeverityKind>(icon.Tag as string, out var kind) || !Enum.IsDefined(kind)) throw new InvalidOperationException($"A severity icon has an unknown kind '{icon.Tag}'.");
+            var expected = (Geometry)window.FindResource(SeverityKinds.GeometryKey(kind));
+            var brushName = SeveritySpecimens.Single(x => x.Kind == kind).Brush;
+            if (icon.Data is null || icon.Data.IsEmpty() || icon.Data.Bounds.Width < 8 || icon.Data.Bounds.Height < 8)
+                throw new InvalidOperationException($"The {kind} icon has no geometry (bounds {icon.Data?.Bounds}).");
+            if (!ReferenceEquals(icon.Data, expected)) throw new InvalidOperationException($"The {kind} icon shows the geometry of another kind.");
+            if (Math.Abs(icon.ActualWidth - size) > 0.5 || Math.Abs(icon.ActualHeight - size) > 0.5) throw new InvalidOperationException($"The {kind} icon is {icon.ActualWidth:0.#}×{icon.ActualHeight:0.#} DIP, expected {size:0}.");
+            if (icon.Fill is not SolidColorBrush fill || fill.Color != ((SolidColorBrush)window.FindResource(brushName)).Color || fill.Opacity < 1 || icon.Opacity < 1)
+                throw new InvalidOperationException($"The {kind} icon is not drawn with {brushName}.");
+            if (Contrast(fill.Color, surface) < 3) throw new InvalidOperationException($"The {kind} icon has {Contrast(fill.Color, surface):0.0}:1 contrast against the surface, below 3:1.");
+            if (VisualTreeHelper.GetParent(icon) is not Panel panel || panel.Children.OfType<TextBlock>().FirstOrDefault() is not { } label || string.IsNullOrWhiteSpace(label.Text))
+                throw new InvalidOperationException($"The {kind} icon has no text label next to it.");
+            var iconMid = icon.TransformToAncestor(panel).TransformBounds(new Rect(0, 0, icon.ActualWidth, icon.ActualHeight));
+            var labelMid = label.TransformToAncestor(panel).TransformBounds(new Rect(0, 0, label.ActualWidth, label.ActualHeight));
+            if (Math.Abs((iconMid.Top + iconMid.Bottom) / 2 - (labelMid.Top + labelMid.Bottom) / 2) > 2.5)
+                throw new InvalidOperationException($"The {kind} icon is not vertically aligned with its label '{label.Text}' (icon {iconMid.Top:0.#}–{iconMid.Bottom:0.#}, text {labelMid.Top:0.#}–{labelMid.Bottom:0.#}).");
+            counts[kind.ToString()] = counts.GetValueOrDefault(kind.ToString()) + 1;
+        }
+        var total = counts.Values.Sum();
+        var tiles = Math.Min(3, vm.Diagnostics.Domains.Count); // the page shows the first three domains as tiles
+        if (total < 1 + tiles) throw new InvalidOperationException($"Only {total} severity icons are visible on Diagnostics; the status line and {tiles} health tiles each need one.");
+        return $"{total} visible, {string.Join(", ", counts.Select(c => $"{c.Key}×{c.Value}"))}";
+    }
+
+    /// <summary>
+    /// Controlled data: each of the six kinds is rendered with the real style and the active theme at 100, 125 and 150 % pixel density
+    /// (render-time density of the bitmap, not a Windows DPI change). The pixels must show a shape of sensible size, in the theme colour,
+    /// with the symbol visible as a cut-out or fill, and every kind must differ from every other. A labelled sheet is saved for review.
+    /// </summary>
+    private static string CheckSeveritySpecimens(Window window, string directory, bool dark)
+    {
+        var theme = dark ? "dark" : "light";
+        var style = (Style)window.FindResource("SeverityIcon");
+        var size = (double)window.FindResource("SeverityIconSize");
+        var surface = (SolidColorBrush)window.FindResource("SurfaceBrush");
+        var summary = new List<string>();
+        foreach (var scale in new[] { 1d, 1.25, 1.5, 4d })
+        {
+            var dpi = 96 * scale;
+            var px = (int)Math.Ceiling(size * scale);
+            var masks = new Dictionary<SeverityKind, byte[]>();
+            var sheet = new StackPanel { Background = surface, Margin = new Thickness(0), MinWidth = 200 };
+            foreach (var (kind, text, brushName) in SeveritySpecimens)
+            {
+                if (scale != 4)
+                {
+                    var cell = new Border { Width = size, Height = size, Child = new System.Windows.Shapes.Path { Style = style, Tag = kind.ToString() } };
+                    cell.Measure(new Size(size, size)); cell.Arrange(new Rect(0, 0, size, size)); cell.UpdateLayout();
+                    var bitmap = new RenderTargetBitmap(px, px, dpi, dpi, PixelFormats.Pbgra32);
+                    bitmap.Render(cell);
+                    var pixels = new byte[px * px * 4];
+                    bitmap.CopyPixels(pixels, px * 4, 0);
+                    var alpha = new byte[px * px];
+                    for (var i = 0; i < alpha.Length; i++) alpha[i] = pixels[i * 4 + 3];
+                    masks[kind] = alpha;
+                    var coverage = alpha.Count(a => a > 128) / (double)alpha.Length;
+                    if (coverage < 0.18 || coverage > 0.85) throw new InvalidOperationException($"{theme} {kind} icon at {scale:P0}: covers {coverage:P0} of its box, expected 18–85 %.");
+                    var brush = ((SolidColorBrush)window.FindResource(brushName)).Color;
+                    var opaque = Enumerable.Range(0, alpha.Length).Where(i => alpha[i] == 255).ToArray();
+                    if (opaque.Length < 20) throw new InvalidOperationException($"{theme} {kind} icon at {scale:P0}: only {opaque.Length} fully opaque pixels.");
+                    var off = opaque.Count(i => Math.Abs(pixels[i * 4 + 2] - brush.R) > 3 || Math.Abs(pixels[i * 4 + 1] - brush.G) > 3 || Math.Abs(pixels[i * 4] - brush.B) > 3);
+                    if (off > 0) throw new InvalidOperationException($"{theme} {kind} icon at {scale:P0}: {off} opaque pixels are not the {brushName} colour {brush}.");
+                    // The symbol: a cut-out of the disc / triangle, or a fill inside the ring.
+                    int lo = (int)Math.Round(px * 5 / 16d), hi = (int)Math.Round(px * 11 / 16d), centre = 0, hole = 0;
+                    for (var y = lo; y < hi; y++) for (var x = lo; x < hi; x++) { centre++; if (alpha[y * px + x] < 128) hole++; }
+                    var holes = hole / (double)centre;
+                    var ring = kind is SeverityKind.Recovered or SeverityKind.NoData;
+                    if (ring ? holes > 0.92 || holes < 0.30 : holes < 0.08) throw new InvalidOperationException($"{theme} {kind} icon at {scale:P0}: the symbol is not visible ({holes:P0} of the centre is transparent).");
+                }
+                var label = new TextBlock { Text = text, Style = (Style)window.FindResource("StatusText"), FontSize = (double)window.FindResource("ReadingFontSize"), Tag = kind is SeverityKind.Warning or SeverityKind.Critical or SeverityKind.Healthy ? kind.ToString() : "Neutral" };
+                var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(12, 5, 12, 5) };
+                row.Children.Add(new System.Windows.Shapes.Path { Style = style, Tag = kind.ToString(), Margin = new Thickness(0, 0, 8, 0) });
+                row.Children.Add(label);
+                sheet.Children.Add(row);
+            }
+            if (scale != 4)
+            {
+                var kinds = masks.Keys.ToArray();
+                foreach (var a in kinds) foreach (var b in kinds.Where(k => k > a))
+                {
+                    var differing = Enumerable.Range(0, masks[a].Length).Count(i => Math.Abs(masks[a][i] - masks[b][i]) > 64) / (double)masks[a].Length;
+                    if (differing < 0.04) throw new InvalidOperationException($"{theme} {a} and {b} icons at {scale:P0} look alike ({differing:P1} of the pixels differ).");
+                }
+            }
+            sheet.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            sheet.Arrange(new Rect(sheet.DesiredSize));
+            sheet.UpdateLayout();
+            var sheetBitmap = new RenderTargetBitmap((int)Math.Ceiling(sheet.DesiredSize.Width * scale), (int)Math.Ceiling(sheet.DesiredSize.Height * scale), dpi, dpi, PixelFormats.Pbgra32);
+            sheetBitmap.Render(sheet);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(sheetBitmap));
+            using (var stream = File.Create(Path.Combine(directory, scale == 4 ? $"severity-icons-{theme}-zoom.png" : $"severity-icons-{theme}-{scale * 100:0}pct.png"))) encoder.Save(stream);
+            if (scale != 4) summary.Add($"{scale:P0}");
+        }
+        return $"PASS: severity icons ({theme}): 6 kinds drawn with their theme colours, symbol visible and pairwise distinct at {string.Join(", ", summary)} pixel density (render-time density, not Windows DPI)";
+    }
+
     /// <summary>
     /// Single-line text without trimming must fit its box; wrapping text reflows and is not clipped. The natural width comes from
     /// a clone of the TextBlock with the same font, typography (e.g. tabular numerals), formatting and DPI, measured without a

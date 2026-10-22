@@ -86,11 +86,16 @@
  <Style x:Key="ReadingMuted" TargetType="TextBlock" BasedOn="{StaticResource Reading}"><Setter Property="Foreground" Value="{DynamicResource MutedBrush}" /></Style>
  <Style x:Key="Meta" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}"><Setter Property="FontSize" Value="{StaticResource MetaFontSize}" /><Setter Property="Foreground" Value="{DynamicResource MutedBrush}" /><Setter Property="TextWrapping" Value="Wrap" /></Style>
  <Style x:Key="ValueText" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}"><Setter Property="FontSize" Value="{StaticResource ValueFontSize}" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Typography.NumeralAlignment" Value="Tabular" /></Style>
- <Style x:Key="StateMarker" TargetType="Border"><Setter Property="Width" Value="{StaticResource MarkerSize}" /><Setter Property="Height" Value="{StaticResource MarkerSize}" /><Setter Property="CornerRadius" Value="{StaticResource MarkerRadius}" /><Setter Property="BorderThickness" Value="{StaticResource Hairline}" /><Setter Property="BorderBrush" Value="{DynamicResource MutedBrush}" /><Setter Property="Background" Value="Transparent" /><Setter Property="VerticalAlignment" Value="Center" />
+ <!-- SeverityIcon: the one severity/state symbol of the Diagnostics page. Tag = Info | Warning | Critical | Healthy | Recovered | NoData (SeverityKind).
+      Each kind has its own shape, so severity is never carried by colour alone; the text label always sits next to the icon (a WPF Path has no UI Automation peer, so screen readers read the label only). -->
+ <Style x:Key="SeverityIcon" TargetType="Path"><Setter Property="Width" Value="{StaticResource SeverityIconSize}" /><Setter Property="Height" Value="{StaticResource SeverityIconSize}" /><Setter Property="Stretch" Value="None" /><Setter Property="VerticalAlignment" Value="Center" /><Setter Property="IsHitTestVisible" Value="False" /><Setter Property="Focusable" Value="False" /><Setter Property="SnapsToDevicePixels" Value="False" />
+  <Setter Property="Data" Value="{StaticResource SeverityGeometryNoData}" /><Setter Property="Fill" Value="{DynamicResource MutedBrush}" />
   <Style.Triggers>
-   <Trigger Property="Tag" Value="Healthy"><Setter Property="Background" Value="{DynamicResource SuccessBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource SuccessBrush}" /></Trigger>
-   <Trigger Property="Tag" Value="Warning"><Setter Property="Background" Value="{DynamicResource WarningBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource WarningBrush}" /></Trigger>
-   <Trigger Property="Tag" Value="Critical"><Setter Property="Background" Value="{DynamicResource CriticalBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource CriticalBrush}" /></Trigger>
+   <Trigger Property="Tag" Value="Info"><Setter Property="Data" Value="{StaticResource SeverityGeometryInfo}" /><Setter Property="Fill" Value="{DynamicResource AccentBrush}" /></Trigger>
+   <Trigger Property="Tag" Value="Warning"><Setter Property="Data" Value="{StaticResource SeverityGeometryWarning}" /><Setter Property="Fill" Value="{DynamicResource WarningBrush}" /></Trigger>
+   <Trigger Property="Tag" Value="Critical"><Setter Property="Data" Value="{StaticResource SeverityGeometryCritical}" /><Setter Property="Fill" Value="{DynamicResource CriticalBrush}" /></Trigger>
+   <Trigger Property="Tag" Value="Healthy"><Setter Property="Data" Value="{StaticResource SeverityGeometryHealthy}" /><Setter Property="Fill" Value="{DynamicResource SuccessBrush}" /></Trigger>
+   <Trigger Property="Tag" Value="Recovered"><Setter Property="Data" Value="{StaticResource SeverityGeometryRecovered}" /></Trigger>
   </Style.Triggers>
  </Style>
  <Style x:Key="StatusText" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}"><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />

@@ -286,13 +286,37 @@ Four columns from 400 DIP per chart, two columns otherwise. Chart headers share 
   decision rule and thresholds, possible contributing factors, recommended investigation, data limitations, technical details.
 * Rows are 36 DIP or taller with a selection bar, a tooltip with the description, and wrapped (never truncated) titles.
   Findings are not virtualized: the list is bounded (about 20 active plus the last 50 recovered findings).
-* Information and recovered findings stay neutral; only active warnings and critical findings are coloured.
+* Information and recovered findings keep neutral text; only the text of active warnings and critical findings is coloured. Every row also carries a severity icon (see *Severity icons*).
 
 **Validation.** `DesktopValidation` runs on Windows over 2 themes × 4 sizes (1366 × 768, 1536 × 864, 1920 × 1080, 2560 × 1440) × 3
 scales. Beyond the 0.4.1 checks it verifies, for Diagnostics: arrangement matches the width, both panes keep their
 minimum size, the evidence can be brought into view, the pane scrolls independently and chains the wheel to the page at its end,
 the splitter responds to the keyboard within its limits, the selection survives layout changes, and the page has no horizontal overflow.
 The 125 % and 150 % cases **simulate the available DIP space; they do not change Windows DPI.** Real Windows scaling needs manual acceptance.
+
+**Severity icons.** Every place that shows a severity or health state uses one vector icon, the `SeverityIcon` style in
+`Themes/Controls.xaml`: the status line, each health tile, the findings table and the evidence header. The shapes are
+`SeverityGeometry*` resources in `Themes/Foundations.xaml` on a 16 × 16 grid, drawn 1:1 at 16 DIP with the even-odd rule
+(the symbol is a cut-out of the disc, or filled inside a ring). No icon font, emoji or Unicode glyph is involved, so the icons
+render the same on every Windows installation. `Presentation/SeverityKind.cs` (WPF-free, unit-tested) maps states to icons.
+
+| Icon | Used for | Shape | Colour token |
+|---|---|---|---|
+| Information | active information finding | disc with "i" | `AccentBrush` (blue) |
+| Warning | active warning, Warning health | triangle with "!" | `WarningBrush` (amber) |
+| Critical | active critical finding, Critical health | disc with "×" | `CriticalBrush` (red) |
+| Healthy | Healthy state | disc with check | `SuccessBrush` (green) |
+| Recovered | recovered finding | ring with check | `MutedBrush` (grey) |
+| Insufficient data | no assessment yet | ring with bar | `MutedBrush` (grey) |
+
+Each kind has its own shape, so severity is never carried by colour alone, and the text label ("Critical", "Warning",
+"Recovered", ...) always stays beside the icon. The icon is decorative for screen readers because a WPF `Path` has no UI Automation
+peer. The colours are the existing theme tokens (at least 3:1 against every surface in both themes, checked by a unit test).
+The icon follows the engine's classification and never changes it. A recovered finding keeps its original severity text and
+state column, with the Recovered icon.
+
+The earlier 8 × 8 `StateMarker` square was only filled for Healthy, Warning and Critical, so information and recovered findings
+showed as an empty square and warning and critical differed by colour only. It has been removed.
 
 Future explanation panels (for example an optional local assistant) can bind to the same
 `DiagnosticReport` and `DiagnosticsViewModel` selection without changing rules or layout.

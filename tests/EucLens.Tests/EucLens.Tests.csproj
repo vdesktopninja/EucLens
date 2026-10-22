@@ -9,6 +9,7 @@
   <Compile Include="../../src/EucLens.App/ViewModels/ChartData.cs" Link="App/ChartData.cs" />
   <Compile Include="../../src/EucLens.App/Presentation/ChartObjects.cs" Link="App/ChartObjects.cs" />
   <Compile Include="../../src/EucLens.App/Presentation/SplitLayout.cs" Link="App/SplitLayout.cs" />
+  <Compile Include="../../src/EucLens.App/Presentation/SeverityKind.cs" Link="App/SeverityKind.cs" />
   <Compile Include="../../src/EucLens.App/DesktopContracts.cs" Link="App/DesktopContracts.cs" />
   <PackageReference Include="LiveChartsCore.SkiaSharpView" Version="2.0.0" />
   <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />

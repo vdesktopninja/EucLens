@@ -224,11 +224,11 @@
     "targetType": "TextBlock"
   },
   {
-    "name": "StateMarker",
+    "name": "SeverityIcon",
     "file": "src/EucLens.App/Themes/Controls.xaml",
     "root": "src/EucLens.App/Themes",
     "kind": "Style",
-    "targetType": "Border"
+    "targetType": "Path"
   },
   {
     "name": "StatusText",

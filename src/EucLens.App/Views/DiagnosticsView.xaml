@@ -8,7 +8,7 @@
      <TextBlock Grid.Column="1" Text="{Binding Observation}" Style="{StaticResource Meta}" Margin="8,2,0,0" />
     </Grid>
     <Grid Margin="0,6,0,2"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-     <StackPanel Orientation="Horizontal"><Border Style="{StaticResource StateMarker}" Tag="{Binding State}" Margin="0,0,8,0" /><TextBlock Text="{Binding State}" Style="{StaticResource StatusText}" Tag="{Binding State}" FontSize="{StaticResource StateFontSize}" /></StackPanel>
+     <StackPanel Orientation="Horizontal"><Path Style="{StaticResource SeverityIcon}" Tag="{Binding StateIcon}" Margin="0,0,8,0" /><TextBlock Text="{Binding State}" Style="{StaticResource StatusText}" Tag="{Binding State}" FontSize="{StaticResource StateFontSize}" /></StackPanel>
      <TextBlock Grid.Column="1" Text="{Binding ActiveProblems}" Style="{StaticResource Meta}" VerticalAlignment="Center" Margin="8,0,0,0" TextAlignment="Right" />
     </Grid>
     <TextBlock Text="{Binding Summary}" Style="{StaticResource Reading}" Margin="0,0,0,8" />
@@ -89,7 +89,7 @@
   <!-- Compact status: problem, count by level, window and evidence coverage on one line; detail and the assessment stay one click away. -->
   <Border Style="{StaticResource Panel}" Padding="12,8" AutomationProperties.Name="Diagnostic status"><StackPanel>
    <WrapPanel>
-    <StackPanel Orientation="Horizontal" Margin="0,0,16,0"><Border Style="{StaticResource StateMarker}" Tag="{Binding HeadlineState}" Margin="0,0,10,0" /><TextBlock Text="{Binding Headline}" FontSize="{StaticResource StateFontSize}" FontWeight="SemiBold" AutomationProperties.LiveSetting="Polite" /></StackPanel>
+    <StackPanel Orientation="Horizontal" Margin="0,0,16,0"><Path Style="{StaticResource SeverityIcon}" Tag="{Binding HeadlineIcon}" Margin="0,0,10,0" /><TextBlock Text="{Binding Headline}" FontSize="{StaticResource StateFontSize}" FontWeight="SemiBold" AutomationProperties.LiveSetting="Polite" /></StackPanel>
     <TextBlock Text="{Binding CountsLabel}" Style="{StaticResource ReadingMuted}" Margin="0,0,16,0" VerticalAlignment="Center" Typography.NumeralAlignment="Tabular" />
     <TextBlock Text="{Binding Observation}" Style="{StaticResource ReadingMuted}" Margin="0,0,16,0" VerticalAlignment="Center" />
     <TextBlock Style="{StaticResource ReadingMuted}" VerticalAlignment="Center"><Run Text="Evidence: " /><Run Text="{Binding DataQuality.Level, Mode=OneWay}" FontWeight="SemiBold" /></TextBlock>
@@ -170,7 +170,7 @@
       <ListBox x:Name="FindingsList" Style="{StaticResource TableList}" ItemContainerStyle="{StaticResource TableRow}" ItemsSource="{Binding Findings}" SelectedItem="{Binding SelectedFinding}" SelectionChanged="OnFindingSelected" AutomationProperties.Name="Findings list">
        <ListBox.ItemTemplate><DataTemplate>
         <Grid AutomationProperties.Name="{Binding AutomationName}" ToolTip="{Binding Description}"><Grid.ColumnDefinitions><ColumnDefinition Width="{StaticResource FindingSeverityWidth}" /><ColumnDefinition Width="*" /><ColumnDefinition Width="{StaticResource FindingCategoryWidth}" /><ColumnDefinition Width="{StaticResource FindingTimeWidth}" /><ColumnDefinition Width="{StaticResource FindingDurationWidth}" /><ColumnDefinition Width="{StaticResource FindingStateWidth}" /></Grid.ColumnDefinitions>
-         <StackPanel Orientation="Horizontal" VerticalAlignment="Top"><Border Style="{StaticResource StateMarker}" Tag="{Binding Marker}" Margin="0,5,6,0" VerticalAlignment="Top" /><TextBlock Text="{Binding SeverityLabel}" Style="{StaticResource StatusText}" Tag="{Binding Marker}" FontSize="{StaticResource ReadingFontSize}" /></StackPanel>
+         <StackPanel Orientation="Horizontal" VerticalAlignment="Top"><Path Style="{StaticResource SeverityIcon}" Tag="{Binding IconKind}" Margin="0,0,6,0" /><TextBlock Text="{Binding SeverityLabel}" Style="{StaticResource StatusText}" Tag="{Binding Marker}" FontSize="{StaticResource ReadingFontSize}" /></StackPanel>
          <TextBlock Grid.Column="1" Text="{Binding Title}" Style="{StaticResource Reading}" Margin="0,0,8,0" />
          <TextBlock Grid.Column="2" Text="{Binding Domain}" Style="{StaticResource ReadingMuted}" FontSize="{StaticResource BodyFontSize}" Margin="0,1,8,0" />
          <TextBlock Grid.Column="3" Text="{Binding FirstDetected}" FontSize="{StaticResource BodyFontSize}" Typography.NumeralAlignment="Tabular" Foreground="{DynamicResource MutedBrush}" Margin="0,1,0,0" />
@@ -198,7 +198,7 @@
        <!-- Visibility is bound on the outer element (diagnostics model); the inner one switches to the selected finding. -->
        <StackPanel Visibility="{Binding HasSelection, Converter={StaticResource BoolToVisibility}}" Margin="0,4,0,0">
         <StackPanel DataContext="{Binding SelectedFinding}">
-         <StackPanel Orientation="Horizontal"><Border Style="{StaticResource StateMarker}" Tag="{Binding Marker}" Margin="0,0,8,0" /><TextBlock Style="{StaticResource StatusText}" Tag="{Binding Marker}" FontSize="{StaticResource ReadingFontSize}"><Run Text="{Binding SeverityLabel, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding State, Mode=OneWay}" /></TextBlock></StackPanel>
+         <StackPanel Orientation="Horizontal"><Path Style="{StaticResource SeverityIcon}" Tag="{Binding IconKind}" Margin="0,0,8,0" /><TextBlock Style="{StaticResource StatusText}" Tag="{Binding Marker}" FontSize="{StaticResource ReadingFontSize}"><Run Text="{Binding SeverityLabel, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding State, Mode=OneWay}" /></TextBlock></StackPanel>
          <TextBlock Text="{Binding Title}" FontSize="{StaticResource StateFontSize}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,2,0,0" />
         </StackPanel>
        </StackPanel>

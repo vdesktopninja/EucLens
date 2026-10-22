@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using EucLens.App.Presentation;
 using EucLens.Core;
 using EucLens.Diagnostics;
 
@@ -88,7 +89,9 @@ public sealed class DiagnosticsViewModel : ObservableObject
     public bool HasSelection => selectedFinding is not null;
     public string Headline { get => headline; private set => Set(ref headline, value); }
     /// <summary>Healthy, Warning, Critical or Insufficient Data; drives only the small status marker.</summary>
-    public string HeadlineState { get => headlineState; private set => Set(ref headlineState, value); }
+    public string HeadlineState { get => headlineState; private set { if (Set(ref headlineState, value)) Raise(nameof(HeadlineIcon)); } }
+    /// <summary>Icon (<see cref="SeverityKind"/> name) of <see cref="HeadlineState"/>.</summary>
+    public string HeadlineIcon => SeverityKinds.ForState(headlineState).ToString();
     public string HeadlineDetail { get => headlineDetail; private set => Set(ref headlineDetail, value); }
     public string Observation { get => observation; private set => Set(ref observation, value); }
     public bool HasActiveProblems { get => hasActiveProblems; private set => Set(ref hasActiveProblems, value); }
