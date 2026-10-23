@@ -44,6 +44,11 @@ The active data source is always shown in the header banner and sidebar.
 
   0.4.2 refines readability only: a typography hierarchy, a compact status line, taller trend charts, low-FPS thresholds drawn only while the engine verifies they apply, and one vector severity icon (information, warning, critical, healthy, recovered) beside every severity text.
 
+  0.4.3 adds background operation: a notification-area icon showing what EUC Lens is really doing (idle, monitoring, recording, warning, paused),
+  optional minimize/close to tray, monitoring and recording that continue while the window is hidden, long recordings streamed to disk with rotation,
+  quota and retention, a single instance per user session, optional privacy-safe notifications and the new application icon. See
+  [Background monitoring](docs/BACKGROUND_MONITORING.md).
+
   See [Diagnostic intelligence](docs/DIAGNOSTICS.md).
 - Start/stop timestamped recording, elapsed time, sample count and a historical
   RTT chart (latest 600 samples). JSON and CSV export to a chosen local file.

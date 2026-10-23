@@ -12,7 +12,7 @@ concurrency:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
@@ -35,6 +35,24 @@ jobs:
         run: dotnet test tests/EucLens.Tests/EucLens.Tests.csproj -c Release --no-build --logger "trx;LogFileName=tests.trx" --results-directory TestResults
       - name: Publish portable EXE
         run: dotnet publish src/EucLens.App/EucLens.App.csproj -p:PublishProfile=Portable -o artifacts/win-x64
+      - name: Verify the executable carries the EUC Lens icon
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          $icon = [System.Drawing.Icon]::ExtractAssociatedIcon((Resolve-Path artifacts/win-x64/EucLens.exe))
+          if ($null -eq $icon) { throw 'EucLens.exe has no icon' }
+          $bitmap = $icon.ToBitmap()
+          $blue = 0; $white = 0; $cyan = 0
+          for ($y = 0; $y -lt $bitmap.Height; $y++) { for ($x = 0; $x -lt $bitmap.Width; $x++) {
+            $p = $bitmap.GetPixel($x, $y)
+            if ($p.A -eq 255 -and $p.B -gt 130 -and $p.R -lt 60) { $blue++ }
+            if ($p.A -eq 255 -and $p.R -gt 235 -and $p.G -gt 235 -and $p.B -gt 235) { $white++ }
+            if ($p.A -eq 255 -and $p.R -lt 90 -and $p.G -gt 170 -and $p.B -gt 210) { $cyan++ }
+          } }
+          "Executable icon $($icon.Width)x$($icon.Height): blue $blue, white $white, cyan $cyan pixels"
+          if ($blue -lt 100 -or $white -lt 20 -or $cyan -lt 5) { throw 'The executable icon is not the EUC Lens icon' }
+          New-Item -ItemType Directory -Force artifacts/win-x64/visual-evidence | Out-Null
+          $bitmap.Save((Join-Path (Resolve-Path artifacts/win-x64/visual-evidence) 'exe-icon-pipeline.png'), [System.Drawing.Imaging.ImageFormat]::Png)
       - name: Verify single EXE and run Windows smoke test
         shell: pwsh
         run: |
@@ -43,7 +61,7 @@ jobs:
             throw 'Portable publish must contain exactly EucLens.exe'
           }
           $app = Start-Process artifacts/win-x64/EucLens.exe -ArgumentList '--smoke-test' -PassThru
-          if (-not $app.WaitForExit(300000)) {
+          if (-not $app.WaitForExit(480000)) {
             $app.Kill()
             throw 'WPF smoke test timed out'
           }
@@ -52,7 +70,13 @@ jobs:
             Get-Content artifacts/win-x64/smoke-result.txt
           }
           if ($app.ExitCode -ne 0) { throw "WPF smoke test failed ($($app.ExitCode))" }
+          if (Test-Path artifacts/win-x64/visual-evidence/background-validation.txt) {
+            Get-Content artifacts/win-x64/visual-evidence/background-validation.txt
+          }
           if (-not (Test-Path artifacts/win-x64/smoke-result.txt)) { throw 'Missing smoke result' }
+          $exitCheck = Get-Content artifacts/win-x64/visual-evidence/background-validation.txt -Raw
+          if ($exitCheck -notmatch 'PASS: Exit finalized the running recording') { throw 'Exit did not finalize the recording' }
+          if ($exitCheck -match 'FAIL:') { throw 'Background validation reported a failure' }
           if (-not ((Get-Content artifacts/win-x64/smoke-result.txt -Raw).StartsWith('PASS:'))) {
             throw 'WPF smoke result did not pass'
           }

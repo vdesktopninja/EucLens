@@ -35,3 +35,17 @@ These checks have not been performed on the Linux development host.
 - [ ] Verify chart rendering in Citrix/Horizon/RDP sessions with restricted GPU
       access and software rendering; record failures for next milestone.
 - [ ] Verify no service, outbound connection, telemetry or administrator prompt.
+
+## Background monitoring and tray (0.4.3) — manual acceptance
+
+CI cannot judge these; please check them once on a real Windows 11 VDI session:
+
+1. The EUC Lens icon is recognizable on the taskbar, in Alt+Tab and in the notification area at 100 %, 125 % and 150 % display scaling (16, 20 and 24 px tray icons).
+2. Each tray state is distinguishable at a glance: idle (no badge), monitoring (green play), recording (red dot), warning (amber triangle), paused (grey bars); recording with a problem adds the amber triangle in the opposite corner.
+3. Enable *Minimize to system tray*, start a recording, minimize: the taskbar button disappears, the tray icon stays and its tooltip says "recording". Work for a while, restore from the tray (left click or double click): the current state is shown immediately.
+4. Enable *Close button minimizes to tray*: the close button hides the window; *Exit EUC Lens* in the tray menu asks about the running recording, finalizes the file and removes the icon (no ghost icon).
+5. Start EUC Lens a second time: no second instance appears, the running one comes to the front. A second Windows user or session is not blocked.
+6. Disconnect and reconnect the Horizon client while recording: the recording shows availability and remote disconnect/reconnect marks, no invented RTT/FPS, and Blast counters return after reconnect.
+7. Lock and unlock the session: monitoring continues; no notification is shown on the lock screen.
+8. Point the recordings folder at a share and disconnect it: a storage problem is shown, samples are counted as lost, and the recording stops with a clear reason after a minute.
+9. Leave a recording running unattended for hours with the window hidden and compare Task Manager CPU and memory with the visible window.

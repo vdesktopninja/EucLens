@@ -75,6 +75,72 @@ Every state differs by shape as well as colour; the tooltip repeats the state in
 | UI work while hidden | Presentation gate. Charts are not fed while hidden; after restore the live trends continue with a visible gap. |
 | Duplicate collectors | One coordinator, one loop. A second process signals the first through a session-local event and exits. |
 
-## Recording format
+## Recording files
 
-See the "Recording files" section below once implemented.
+A recording is a set of **parts** in the recordings folder (default `%LOCALAPPDATA%\EucLens\Recordings`, configurable):
+
+| File | Content |
+|---|---|
+| `EucLens-<yyyyMMdd-HHmmss>-<id8>-part001.jsonl` | one part: UTF-8 JSON Lines, schema `euclens.recording/1`. Closed parts are gzip-compressed to `.jsonl.gz` (any gzip tool opens them). |
+| `EucLens-<yyyyMMdd-HHmmss>-<id8>.meta.json` | small index (counts, end reason) so the Session Recorder page lists recordings without reading them |
+
+Line types (`t`): `header`, `session` (written only when it changes), `str` (string table: counter paths and reasons once per part),
+`s` (sample), `event` (finding detected, escalated, downgraded, recovered, expired), `mark` (paused, resumed with `gapSeconds`, availability
+change, session locked/unlocked, remote disconnected/reconnected, data loss with count and gap) and `footer` (end reason and totals).
+Metrics are `{"v":value,"u":unit,"k":source,"x":reason,"e":error,"t":ticks since the sample,"r":raw,"z":scope,"q":status}`; a missing value
+is simply absent, never `0`, and unverified raw-unit counters keep their raw value. A part without footer was interrupted; it is read
+up to its last complete line and listed as *Interrupted*. About 1.5 to 4 KB per sample before compression.
+
+JSON and CSV exports keep their schema 0.4 and are byte-identical to the exports of the same samples held in memory.
+
+### Failure handling
+
+| Situation | Behaviour |
+|---|---|
+| Folder unusable at start (access denied, share gone, disk below 256 MiB free) | The recording does not start; the reason is shown. |
+| Write fails (disk full, access denied, share lost) | Samples are counted as lost; every 5 s a new part is tried; on success a `DataLoss` mark states the count and the gap. After 60 s of failures the recording ends with reason *storage error* and a notification. |
+| Disk too slow (queue of 900 samples full) | Samples are dropped, counted, announced in the file and on the Recorder page. |
+| Free space falls below 256 MiB during a recording | It stops before filling the volume. |
+| Quota reached | Older EUC Lens recordings are removed first; if the recording alone outgrows the quota it stops (*quota reached*) and its data stays. |
+| Process killed, power loss | No footer; readable up to the last flushed line (flush interval 5 s). |
+
+Retention only touches files that match the naming pattern above in the configured folder, oldest recording first, never the active one.
+
+## Settings
+
+Settings, Background monitoring (`%LOCALAPPDATA%\EucLens\background.json`): minimize to tray, close button minimizes to tray, notifications,
+monitoring on start (default on, as always), recording on start (opt-in), recordings folder, quota (default 1024 MiB), retention days (default 14).
+Both tray options are off by default. Nothing starts with Windows.
+
+## Notifications
+
+Optional (off by default). Only engine-confirmed warning or critical findings (detected or escalated), an unexpected recording stop and
+storage problems qualify. The same problem is announced at most once per 30 minutes, any two notifications are at least 60 seconds apart,
+nothing is shown while the Windows session is locked, and the text is generic ("Sustained high round-trip time. Open EUC Lens for details."):
+no user, host, address or measurement.
+
+## Horizon session lifecycle
+
+* Disconnect: Windows host metrics keep being collected. Blast counters become `Unavailable` with their reason (the provider re-discovers the
+  session's counter instances on every sample); the recording gets an `Availability` mark that states this alone is not evidence of a network
+  fault, plus `RemoteDisconnected` / `RemoteReconnected` marks from Windows session events. Nothing is invented.
+* Reconnect: counters are found again automatically and sampling continues on the same timeline.
+* Lock/unlock: monitoring continues; marks are written; notifications are suppressed while locked.
+* Logoff or shutdown: the recording is finalized, then the process ends. The portable process does not survive logoff or restart.
+
+## Single instance
+
+`Local\EucLens-<user SID>` mutex and activation event. A second start signals the first and exits. Another user, or the same user in another RDS/VDI
+session, is unaffected. No elevation.
+
+## Validation
+
+Unit tests (state machine, tray priority, notification policy, settings, recording format, failures, quota and retention, export identity,
+hide/restore of the view model, an accelerated 8 h simulation on a fake clock) and the Windows smoke test (`BackgroundValidation`): icon of the
+executable, tray state mapping for all six icons through the real services, minimize and close to tray, a recording while hidden, ten
+minimize/restore cycles with one sampler, single-instance probe in a second process, exit with an active recording, and a measured 40 s visible
+versus 40 s hidden comparison (CPU, working set, heap, lost samples, dispatcher latency) in `background-soak-result.txt`.
+
+**Limits.** The accelerated simulation is not an eight-hour Windows soak; the CI comparison is 40 s on a shared runner. Tray menu and taskbar screenshots
+depend on the runner's shell. The tray menu uses the standard Windows menu (no dark theme). Real Horizon disconnect/reconnect, DPI scaling of the tray icon
+on a real display and a long unattended run on a VDI need manual acceptance (see WINDOWS_ACCEPTANCE.md).

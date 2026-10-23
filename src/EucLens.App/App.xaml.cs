@@ -50,7 +50,8 @@ public partial class App : Application
             var desktopServices = new DesktopServices { AutoConfirmNewRecording = smoke, AutoConfirmExit = smoke };
             var store = new BackgroundSettingsStore(Path.Combine(smokeRoot ?? DesktopServices.DataDirectory, "background.json"));
             // The smoke test starts from known settings and a recordings folder of its own.
-            if (smoke) await store.SaveAsync(BackgroundSettings.Defaults with { RecordingDirectory = Path.Combine(smokeRoot!, "recordings") });
+            // Recordings of the smoke test are kept next to the other evidence so CI uploads them.
+            if (smoke) await store.SaveAsync(BackgroundSettings.Defaults with { RecordingDirectory = Path.Combine(AppContext.BaseDirectory, "visual-evidence", "recordings") });
             BackgroundViewModel? background = null;
             var writer = new RecordingWriter(() => RecordingOptionsFor(background?.Current ?? BackgroundSettings.Defaults));
             var recorder = new SessionRecorder(writer);
@@ -280,6 +281,7 @@ public partial class App : Application
         await Task.Delay(500);
         vm.IsDark = true;
         await DesktopValidation.RunAsync(MainWindow, vm);
+        await BackgroundValidation.RunAsync(new(this, MainWindow, vm, monitoring!, tray!, lifetime!, recorder, Path.Combine(AppContext.BaseDirectory, "visual-evidence")));
         directory = Path.Combine(Path.GetTempPath(), "EucLens-smoke-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try
@@ -293,8 +295,10 @@ public partial class App : Application
         GC.Collect(); GC.WaitForPendingFinalizers();
         if (unhandled.Count > 0) throw new InvalidOperationException("Unhandled exceptions: " + string.Join("\n", unhandled));
         await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"), "PASS: startup, diagnostics (3 independent domains, Insufficient Data and no conclusion on short observation, evidence coverage vs collector availability, software rendering as neutral information, trends with gaps and a shared window, conditional low-FPS threshold hidden at idle, compact status counts, resizable findings/evidence split with independent scrolling, wheel chaining and keyboard access, filters with counts and empty states, sorting, stable selection with evidence, clipboard, diag export columns), Real Session without Horizon Agent (Blast N/A, real CPU/RAM, recording + JSON/CSV with host columns), protocol display, Advanced Metrics filter/search, NVML-absent initialization, Real↔Demo switching, demo sampling and live charts, all six views, themes, recording, JSON/CSV export, themed charts, navigation/resize layout matrix, WPF client captures, no WPF binding errors. Actual Windows DPI changes require manual acceptance.\n" + soak + "\n" + string.Join("\n", evidence));
-        await StopAsync();
-        Shutdown(0);
+        // The run ends the way a user ends it: Exit with a recording in progress. Exit finalizes the recording file first.
+        vm.StartRecordingCommand.Execute(null);
+        await Task.Delay(2500);
+        await lifetime!.ExitAsync();
     }
     /// <summary>
     /// Demo high-latency scenario on the Diagnostics page: sustained findings must appear with evidence, the UI thread
@@ -423,9 +427,28 @@ public partial class App : Application
     /// <summary>The single way out: used by Exit (window close, tray menu), after the recording was finalized.</summary>
     private async Task EndProcessAsync()
     {
-        try { await StopAsync(); Shutdown(); }
+        try
+        {
+            if (smoke) await WriteExitEvidenceAsync();
+            await StopAsync();
+            Shutdown(smokeExitFailed ? 1 : 0);
+        }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex); Shutdown(1); }
     }
+    private bool smokeExitFailed;
+
+    /// <summary>Smoke only: Exit has finalized the running recording; its file must say so.</summary>
+    private async Task WriteExitEvidenceAsync()
+    {
+        var folder = Path.Combine(AppContext.BaseDirectory, "visual-evidence");
+        var summary = RecordingCatalog.Scan(new PhysicalRecordingStorage(), Path.Combine(folder, "recordings")).FirstOrDefault();
+        var ok = summary is { IsComplete: true, EndReason: "AppExit" } && summary.Samples >= 2;
+        smokeExitFailed = !ok;
+        await File.AppendAllTextAsync(Path.Combine(folder, "background-validation.txt"), (ok
+            ? $"PASS: Exit finalized the running recording ({summary!.Samples} samples, end reason AppExit, complete) before the process ended; the tray icon is removed on exit"
+            : $"FAIL: Exit left the recording unfinished: {summary}") + Environment.NewLine);
+    }
+
     private async Task StopAsync()
     {
         // Every way of ending the process finalizes a recording first, then removes the tray icon so no ghost icon is left behind.
