@@ -20,16 +20,42 @@ public partial class App : Application
     private ServiceProvider? services;
     private readonly CancellationTokenSource cancellation = new();
     private Task? sampling;
-    private bool closing;
     private bool smoke;
+    private SingleInstance? instance;
+    private TrayIconService? tray;
+    private ApplicationLifetimeService? lifetime;
+    private MonitoringService? monitoring;
+    /// <summary>Everything the smoke test writes (settings, recordings) goes here, never into the user's profile.</summary>
+    private string? smokeRoot;
+    internal const string SmokeInstanceVariable = "EUCLENS_SMOKE_INSTANCE";
     private readonly List<string> unhandled = [];
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
         smoke = e.Args.Contains("--smoke-test");
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        // Used by the Windows CI: a second process proves that a duplicate start is refused and wakes the first instance.
+        if (e.Args is ["--probe-single-instance", var probeName])
+        {
+            using var other = SingleInstance.TryAcquire(probeName, out var woke);
+            Shutdown(other is not null ? 44 : woke ? 42 : 43);
+            return;
+        }
         try
         {
+            instance = SingleInstance.TryAcquire(smoke ? @"Local\EucLens-smoke-" + Environment.ProcessId : SingleInstance.DefaultName(), out _);
+            if (instance is null) { Shutdown(0); return; } // EUC Lens is already running in this session: it has been asked to show its window
+            if (smoke) Environment.SetEnvironmentVariable(SmokeInstanceVariable, @"Local\EucLens-smoke-" + Environment.ProcessId);
+            smokeRoot = smoke ? Path.Combine(Path.GetTempPath(), "EucLens-smoke-data-" + Guid.NewGuid().ToString("N")) : null;
+            var desktopServices = new DesktopServices { AutoConfirmNewRecording = smoke, AutoConfirmExit = smoke };
+            var store = new BackgroundSettingsStore(Path.Combine(smokeRoot ?? DesktopServices.DataDirectory, "background.json"));
+            // The smoke test starts from known settings and a recordings folder of its own.
+            if (smoke) await store.SaveAsync(BackgroundSettings.Defaults with { RecordingDirectory = Path.Combine(smokeRoot!, "recordings") });
+            BackgroundViewModel? background = null;
+            var writer = new RecordingWriter(() => RecordingOptionsFor(background?.Current ?? BackgroundSettings.Defaults));
+            var recorder = new SessionRecorder(writer);
+            monitoring = new MonitoringService(new MonitoringCoordinator(), recorder);
+            background = new BackgroundViewModel(monitoring, recorder, desktopServices, store);
             var registrations = new ServiceCollection();
             registrations.AddLogging(builder => builder.AddProvider(new LocalFileLoggerProvider()));
             registrations.AddSingleton<IDemoMetricsProvider, MockMetricsProvider>();
@@ -39,10 +65,12 @@ public partial class App : Application
             registrations.AddSingleton<IHostMetricsCollector>(_ => new HostMetricsCollector());
             registrations.AddSingleton<ISessionProtocolProbe, WtsSessionProtocolProbe>();
             registrations.AddSingleton<IMetricsProvider, RealSessionMetricsProvider>();
-            registrations.AddSingleton<ISessionRecorder, SessionRecorder>();
+            registrations.AddSingleton<ISessionRecorder>(recorder);
+            registrations.AddSingleton(monitoring);
+            registrations.AddSingleton(background);
             registrations.AddSingleton<IDiagnosticEngine>(_ => new DiagnosticIntelligenceEngine(DiagnosticRuleSet.Default()));
             registrations.AddSingleton<IDiagnosticSettingsStore, DiagnosticSettingsStore>();
-            registrations.AddSingleton<IDesktopServices>(new DesktopServices { AutoConfirmNewRecording = smoke });
+            registrations.AddSingleton<IDesktopServices>(desktopServices);
             registrations.AddSingleton<MainViewModel>();
             services = registrations.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
             var vm = services.GetRequiredService<MainViewModel>();
@@ -55,12 +83,20 @@ public partial class App : Application
                 PresentationTraceSources.DataBindingSource.Listeners.Add(bindingErrors);
                 PresentationTraceSources.DataBindingSource.Switch.Level = SourceLevels.Error;
             }
+            await background.LoadAsync();
             var window = new MainWindow { DataContext = vm };
             MainWindow = window;
-            window.Closing += WindowClosing;
+            lifetime = new ApplicationLifetimeService(this, vm, monitoring, desktopServices, EndProcessAsync, unattended: smoke);
+            tray = new TrayIconService(monitoring, vm, Dispatcher, new TrayActions(() => lifetime.Restore(), () => lifetime.ShowSettings(), () => lifetime.ExitAsync()));
+            monitoring.NotificationRaised += request => Dispatcher.BeginInvoke(() => tray.ShowNotification(request));
+            instance.ActivationRequested += () => Dispatcher.BeginInvoke(() => lifetime.Restore());
+            lifetime.Attach(window, tray);
             window.Show();
             await vm.InitializeAsync(cancellation.Token);
+            // Monitoring and recording start with the application only as far as the user's settings say so.
+            if (!smoke && !background.Current.MonitorOnStart) monitoring.StopMonitoring();
             sampling = vm.RunAsync(cancellation.Token);
+            if (!smoke && background.Current.RecordOnStart && monitoring.Coordinator.State == MonitoringState.Running) vm.StartRecordingCommand.Execute(null);
             if (smoke) await RunSmokeAsync(vm, bindingErrors!);
         }
         catch (Exception ex)
@@ -71,7 +107,6 @@ public partial class App : Application
                 ex + Environment.NewLine + Environment.NewLine + "--- evidence gathered before the failure ---" + Environment.NewLine + string.Join(Environment.NewLine, smokeEvidence));
             else MessageBox.Show($"EUC Lens could not start. {ex.Message}", "EUC Lens", MessageBoxButton.OK, MessageBoxImage.Error);
             await StopAsync();
-            closing = true;
             Shutdown(1);
         }
     }
@@ -259,7 +294,6 @@ public partial class App : Application
         if (unhandled.Count > 0) throw new InvalidOperationException("Unhandled exceptions: " + string.Join("\n", unhandled));
         await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"), "PASS: startup, diagnostics (3 independent domains, Insufficient Data and no conclusion on short observation, evidence coverage vs collector availability, software rendering as neutral information, trends with gaps and a shared window, conditional low-FPS threshold hidden at idle, compact status counts, resizable findings/evidence split with independent scrolling, wheel chaining and keyboard access, filters with counts and empty states, sorting, stable selection with evidence, clipboard, diag export columns), Real Session without Horizon Agent (Blast N/A, real CPU/RAM, recording + JSON/CSV with host columns), protocol display, Advanced Metrics filter/search, NVML-absent initialization, Real↔Demo switching, demo sampling and live charts, all six views, themes, recording, JSON/CSV export, themed charts, navigation/resize layout matrix, WPF client captures, no WPF binding errors. Actual Windows DPI changes require manual acceptance.\n" + soak + "\n" + string.Join("\n", evidence));
         await StopAsync();
-        closing = true;
         Shutdown(0);
     }
     /// <summary>
@@ -379,23 +413,30 @@ public partial class App : Application
         if (d.Findings.Count > 0) d.SelectedFinding = d.Findings[0];
         return result;
     }
-    private async void WindowClosing(object? sender, CancelEventArgs e)
+    private static RecordingOptions RecordingOptionsFor(BackgroundSettings settings) => new()
     {
-        if (closing) return;
-        e.Cancel = true;
-        var vm = services?.GetService<MainViewModel>();
-        if (!smoke && vm?.HasUnexportedSamples == true && MessageBox.Show(MainWindow,
-            "There are unexported recording samples. Exit and discard them? Choose No to return and export.",
-            "Unsaved recording", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
-        closing = true;
+        Directory = settings.EffectiveDirectory,
+        QuotaBytes = (long)settings.RetentionQuotaMiB << 20,
+        MaxAge = settings.RetentionDays == 0 ? null : TimeSpan.FromDays(settings.RetentionDays),
+    };
+
+    /// <summary>The single way out: used by Exit (window close, tray menu), after the recording was finalized.</summary>
+    private async Task EndProcessAsync()
+    {
         try { await StopAsync(); Shutdown(); }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine(ex); Shutdown(1); }
     }
     private async Task StopAsync()
     {
+        // Every way of ending the process finalizes a recording first, then removes the tray icon so no ghost icon is left behind.
+        if (monitoring is not null) await monitoring.ShutdownAsync(RecordingEndReason.AppExit);
         cancellation.Cancel();
         if (sampling is not null) await sampling;
+        tray?.Dispose(); tray = null;
+        lifetime?.Dispose(); lifetime = null;
         if (services is not null) { await services.DisposeAsync(); services = null; }
+        instance?.Dispose(); instance = null;
+        if (smokeRoot is not null && Directory.Exists(smokeRoot)) { try { Directory.Delete(smokeRoot, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
     }
     private sealed class BindingErrorListener : TraceListener
     {
