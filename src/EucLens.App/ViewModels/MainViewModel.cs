@@ -75,7 +75,16 @@ public sealed class MainViewModel : ObservableObject
     public IReadOnlyList<Choice<DemoScenario>> Scenarios { get; } = [new(DemoScenario.Healthy, "Healthy session"), new(DemoScenario.HighNetworkLatency, "High network latency"), new(DemoScenario.LowFps, "Low FPS"), new(DemoScenario.GpuBottleneck, "GPU bottleneck"), new(DemoScenario.BandwidthCongestion, "Bandwidth congestion")];
     public IReadOnlyList<Choice<WorkloadContext>> Workloads { get; } = [new(WorkloadContext.Idle, "Idle / static content"), new(WorkloadContext.Office, "Office productivity"), new(WorkloadContext.InteractiveGraphics, "Interactive graphics"), new(WorkloadContext.VideoPlayback, "Video playback")];
     public IReadOnlyList<PageViewModel> Pages { get; }
-    public PageViewModel SelectedPage { get => selectedPage; set { if (Set(ref selectedPage, value) && value is AdvancedPage) RebuildAdvanced(); } }
+    public PageViewModel SelectedPage
+    {
+        get => selectedPage;
+        set
+        {
+            if (!Set(ref selectedPage, value)) return;
+            if (value is AdvancedPage) RebuildAdvanced();
+            else if (value is RecorderPage) _ = Background.RefreshRecordingsAsync();
+        }
+    }
     public Choice<RemoteProtocol> SelectedProtocol { get => selectedProtocol; set { if (Set(ref selectedProtocol, value)) Configure(); } }
     public Choice<DemoScenario> SelectedScenario { get => selectedScenario; set { if (Set(ref selectedScenario, value)) Configure(); } }
     public Choice<WorkloadContext> SelectedWorkload { get => selectedWorkload; set { if (Set(ref selectedWorkload, value)) Configure(); } }
@@ -308,7 +317,6 @@ public sealed class MainViewModel : ObservableObject
     {
         // Diagnostic state travels with the sample so recordings preserve findings and their transitions.
         if (report.Snapshot is not null) s = s with { Diagnostics = report.Snapshot };
-        current = s;
         // Recording, tray state and notifications never depend on the window: this part runs for every sample.
         var recording = recorder.IsRecording;
         recorder.Add(s);
@@ -321,6 +329,7 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>Updates every card, chart and list from one sample. Only runs while the window is shown.</summary>
     private void Present(SessionSnapshot s, DiagnosticReport report)
     {
+        current = s;
         var recording = recorder.IsRecording;
         ApplyDiagnostics(report, s);
         MetricCard C(string name, Metric metric) => new(name, metric.Display, s.Session.IsDemo ? metric.UnavailableReason ?? "Simulated measurement"
@@ -442,7 +451,8 @@ public sealed class MainViewModel : ObservableObject
     private static double? ChartValue(Metric metric) => metric.Status == MetricStatus.Available ? metric.Value : null;
     private void ClearLive()
     {
-        current = null; health = HealthStatus.Unavailable; connectionState = graphicsState = guestState = InsufficientData;
+        current = null; deferred = null; // a sample deferred while hidden belongs to the mode being left
+ health = HealthStatus.Unavailable; connectionState = graphicsState = guestState = InsufficientData;
         Diagnostics.Clear();
         RttChart.Clear(); FpsChart.Clear(); CpuChart.Clear(); AdvancedRows.Clear();
         AdvancedStatus = IsDemo ? "Advanced metrics list real collector output; Demo Mode has none." : "Waiting for the first sample.";

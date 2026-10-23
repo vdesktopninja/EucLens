@@ -1,11 +1,36 @@
 <UserControl x:Class="EucLens.App.Views.RecorderView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:ui="clr-namespace:EucLens.App.Presentation" xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF">
  <StackPanel>
   <TextBlock Text="Session recorder" Style="{StaticResource Heading}" />
-  <TextBlock Text="Record timestamped demo snapshots. Export during recording or after stopping." Style="{StaticResource Muted}" Margin="0,0,0,12" />
+  <TextBlock Text="Record timestamped measurements to disk while you work, also with the window hidden in the notification area. Export during recording or after stopping." Style="{StaticResource Muted}" Margin="0,0,0,12" />
+  <Border Style="{StaticResource Panel}" AutomationProperties.Name="Monitoring control"><StackPanel>
+   <TextBlock Text="Monitoring" FontWeight="SemiBold" />
+   <TextBlock Text="{Binding Monitor.Background.MonitoringText}" Margin="0,4,0,2" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+   <TextBlock Text="{Binding Monitor.Background.TrayDescription}" Style="{StaticResource Muted}" Margin="0,0,0,8" TextWrapping="Wrap" />
+   <WrapPanel><Button Content="Start monitoring" Command="{Binding Monitor.Background.StartMonitoringCommand}" Margin="0,0,8,4" /><Button Content="Pause monitoring" Command="{Binding Monitor.Background.PauseMonitoringCommand}" Margin="0,0,8,4" /><Button Content="Resume monitoring" Command="{Binding Monitor.Background.ResumeMonitoringCommand}" Margin="0,0,8,4" /></WrapPanel>
+   <TextBlock Text="Pausing collects no samples; an open recording records the pause and its exact length as a gap, never invented values. Recording needs monitoring." Style="{StaticResource Muted}" TextWrapping="Wrap" />
+  </StackPanel></Border>
   <Border Style="{StaticResource Panel}"><StackPanel>
    <WrapPanel Margin="0,0,0,8"><TextBlock Text="{Binding Monitor.RecordingState}" FontWeight="SemiBold" Margin="0,0,24,4" /><TextBlock Text="{Binding Monitor.RecordingDuration, StringFormat=Elapsed: {0}}" Typography.NumeralAlignment="Tabular" Margin="0,0,24,4" /><TextBlock Text="{Binding Monitor.SampleCount, StringFormat=Samples: {0}}" Typography.NumeralAlignment="Tabular" /></WrapPanel>
    <WrapPanel><Button Content="Start recording" Command="{Binding Monitor.StartRecordingCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,8,4" /><Button Content="Stop" Command="{Binding Monitor.StopRecordingCommand}" Margin="0,0,8,4" /><Button Content="Export JSON" Command="{Binding Monitor.ExportJsonCommand}" Margin="0,0,8,4" /><Button Content="Export CSV" Command="{Binding Monitor.ExportCsvCommand}" Margin="0,0,8,4" /></WrapPanel>
+   <TextBlock Text="{Binding Monitor.Background.StorageStatus}" Style="{StaticResource Muted}" Margin="0,4,0,0" TextWrapping="Wrap" AutomationProperties.Name="Recording storage status" />
   </StackPanel></Border><Border Style="{StaticResource ChartSurface}"><StackPanel><TextBlock Text="Recorded connection history" FontWeight="SemiBold" /><TextBlock Text="RTT · ms · latest 600 samples · exports include the full recording" Style="{StaticResource Muted}" Margin="0,4,0,8" /><lvc:CartesianChart ui:LiveChart.Data="{Binding Monitor.RecordingChart}" AnimationsSpeed="{Binding Monitor.ChartAnimation}" Height="216" Background="{DynamicResource ChartBackgroundBrush}" ui:ChartTheme.Text="{DynamicResource MutedBrush}" ui:ChartTheme.Surface="{DynamicResource SurfaceBrush}" ui:ChartTheme.Grid="{DynamicResource ChartGridBrush}" ui:ChartTheme.Line="{DynamicResource AccentBrush}" AutomationProperties.Name="Recorded connection history history" /></StackPanel></Border>
-  <Border Style="{StaticResource Panel}"><StackPanel><TextBlock Text="Storage and limits" FontWeight="SemiBold" Margin="0,0,0,8" /><TextBlock Text="{Binding Monitor.RecordLimit}" Style="{StaticResource Muted}" /><TextBlock Text="Samples remain in memory until exported. Closing the app discards unexported data. Each sample preserves its protocol and workload when selections change. JSON includes availability and metadata; CSV uses explicit Unavailable cells." Style="{StaticResource Muted}" Margin="0,8,0,0" /></StackPanel></Border>
+  <Border Style="{StaticResource Panel}"><StackPanel><TextBlock Text="Storage and limits" FontWeight="SemiBold" Margin="0,0,0,8" /><TextBlock Text="{Binding Monitor.RecordLimit}" Style="{StaticResource Muted}" TextWrapping="Wrap" /><TextBlock Text="Each recording is a series of readable JSON Lines files in the recordings folder (schema euclens.recording/1). Unavailable measurements have no value and are never written as zero; pauses, disconnects and lost samples are explicit entries. Exports keep the existing JSON and CSV formats. Folder, quota and retention are set under Settings, Background monitoring." Style="{StaticResource Muted}" Margin="0,8,0,0" TextWrapping="Wrap" /></StackPanel></Border>
+  <Border Style="{StaticResource Panel}" AutomationProperties.Name="Saved recordings"><StackPanel>
+   <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+    <TextBlock Text="Saved recordings" FontWeight="SemiBold" VerticalAlignment="Center" />
+    <WrapPanel Grid.Column="1"><Button Content="Refresh" Command="{Binding Monitor.Background.RefreshRecordingsCommand}" Margin="0,0,8,0" /><Button Content="Open recordings folder" Command="{Binding Monitor.Background.OpenRecordingsFolderCommand}" /></WrapPanel>
+   </Grid>
+   <TextBlock Text="{Binding Monitor.Background.RecordingFolder}" Style="{StaticResource Muted}" Margin="0,6,0,0" TextWrapping="Wrap" />
+   <TextBlock Text="{Binding Monitor.Background.RecordingFolderNote}" Style="{StaticResource Muted}" Margin="0,2,0,6" TextWrapping="Wrap" />
+   <TextBlock Text="{Binding Monitor.Background.RecordingsMessage}" Margin="0,0,0,4" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+   <ItemsControl ItemsSource="{Binding Monitor.Background.Recordings}" Focusable="False" AutomationProperties.Name="Recordings list"><ItemsControl.ItemTemplate><DataTemplate>
+    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,8" AutomationProperties.Name="{Binding AutomationName}"><StackPanel>
+     <WrapPanel><TextBlock Text="{Binding Started}" FontWeight="SemiBold" Margin="0,0,16,0" Typography.NumeralAlignment="Tabular" /><TextBlock Text="{Binding Duration, StringFormat=Duration {0}}" Margin="0,0,16,0" Typography.NumeralAlignment="Tabular" /><TextBlock Text="{Binding Samples, StringFormat=Samples {0}}" Margin="0,0,16,0" Typography.NumeralAlignment="Tabular" /><TextBlock Text="{Binding Size, StringFormat=Size {0}}" Margin="0,0,16,0" Typography.NumeralAlignment="Tabular" /><TextBlock Text="{Binding Source}" Margin="0,0,16,0" /></WrapPanel>
+     <TextBlock Text="{Binding Events}" Style="{StaticResource Muted}" />
+     <TextBlock Text="{Binding Status}" Style="{StaticResource Muted}" TextWrapping="Wrap" />
+     <WrapPanel Margin="0,6,0,0"><Button Content="Show file" Command="{Binding OpenFileCommand}" Margin="0,0,8,0" /><Button Content="Open folder" Command="{Binding OpenFolderCommand}" Margin="0,0,8,0" /><Button Content="Export JSON" Command="{Binding ExportJsonCommand}" Margin="0,0,8,0" /><Button Content="Export CSV" Command="{Binding ExportCsvCommand}" /></WrapPanel>
+    </StackPanel></Border>
+   </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+  </StackPanel></Border>
  </StackPanel>
 </UserControl>
