@@ -134,8 +134,12 @@ public sealed class RecordingWriter : IRecordingSink, IAsyncDisposable
         Channel<Item>? c;
         lock (gate) { if (state == RecordingSinkState.Idle) return; c = channel; }
         var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        await c!.Writer.WriteAsync(new FlushItem(done), cancellationToken).ConfigureAwait(false);
-        await done.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        Task running;
+        lock (gate) running = loop;
+        try { await c!.Writer.WriteAsync(new FlushItem(done), cancellationToken).ConfigureAwait(false); }
+        catch (ChannelClosedException) { return; } // the recording already ended itself
+        // The loop may end (fatal storage error) while the request is queued; it then completes the request as it drains.
+        await Task.WhenAny(done.Task, running).WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task EndAsync(RecordingEndReason reason, CancellationToken cancellationToken = default)
@@ -194,6 +198,17 @@ public sealed class RecordingWriter : IRecordingSink, IAsyncDisposable
         finally
         {
             lock (gate) { if (state != RecordingSinkState.Idle) state = RecordingSinkState.Idle; }
+            // Whatever is still queued will never be written: requests are released and samples are counted as lost.
+            channel?.Writer.TryComplete();
+            while (reader.TryRead(out var rest))
+            {
+                switch (rest)
+                {
+                    case FlushItem f: f.Done.TrySetResult(); break;
+                    case EndItem e: e.Done.TrySetResult(); break;
+                    case SampleItem: CountLost(); break;
+                }
+            }
         }
     }
 
