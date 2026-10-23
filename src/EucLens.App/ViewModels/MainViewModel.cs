@@ -486,6 +486,9 @@ public sealed class MainViewModel : ObservableObject
     }
     private void RefreshRecorder()
     {
+        // Starting or stopping a recording changes what the tray shows; the status must not wait for the next sample. Refresh only
+        // raises StatusChanged when the status really changed, so the re-entrant call this triggers ends after one more pass.
+        monitoring.Refresh();
         Raise(nameof(RecordingState)); Raise(nameof(RecordingDuration)); Raise(nameof(SampleCount)); Raise(nameof(RecordLimit));
         Background.RefreshStorage();
         StartRecordingCommand.Refresh(); StopRecordingCommand.Refresh(); ExportJsonCommand.Refresh(); ExportCsvCommand.Refresh();
