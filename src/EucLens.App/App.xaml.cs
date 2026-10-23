@@ -296,10 +296,26 @@ public partial class App : Application
         if (unhandled.Count > 0) throw new InvalidOperationException("Unhandled exceptions: " + string.Join("\n", unhandled));
         await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"), "PASS: startup, diagnostics (3 independent domains, Insufficient Data and no conclusion on short observation, evidence coverage vs collector availability, software rendering as neutral information, trends with gaps and a shared window, conditional low-FPS threshold hidden at idle, compact status counts, resizable findings/evidence split with independent scrolling, wheel chaining and keyboard access, filters with counts and empty states, sorting, stable selection with evidence, clipboard, diag export columns), Real Session without Horizon Agent (Blast N/A, real CPU/RAM, recording + JSON/CSV with host columns), protocol display, Advanced Metrics filter/search, NVML-absent initialization, Real↔Demo switching, demo sampling and live charts, all six views, themes, recording, JSON/CSV export, themed charts, navigation/resize layout matrix, WPF client captures, no WPF binding errors. Actual Windows DPI changes require manual acceptance.\n" + soak + "\n" + string.Join("\n", evidence));
         // The run ends the way a user ends it: Exit with a recording in progress. Exit finalizes the recording file first.
+        // The recording is created for this purpose alone; its id is captured so the finalization is checked against exactly this recording.
+        var folder = Path.Combine(AppContext.BaseDirectory, "visual-evidence");
+        if (recorder.IsRecording) await recorder.StopAsync();
         vm.StartRecordingCommand.Execute(null);
-        await Task.Delay(2500);
+        var started = recorder.IsRecording && recorder.SinkStatus is { State: RecordingSinkState.Active, RecordingId: not null };
+        for (var wait = 0; !started && wait < 40; wait++) { await Task.Delay(100); started = recorder.IsRecording && recorder.SinkStatus is { State: RecordingSinkState.Active, RecordingId: not null }; }
+        if (!started)
+        {
+            smokeExitFailed = true;
+            await File.AppendAllTextAsync(Path.Combine(folder, "background-validation.txt"),
+                $"FAIL: Exit test could not start its recording (recording={recorder.IsRecording}, sink={recorder.SinkStatus?.State}); Exit was not exercised with an active recording" + Environment.NewLine);
+        }
+        else
+        {
+            exitRecordingId = recorder.SinkStatus!.RecordingId;
+            await Task.Delay(2500);
+        }
         await lifetime!.ExitAsync();
     }
+    private Guid? exitRecordingId;
     /// <summary>
     /// Demo high-latency scenario on the Diagnostics page: sustained findings must appear with evidence, the UI thread
     /// must stay responsive with four live charts, and repeated navigation must not grow the managed heap.
@@ -437,16 +453,38 @@ public partial class App : Application
     }
     private bool smokeExitFailed;
 
-    /// <summary>Smoke only: Exit has finalized the running recording; its file must say so.</summary>
+    /// <summary>Smoke only: Exit has finalized the recording started for the exit test; that exact recording's file must say so.</summary>
     private async Task WriteExitEvidenceAsync()
     {
         var folder = Path.Combine(AppContext.BaseDirectory, "visual-evidence");
-        var summary = RecordingCatalog.Scan(new PhysicalRecordingStorage(), Path.Combine(folder, "recordings")).FirstOrDefault();
-        var ok = summary is { IsComplete: true, EndReason: "AppExit" } && summary.Samples >= 2;
-        smokeExitFailed = !ok;
-        await File.AppendAllTextAsync(Path.Combine(folder, "background-validation.txt"), (ok
-            ? $"PASS: Exit finalized the running recording ({summary!.Samples} samples, end reason AppExit, complete) before the process ended; the tray icon is removed on exit"
-            : $"FAIL: Exit left the recording unfinished: {summary}") + Environment.NewLine);
+        string line;
+        if (exitRecordingId is not { } id)
+        {
+            smokeExitFailed = true;
+            line = "FAIL: Exit finalization was not checked: no recording was started for the exit test";
+        }
+        else
+        {
+            var shortId = RecordingFormat.ShortId(id);
+            var summary = RecordingCatalog.Scan(new PhysicalRecordingStorage(), Path.Combine(folder, "recordings")).FirstOrDefault(r => r.ShortId == shortId);
+            if (summary is null)
+            {
+                smokeExitFailed = true;
+                line = $"FAIL: Exit recording {shortId} is missing from the recordings folder";
+            }
+            else if (summary.EndReason != "AppExit")
+            {
+                smokeExitFailed = true;
+                line = $"FAIL: Exit recording {shortId} ended with reason '{summary.EndReason}', expected 'AppExit' (complete={summary.IsComplete}, samples={summary.Samples})";
+            }
+            else if (!summary.IsComplete || summary.Samples < 2)
+            {
+                smokeExitFailed = true;
+                line = $"FAIL: Exit recording {shortId} has reason AppExit but is not a complete recording with at least 2 samples (complete={summary.IsComplete}, samples={summary.Samples})";
+            }
+            else line = $"PASS: Exit finalized the running recording {shortId} ({summary.Samples} samples, end reason AppExit, complete) before the process ended; the tray icon is removed on exit";
+        }
+        await File.AppendAllTextAsync(Path.Combine(folder, "background-validation.txt"), line + Environment.NewLine);
     }
 
     private async Task StopAsync()

@@ -75,14 +75,42 @@ internal static class BackgroundValidation
         c.Vm.SelectedPage = c.Vm.Pages[0];
         await Task.Delay(1500);
 
-        CheckIcons(c);
-        await CheckTrayStates(c);
-        await CaptureTrayArtifacts(c);
-        await CheckMinimizeRestoreAndHiddenRecording(c);
-        await CheckCloseToTray(c);
-        await CheckSingleInstance(c);
-        await Soak(c);
+        // Every section runs even when an earlier one fails, so one problem cannot hide the evidence of the others. Each failure is
+        // written to background-validation.txt as it happens; the run fails at the end if there was any.
+        var failures = new List<string>();
+        await Section(c, failures, "icons", () => { CheckIcons(c); return Task.CompletedTask; });
+        await Section(c, failures, "tray states", () => CheckTrayStates(c));
+        await Section(c, failures, "tray artifacts", () => CaptureTrayArtifacts(c));
+        await Section(c, failures, "minimize, restore and hidden recording", () => CheckMinimizeRestoreAndHiddenRecording(c));
+        await Section(c, failures, "close to tray", () => CheckCloseToTray(c));
+        await Section(c, failures, "single instance", () => CheckSingleInstance(c));
+        await Section(c, failures, "visible versus hidden soak", () => Soak(c));
+        if (failures.Count > 0) throw new InvalidOperationException($"Background validation failed in {failures.Count} section(s): {string.Join("; ", failures)}");
         Log(c, "PASS: background validation complete");
+    }
+
+    private static async Task Section(BackgroundSmokeContext c, List<string> failures, string name, Func<Task> run)
+    {
+        try { await run(); }
+        catch (Exception ex)
+        {
+            failures.Add(name);
+            Log(c, $"FAIL: {name}: {ex.GetType().Name}: {ex.Message}");
+        }
+        await ResetAsync(c);
+    }
+
+    /// <summary>Returns the application to a known state (window shown, monitoring running, nothing recording) so one section cannot corrupt the next.</summary>
+    private static async Task ResetAsync(BackgroundSmokeContext c)
+    {
+        try
+        {
+            if (c.Recorder.IsRecording) await c.Recorder.StopAsync();
+            if (c.Monitoring.Coordinator.State != MonitoringState.Running) c.Monitoring.StartMonitoring();
+            c.Lifetime.Restore();
+            await Idle(c);
+        }
+        catch (Exception ex) { SmokeLog.Write("background reset: " + ex.Message); }
     }
 
     // ---------- icons ----------
@@ -120,6 +148,7 @@ internal static class BackgroundValidation
     private static async Task CheckTrayStates(BackgroundSmokeContext c)
     {
         await using var provider = new MockMetricsProvider();
+        await provider.InitializeAsync(); // the provider contract: initialize before collecting, dispose when done (await using)
         var sample = await provider.CollectAsync();
         var expected = TrayStateResolver.IconKeys.ToDictionary(k => k, k => { using var icon = Resource(k); return Hash(icon); });
         var steps = new List<string>();
