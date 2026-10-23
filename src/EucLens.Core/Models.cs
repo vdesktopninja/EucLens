@@ -106,6 +106,8 @@ public interface ISessionRecorder
     /// <summary>The recording ended by itself, for example because of a storage failure. May be raised on a background thread.</summary>
     event Action<RecordingEndReason>? Ended { add { } remove { } }
     RecordingSinkStatus? SinkStatus => null;
+    /// <summary>True when samples are streamed to disk, so they are saved without an export.</summary>
+    bool IsPersistent => false;
     void Add(SessionSnapshot sample);
     Task ExportJsonAsync(string path, CancellationToken cancellationToken = default);
     Task ExportCsvAsync(string path, CancellationToken cancellationToken = default);

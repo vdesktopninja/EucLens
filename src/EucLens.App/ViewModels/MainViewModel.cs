@@ -1,3 +1,4 @@
+using System.IO;
 using System.Collections.ObjectModel;
 using EucLens.Core;
 using Microsoft.Extensions.Logging;
@@ -20,7 +21,7 @@ public sealed class MainViewModel : ObservableObject
             if (!Set(ref selectedMode, value)) return;
             // A recording never mixes demo and real samples.
             var stopped = recorder.IsRecording;
-            recorder.Stop(); Configure(); RefreshRecorder();
+            recorder.Stop(RecordingEndReason.ModeSwitched); Configure(); RefreshRecorder();
             Raise(nameof(IsDemo)); Raise(nameof(IsReal)); Raise(nameof(ModeLabel)); Raise(nameof(ModeBanner)); Raise(nameof(ModeDescription));
             Raise(nameof(ProtocolDisplay)); Raise(nameof(ProtocolDetail));
             if (stopped) Status = $"Recording stopped because monitoring switched to {value.Label}. Export to keep it.";
@@ -43,6 +44,8 @@ public sealed class MainViewModel : ObservableObject
     private string connectionState = InsufficientData, graphicsState = InsufficientData, guestState = InsufficientData;
     private string thresholdStatus = "Default thresholds (initial tunable values).";
     private readonly ISessionRecorder recorder;
+    private readonly MonitoringService monitoring;
+    private readonly SynchronizationContext? ui = SynchronizationContext.Current;
     private readonly IDesktopServices desktop;
     private readonly ILogger<MainViewModel> logger;
     private SessionSnapshot? current;
@@ -57,11 +60,17 @@ public sealed class MainViewModel : ObservableObject
     private Choice<DemoScenario> selectedScenario;
     private Choice<WorkloadContext> selectedWorkload;
     private bool ready;
+    private bool presenting = true;
+    private bool gapPending;
+    private (SessionSnapshot Sample, DiagnosticReport Report)? deferred;
     private bool collectionFailed;
     private int exportedSamples;
     private long recordingGeneration;
     private int configurationVersion;
-    public bool HasUnexportedSamples => recorder.SampleCount > exportedSamples;
+    /// <summary>Persisted recordings are already on disk; only an in-memory recording can be lost by exiting.</summary>
+    public bool HasUnexportedSamples => !recorder.IsPersistent && recorder.SampleCount > exportedSamples;
+    public BackgroundViewModel Background { get; }
+    public MonitoringService Monitoring => monitoring;
     public IReadOnlyList<Choice<RemoteProtocol>> Protocols { get; } = [new(RemoteProtocol.CitrixHdx, "Citrix HDX"), new(RemoteProtocol.OmnissaBlast, "Omnissa Blast"), new(RemoteProtocol.MicrosoftRdp, "Microsoft RDP")];
     public IReadOnlyList<Choice<DemoScenario>> Scenarios { get; } = [new(DemoScenario.Healthy, "Healthy session"), new(DemoScenario.HighNetworkLatency, "High network latency"), new(DemoScenario.LowFps, "Low FPS"), new(DemoScenario.GpuBottleneck, "GPU bottleneck"), new(DemoScenario.BandwidthCongestion, "Bandwidth congestion")];
     public IReadOnlyList<Choice<WorkloadContext>> Workloads { get; } = [new(WorkloadContext.Idle, "Idle / static content"), new(WorkloadContext.Office, "Office productivity"), new(WorkloadContext.InteractiveGraphics, "Interactive graphics"), new(WorkloadContext.VideoPlayback, "Video playback")];
@@ -94,7 +103,9 @@ public sealed class MainViewModel : ObservableObject
     public string RecordingState => $"{(recorder.IsRecording ? "RECORDING" : recorder.SampleCount > 0 ? "STOPPED" : "READY")} · {((recorder.SampleCount > 0 || recorder.IsRecording ? recordingIsDemo : IsDemo) ? "DEMO DATA" : "REAL SESSION")}";
     public string RecordingDuration => FormatDuration(recorder.Duration);
     public int SampleCount => recorder.SampleCount;
-    public string RecordLimit => "Up to 86,400 samples (24 hours at 1 Hz). New recordings replace in-memory history after confirmation.";
+    public string RecordLimit => recorder.IsPersistent
+        ? "Recordings stream to disk as they are collected and are limited by the storage quota in Settings, not by memory. Every recording is a new file."
+        : "Up to 86,400 samples (24 hours at 1 Hz). New recordings replace in-memory history after confirmation.";
     public ObservableCollection<MetricCard> OverviewCards { get; } = [];
     public ObservableCollection<MetricCard> ConnectionCards { get; } = [];
     public ObservableCollection<MetricCard> GraphicsCards { get; } = [];
@@ -123,17 +134,22 @@ public sealed class MainViewModel : ObservableObject
     public AsyncCommand ExportCsvCommand { get; }
     public AsyncCommand SavePreferencesCommand { get; }
     public MainViewModel(IDemoMetricsProvider provider, IDiagnosticEngine diagnostics, ISessionRecorder recorder,
-        IDesktopServices desktop, ILogger<MainViewModel> logger, IMetricsProvider? realProvider = null, IDiagnosticSettingsStore? diagnosticSettings = null)
+        IDesktopServices desktop, ILogger<MainViewModel> logger, IMetricsProvider? realProvider = null, IDiagnosticSettingsStore? diagnosticSettings = null,
+        MonitoringService? monitoring = null, BackgroundViewModel? background = null)
     {
         this.diagnosticSettings = diagnosticSettings;
         Diagnostics = new(desktop);
         this.realProvider = realProvider; selectedMode = Modes[realProvider is null ? 1 : 0];
         this.provider = provider; this.diagnostics = diagnostics; this.recorder = recorder; this.desktop = desktop; this.logger = logger;
+        this.monitoring = monitoring ?? new MonitoringService(new MonitoringCoordinator(), recorder);
+        Background = background ?? new BackgroundViewModel(this.monitoring, recorder, desktop, logger: logger);
+        recorder.Ended += reason => Post(() => OnRecordingEnded(reason));
+        this.monitoring.StatusChanged += _ => Post(RefreshRecorder);
         selectedProtocol = Protocols[0]; selectedScenario = Scenarios[0]; selectedWorkload = Workloads[realProvider is null ? 2 : 0];
         selectedAdvancedCategory = AdvancedCategories[0];
         Pages = [new DashboardPage(this), new DiagnosticsPage(this), new RecorderPage(this), new SystemPage(this), new AdvancedPage(this), new SettingsPage(this)];
         selectedPage = Pages[0];
-        StartRecordingCommand = new(StartRecording, () => ready && !recorder.IsRecording);
+        StartRecordingCommand = new(StartRecording, () => ready && !recorder.IsRecording && this.monitoring.Coordinator.State == MonitoringState.Running);
         StopRecordingCommand = new(() => { recorder.Stop(); Status = "Recording stopped. Export to save the collected metrics."; RefreshRecorder(); }, () => recorder.IsRecording);
         ExportJsonCommand = new(() => ExportAsync(true), () => recorder.SampleCount > 0);
         ExportCsvCommand = new(() => ExportAsync(false), () => recorder.SampleCount > 0);
@@ -215,50 +231,97 @@ public sealed class MainViewModel : ObservableObject
         ClearLive();
         Status = IsDemo ? $"DEMO DATA · {SelectedProtocol.Label} · {SelectedScenario.Label}" : "REAL SESSION · Discovering Blast counters and host collectors…";
     }
-    public async Task RunAsync(CancellationToken token)
+    /// <summary>
+    /// The monitoring loop belongs to the <see cref="MonitoringCoordinator"/>: one loop per process, independent of any window. This
+    /// method only supplies what one tick does. Tests and the application both start it here.
+    /// </summary>
+    public Task RunAsync(CancellationToken token) => monitoring.Coordinator.RunAsync(TickAsync, token);
+
+    private async Task TickAsync(CancellationToken token)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
-        while (!token.IsCancellationRequested)
+        try
         {
-            try
+            var version = configurationVersion;
+            var active = ActiveProvider;
+            var workload = SelectedWorkload.Value;
+            // Collection and diagnostic evaluation both run off the UI thread.
+            var (sample, report) = await Task.Run(async () =>
             {
-                var version = configurationVersion;
-                var active = ActiveProvider;
-                var workload = SelectedWorkload.Value;
-                // Collection and diagnostic evaluation both run off the UI thread.
-                var (sample, report) = await Task.Run(async () =>
-                {
-                    var s = await active.CollectAsync(token);
-                    if (!s.Session.IsDemo) s = s with { Workload = workload };
-                    DiagnosticReport? r = null;
-                    lock (diagnosticsGate) { if (version == configurationVersion) r = diagnostics.Evaluate(s); }
-                    return (s, r);
-                }, token);
-                if (version == configurationVersion && report is not null)
-                {
-                    Apply(sample, report);
-                    if (collectionFailed) { Status = sample.CollectionStatus ?? "Collection recovered."; collectionFailed = false; }
-                }
-            }
-            catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
-            catch (Exception ex)
+                var s = await active.CollectAsync(token);
+                if (!s.Session.IsDemo) s = s with { Workload = workload };
+                DiagnosticReport? r = null;
+                lock (diagnosticsGate) { if (version == configurationVersion) r = diagnostics.Evaluate(s); }
+                return (s, r);
+            }, token);
+            if (version == configurationVersion && report is not null)
             {
-                collectionFailed = true;
-                logger.LogError(ex, "Metrics collection failed.");
-                ClearLive();
-                Status = $"Collection failed: {ex.Message}. Retrying next second.";
-                health = HealthStatus.Unavailable; connectionState = graphicsState = guestState = InsufficientData;
-                RaiseHealth();
+                Apply(sample, report);
+                if (collectionFailed) { Status = sample.CollectionStatus ?? "Collection recovered."; collectionFailed = false; }
             }
-            try { if (!await timer.WaitForNextTickAsync(token)) break; }
-            catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            collectionFailed = true;
+            logger.LogError(ex, "Metrics collection failed.");
+            ClearLive();
+            Status = $"Collection failed: {ex.Message}. Retrying next second.";
+            health = HealthStatus.Unavailable; connectionState = graphicsState = guestState = InsufficientData;
+            RaiseHealth();
         }
     }
+
+    /// <summary>
+    /// The window is shown (true) or hidden/minimized (false). While it is not shown, samples are still collected, evaluated by the
+    /// diagnostic engine and recorded, but no card, chart or list is updated; showing the window presents the latest state at once.
+    /// </summary>
+    public bool IsPresenting => presenting;
+
+    public void SetPresenting(bool value)
+    {
+        if (presenting == value) return;
+        presenting = value;
+        if (!value) { gapPending = true; Raise(nameof(IsPresenting)); return; }
+        Raise(nameof(IsPresenting));
+        if (deferred is { } latest) { deferred = null; Present(latest.Sample, latest.Report); }
+        RefreshRecorder();
+    }
+
+    private void Post(Action action)
+    {
+        if (ui is null || SynchronizationContext.Current == ui) action(); else ui.Post(_ => action(), null);
+    }
+
+    private void OnRecordingEnded(RecordingEndReason reason)
+    {
+        Status = reason switch
+        {
+            RecordingEndReason.StorageError => "The recording stopped because of a storage problem. What was written is saved; see the Session Recorder page.",
+            RecordingEndReason.QuotaReached => "The recording stopped because the storage quota was reached. What was written is saved.",
+            _ => "The recording stopped."
+        };
+        RefreshRecorder();
+        _ = Background.RefreshRecordingsAsync();
+    }
+
     private void Apply(SessionSnapshot s, DiagnosticReport report)
     {
         // Diagnostic state travels with the sample so recordings preserve findings and their transitions.
         if (report.Snapshot is not null) s = s with { Diagnostics = report.Snapshot };
         current = s;
+        // Recording, tray state and notifications never depend on the window: this part runs for every sample.
+        var recording = recorder.IsRecording;
+        recorder.Add(s);
+        if (recording && !recorder.IsRecording && !recorder.IsPersistent) Status = "Recording reached the 86,400 sample limit and stopped. Export to keep it.";
+        monitoring.OnSample(s, report);
+        if (!presenting) { deferred = (s, report); return; }
+        Present(s, report);
+    }
+
+    /// <summary>Updates every card, chart and list from one sample. Only runs while the window is shown.</summary>
+    private void Present(SessionSnapshot s, DiagnosticReport report)
+    {
+        var recording = recorder.IsRecording;
         ApplyDiagnostics(report, s);
         MetricCard C(string name, Metric metric) => new(name, metric.Display, s.Session.IsDemo ? metric.UnavailableReason ?? "Simulated measurement"
             : $"{metric.Status} · {(metric.Scope is { } scope ? ScopeLabel(scope) + " · " : "")}{metric.Source ?? "Not collected"} · {metric.Error ?? metric.UnavailableReason}");
@@ -306,13 +369,18 @@ public sealed class MainViewModel : ObservableObject
             }
             Status = s.CollectionStatus ?? "REAL SESSION";
         }
+        if (gapPending)
+        {
+            // The window was hidden: the trend lines show the interval as a gap instead of a line across it.
+            var gapAt = s.Timestamp.LocalDateTime.AddMilliseconds(-1);
+            RttChart.Add(gapAt, null); FpsChart.Add(gapAt, null); CpuChart.Add(gapAt, null);
+            if (recording) RecordingChart.Add(gapAt, null);
+            gapPending = false;
+        }
         RttChart.Add(s.Timestamp.LocalDateTime, ChartValue(s.Connection.RoundTripTime));
         FpsChart.Add(s.Timestamp.LocalDateTime, ChartValue(s.Graphics.FramesPerSecond));
         CpuChart.Add(s.Timestamp.LocalDateTime, ChartValue(s.System.CpuUtilization));
-        var recording = recorder.IsRecording;
-        recorder.Add(s);
         if (recording) RecordingChart.Add(s.Timestamp.LocalDateTime, ChartValue(s.Connection.RoundTripTime));
-        if (recording && !recorder.IsRecording) Status = "Recording reached the 86,400 sample limit and stopped. Export to keep it.";
         RaiseHealth(); Raise(nameof(SessionDuration)); Raise(nameof(UpdatedAt));
         Raise(nameof(SessionIdentity)); Raise(nameof(NetworkReadout)); Raise(nameof(GraphicsReadout)); Raise(nameof(ProtocolDisplay)); Raise(nameof(ProtocolDetail));
         if (SelectedPage is AdvancedPage) RebuildAdvanced();
@@ -391,12 +459,25 @@ public sealed class MainViewModel : ObservableObject
     }
     private void StartRecording()
     {
-        if (recorder.SampleCount > 0 && !desktop.ConfirmNewRecording()) return;
-        recordingIsDemo = IsDemo; recorder.Start(); recordingGeneration++; exportedSamples = 0; RecordingChart.Clear(); Status = "Recording metrics. Export locally to save them."; RefreshRecorder();
+        // A persisted recording never replaces an earlier one (it is a new file), so only in-memory history needs the confirmation.
+        if (!recorder.IsPersistent && recorder.SampleCount > 0 && !desktop.ConfirmNewRecording()) return;
+        if (monitoring.Coordinator.State != MonitoringState.Running) { Status = "Recording needs monitoring: start or resume monitoring first."; return; }
+        try { recordingIsDemo = IsDemo; recorder.Start(IsDemo); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning(ex, "Recording could not be started.");
+            Status = $"The recording could not be started: {ex.Message} Check the recordings folder in Settings.";
+            RefreshRecorder();
+            return;
+        }
+        recordingGeneration++; exportedSamples = 0; RecordingChart.Clear();
+        Status = recorder.IsPersistent ? $"Recording to {Background.RecordingFolder}. Samples are saved as they are collected." : "Recording metrics. Export locally to save them.";
+        RefreshRecorder();
     }
     private void RefreshRecorder()
     {
-        Raise(nameof(RecordingState)); Raise(nameof(RecordingDuration)); Raise(nameof(SampleCount));
+        Raise(nameof(RecordingState)); Raise(nameof(RecordingDuration)); Raise(nameof(SampleCount)); Raise(nameof(RecordLimit));
+        Background.RefreshStorage();
         StartRecordingCommand.Refresh(); StopRecordingCommand.Refresh(); ExportJsonCommand.Refresh(); ExportCsvCommand.Refresh();
     }
     private async Task ExportAsync(bool json)

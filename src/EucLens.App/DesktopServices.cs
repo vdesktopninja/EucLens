@@ -30,6 +30,27 @@ public sealed class DesktopServices : IDesktopServices
         var theme = new ResourceDictionary { Source = new Uri($"Themes/{(dark ? "Dark" : "Light")}.xaml", UriKind.Relative) };
         dictionaries[0] = theme;
     }
+    /// <summary>Set by the smoke test so unattended runs never wait for a dialog.</summary>
+    public bool AutoConfirmExit { get; init; }
+    public string? SelectFolder(string? initialDirectory)
+    {
+        var dialog = new OpenFolderDialog { Title = "Choose the recordings folder", InitialDirectory = initialDirectory ?? "", Multiselect = false };
+        return dialog.ShowDialog(Application.Current.MainWindow) == true ? dialog.FolderName : null;
+    }
+    public bool OpenPath(string path, bool selectFile = false)
+    {
+        try
+        {
+            var info = selectFile ? new System.Diagnostics.ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") : new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{path}\"");
+            info.UseShellExecute = true;
+            System.Diagnostics.Process.Start(info)?.Dispose();
+            return true;
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException) { return false; }
+    }
+    public bool ConfirmStopRecordingAndExit() => AutoConfirmExit || MessageBox.Show(Application.Current.MainWindow,
+        "A recording is running. Stop it, save the file and exit EUC Lens?\n\nChoose No to keep EUC Lens and the recording running.",
+        "Exit EUC Lens", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
     public bool CopyText(string text)
     {
         // Another process can hold the clipboard open; report failure instead of throwing.
