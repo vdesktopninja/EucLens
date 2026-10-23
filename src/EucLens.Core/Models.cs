@@ -96,6 +96,16 @@ public interface ISessionRecorder
     IReadOnlyList<SessionSnapshot> Samples { get; }
     void Start();
     void Stop();
+    /// <summary>Starts a recording that is labelled as demo or real data. Recorders that do not persist ignore the label.</summary>
+    void Start(bool isDemo) => Start();
+    void Stop(RecordingEndReason reason) => Stop();
+    /// <summary>Stops and waits until a persisted recording is finalized on disk.</summary>
+    Task StopAsync(RecordingEndReason reason = RecordingEndReason.UserStopped) { Stop(reason); return Task.CompletedTask; }
+    /// <summary>Records a pause, resume, availability change or similar in a persisted recording.</summary>
+    void Mark(RecordingMark mark) { }
+    /// <summary>The recording ended by itself, for example because of a storage failure. May be raised on a background thread.</summary>
+    event Action<RecordingEndReason>? Ended { add { } remove { } }
+    RecordingSinkStatus? SinkStatus => null;
     void Add(SessionSnapshot sample);
     Task ExportJsonAsync(string path, CancellationToken cancellationToken = default);
     Task ExportCsvAsync(string path, CancellationToken cancellationToken = default);

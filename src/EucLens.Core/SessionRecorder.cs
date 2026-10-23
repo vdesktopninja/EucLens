@@ -1,106 +1,117 @@
 using System.Diagnostics;
-using System.Globalization;
-using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace EucLens.Core;
 
-/// <summary>UI owns mutation; exports take a stable copy before asynchronous I/O.</summary>
+/// <summary>
+/// The session recorder. Without a sink it keeps every sample in memory (at most <see cref="MaximumSamples"/>), as before.
+/// With an <see cref="IRecordingSink"/> every sample is streamed to disk instead and only the latest
+/// <see cref="PersistedTailSamples"/> stay in memory, so a recording of many hours needs no more RAM than one of a few minutes.
+/// UI owns mutation; exports take a stable copy (or stream from disk) before asynchronous I/O.
+/// </summary>
 public sealed class SessionRecorder : ISessionRecorder
 {
     public const int MaximumSamples = 86_400;
+    public const int PersistedTailSamples = 600;
     private readonly List<SessionSnapshot> samples = [];
     private readonly Stopwatch elapsed = new();
-    public bool IsRecording { get; private set; }
-    public int SampleCount => samples.Count;
-    public TimeSpan Duration => elapsed.Elapsed;
-    public IReadOnlyList<SessionSnapshot> Samples => samples.AsReadOnly();
-    public void Start()
+    private readonly IRecordingSink? sink;
+    private readonly TimeProvider clock;
+    private readonly object gate = new();
+    private long total;
+    private Task ending = Task.CompletedTask;
+    private volatile bool recording;
+
+    public SessionRecorder(IRecordingSink? sink = null, TimeProvider? clock = null)
     {
-        if (IsRecording) throw new InvalidOperationException("A recording is already active.");
-        samples.Clear();
-        elapsed.Restart();
-        IsRecording = true;
+        this.sink = sink;
+        this.clock = clock ?? TimeProvider.System;
+        if (sink is not null) sink.Ended += OnSinkEnded;
     }
-    public void Stop() { IsRecording = false; elapsed.Stop(); }
+
+    public bool IsRecording => recording;
+    /// <summary>Samples recorded in total, also those that only exist on disk.</summary>
+    public int SampleCount => (int)Math.Min(Interlocked.Read(ref total), int.MaxValue);
+    public TimeSpan Duration { get { lock (gate) return elapsed.Elapsed; } }
+    /// <summary>All samples without a sink; the latest <see cref="PersistedTailSamples"/> with one.</summary>
+    public IReadOnlyList<SessionSnapshot> Samples => samples.AsReadOnly();
+    public bool IsPersistent => sink is not null;
+    public RecordingSinkStatus? SinkStatus => sink?.Status;
+    /// <summary>The recording ended by itself (storage failure, quota). Raised on a background thread.</summary>
+    public event Action<RecordingEndReason>? Ended;
+
+    public void Start() => Start(false);
+
+    public void Start(bool isDemo)
+    {
+        if (recording) throw new InvalidOperationException("A recording is already active.");
+        samples.Clear();
+        Interlocked.Exchange(ref total, 0);
+        // Begin throws when the location is unusable; the recorder then stays idle.
+        sink?.Begin(new(Guid.NewGuid(), clock.GetUtcNow(), isDemo, "0.4.3"));
+        lock (gate) elapsed.Restart();
+        recording = true;
+    }
+
+    public void Stop() => Stop(RecordingEndReason.UserStopped);
+
+    public void Stop(RecordingEndReason reason)
+    {
+        if (!recording) return;
+        recording = false;
+        lock (gate) elapsed.Stop();
+        if (sink is not null) ending = sink.EndAsync(reason);
+    }
+
+    /// <summary>Stops (if needed) and waits until the recording file is finalized.</summary>
+    public async Task StopAsync(RecordingEndReason reason = RecordingEndReason.UserStopped)
+    {
+        Stop(reason);
+        await ending.ConfigureAwait(false);
+    }
+
     public void Add(SessionSnapshot sample)
     {
-        if (!IsRecording) return;
-        if (samples.Count >= MaximumSamples) { Stop(); return; }
-        samples.Add(sample);
-        if (samples.Count == MaximumSamples) Stop();
-    }
-    public Task ExportJsonAsync(string path, CancellationToken cancellationToken = default)
-    {
-        var copy = samples.ToArray();
-        return Task.Run(() => WriteAtomicAsync(path, async stream =>
+        if (!recording) return;
+        if (sink is null)
         {
-            var options = new JsonSerializerOptions { WriteIndented = true };
-            options.Converters.Add(new JsonStringEnumConverter());
-            await JsonSerializer.SerializeAsync(stream, copy, options, cancellationToken);
-        }, cancellationToken), cancellationToken);
-    }
-    public Task ExportCsvAsync(string path, CancellationToken cancellationToken = default)
-    {
-        var copy = samples.ToArray();
-        return Task.Run(() => WriteAtomicAsync(path, async stream =>
-        {
-            await using var writer = new StreamWriter(stream, new UTF8Encoding(true), leaveOpen: true);
-            // Real providers add counter-level metrics; columns are the union in first-seen order.
-            var blastKeys = copy.SelectMany(s => s.BlastMetrics?.Keys ?? Enumerable.Empty<string>()).Distinct().ToArray();
-            var blastHeader = string.Concat(blastKeys.Select(k => $",blast_{k},blast_{k}_unit,blast_{k}_status,blast_{k}_raw,blast_{k}_source"));
-            // Schema 0.3 appends columns only, so existing column positions are unchanged.
-            var hostKeys = copy.SelectMany(s => s.HostMetrics?.Select(e => e.Id) ?? []).Distinct().ToArray();
-            var hostHeader = ",protocol_detection" + string.Concat(hostKeys.Select(k => $",host_{k},host_{k}_unit,host_{k}_status,host_{k}_raw,host_{k}_scope,host_{k}_source"));
-            await writer.WriteLineAsync("timestamp,data_source,is_demo,protocol,session_id,workload,demo_scenario,rtt_ms,network_latency_ms,available_mbps,consumed_mbps,packet_loss_percent,fps,dropped_frames_percent,encoder,codec,graphics_mode,hardware_encoding,resolution,gpu_model,gpu_percent,vram_percent,encoder_percent,decoder_percent,driver,cpu_percent,ram_percent,disk_mbps,collection_status" + blastHeader + hostHeader + DiagnosticsHeader);
-            foreach (var s in copy)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                // Non-measurements are written as their status, never as zero.
-                string V(Metric m) => m.Value?.ToString("R", CultureInfo.InvariantCulture) ?? m.Status.ToString();
-                string Q(string? text) => "\"" + (text ?? "").Replace("\"", "\"\"") + "\"";
-                var blast = string.Concat(blastKeys.Select(k => s.BlastMetrics?.TryGetValue(k, out var m) == true
-                    ? $",{V(m)},{Q(m.Unit)},{m.Status},{m.RawValue?.ToString(CultureInfo.InvariantCulture) ?? ""},{Q(m.Source)}"
-                    : ",Unavailable,\"\",Unavailable,,\"\""));
-                var hostById = s.HostMetrics?.ToDictionary(e => e.Id, StringComparer.Ordinal);
-                var host = "," + Q(s.Session.ProtocolDetection) + string.Concat(hostKeys.Select(k => hostById?.TryGetValue(k, out var e) == true
-                    ? $",{(e.Text is null ? V(e.Metric) : Q(e.Text))},{Q(e.Metric.Unit)},{e.Metric.Status},{e.Metric.RawValue?.ToString(CultureInfo.InvariantCulture) ?? ""},{e.Metric.Scope?.ToString() ?? ""},{Q(e.Metric.Source)}"
-                    : ",Unavailable,\"\",Unavailable,,,\"\""));
-                await writer.WriteLineAsync(string.Join(",", s.Timestamp.ToString("O"), s.Session.IsDemo ? "Demo" : "RealSession", s.Session.IsDemo,
-                    s.Session.Protocol, s.Session.SessionId, s.Workload, s.DemoScenario?.ToString() ?? "Unavailable", V(s.Connection.RoundTripTime),
-                    V(s.Connection.NetworkLatency), V(s.Connection.AvailableBandwidth), V(s.Connection.BandwidthConsumption),
-                    V(s.Connection.PacketLoss), V(s.Graphics.FramesPerSecond), V(s.Graphics.DroppedFramesPercent),
-                    Q(s.Graphics.Encoder), Q(s.Graphics.Codec), Q(s.Graphics.Mode), s.Graphics.HardwareEncoding?.ToString() ?? "Unavailable",
-                    Q(s.Graphics.Resolution), Q(s.Gpu.Model), V(s.Gpu.Utilization), V(s.Gpu.VramUtilization),
-                    V(s.Gpu.EncoderUtilization), V(s.Gpu.DecoderUtilization), Q(s.Gpu.DriverVersion),
-                    V(s.System.CpuUtilization), V(s.System.RamUtilization), V(s.System.DiskActivity), Q(s.CollectionStatus)) + blast + host + Diagnostics(s.Diagnostics, Q));
-            }
-            await writer.FlushAsync(cancellationToken);
-        }, cancellationToken), cancellationToken);
-    }
-    /// <summary>Schema 0.4: diagnostic state per sample, appended after all earlier columns.</summary>
-    private const string DiagnosticsHeader = ",diag_connection,diag_graphics,diag_guest,diag_coverage,diag_active_findings,diag_events";
-    private static string Diagnostics(DiagnosticSnapshot? d, Func<string?, string> q)
-    {
-        if (d is null) return ",,,,,,";
-        string State(DiagnosticDomain domain) => d.Assessments.FirstOrDefault(a => a.Domain == domain)?.StateLabel ?? "";
-        var coverage = string.Join("; ", d.Assessments.Select(a => $"{a.Domain} {a.Coverage}"));
-        var events = string.Join("; ", d.Events.Select(e => $"{e.Transition} {e.Finding.RuleId} {e.Finding.Severity}"));
-        return string.Join(",", "", q(State(DiagnosticDomain.Connection)), q(State(DiagnosticDomain.Graphics)), q(State(DiagnosticDomain.Guest)),
-            q(coverage), q(string.Join("; ", d.ActiveFindings)), q(events));
-    }
-    private static async Task WriteAtomicAsync(string path, Func<Stream, Task> write, CancellationToken token)
-    {
-        var fullPath = Path.GetFullPath(path);
-        var temporary = fullPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-        try
-        {
-            await using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write,
-                FileShare.None, 4096, FileOptions.Asynchronous)) await write(stream);
-            token.ThrowIfCancellationRequested();
-            File.Move(temporary, fullPath, true);
+            if (samples.Count >= MaximumSamples) { Stop(); return; }
+            samples.Add(sample);
+            Interlocked.Increment(ref total);
+            if (samples.Count == MaximumSamples) Stop();
+            return;
         }
-        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        Interlocked.Increment(ref total);
+        samples.Add(sample);
+        if (samples.Count > PersistedTailSamples) samples.RemoveRange(0, samples.Count - PersistedTailSamples);
+        sink.Add(sample);
+    }
+
+    /// <summary>Records a pause, resume, availability change or similar. Only meaningful for persisted recordings.</summary>
+    public void Mark(RecordingMark mark) { if (recording) sink?.Mark(mark); }
+
+    private void OnSinkEnded(RecordingEndReason reason)
+    {
+        recording = false;
+        lock (gate) elapsed.Stop();
+        try { Ended?.Invoke(reason); } catch (Exception) { /* a subscriber must not break the writer thread */ }
+    }
+
+    public async Task ExportJsonAsync(string path, CancellationToken cancellationToken = default)
+    {
+        var source = await SnapshotAsync(cancellationToken).ConfigureAwait(false);
+        await RecordingExport.ExportJsonAsync(path, source, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task ExportCsvAsync(string path, CancellationToken cancellationToken = default)
+    {
+        var source = await SnapshotAsync(cancellationToken).ConfigureAwait(false);
+        await RecordingExport.ExportCsvAsync(path, source, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<Func<IEnumerable<SessionSnapshot>>> SnapshotAsync(CancellationToken cancellationToken)
+    {
+        if (sink is null) { var copy = samples.ToArray(); return () => copy; }
+        await sink.FlushAsync(cancellationToken).ConfigureAwait(false);
+        return sink.ReadSamples;
     }
 }
