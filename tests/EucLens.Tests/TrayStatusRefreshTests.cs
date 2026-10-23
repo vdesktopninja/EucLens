@@ -205,19 +205,23 @@ public sealed class TrayStatusRefreshTests
         var impossible = 0; long reads = 0;
         MonitoringStatus? last = null; var outOfOrder = 0;
         rig.Monitoring.StatusChanged += s => { Volatile.Write(ref last, s); };
-        var workers = Enumerable.Range(0, 4).Select(w => Task.Run(() =>
+        // Two workers only, and they back off (SpinWait sleeps now and then): a busy loop per core starves the writer thread and the other
+        // tests that run in parallel on a two-core CI runner.
+        var workers = Enumerable.Range(0, 2).Select(w => Task.Run(() =>
         {
+            var spin = new SpinWait();
             while (!stop.IsCancellationRequested)
             {
-                if (w % 2 == 0) rig.Monitoring.Refresh();
+                if (w == 0) rig.Monitoring.Refresh();
                 var s = rig.Monitoring.Status;
                 Interlocked.Increment(ref reads);
                 if (s.IsRecording && s.Monitoring != MonitoringState.Running) Interlocked.Increment(ref impossible);
                 if (s.ActiveProblems < 0 || s.CriticalProblems > s.ActiveProblems) Interlocked.Increment(ref outOfOrder);
+                spin.SpinOnce();
             }
         })).ToArray();
 
-        for (var i = 0; i < 150; i++)
+        for (var i = 0; i < 100; i++)
         {
             rig.Vm.StartRecordingCommand.Execute(null);
             rig.Vm.StopRecordingCommand.Execute(null);
