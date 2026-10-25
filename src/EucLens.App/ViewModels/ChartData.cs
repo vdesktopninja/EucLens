@@ -33,6 +33,12 @@ public sealed class ChartData(string name, string unit, int capacity, string? ax
     public double Smoothness { get; } = smoothness;
     /// <summary>Axis and threshold-line label size in DIPs.</summary>
     public double LabelSize { get; } = labelSize;
+    /// <summary>
+    /// Optional formatters for the time axis and tooltip. Without them the x values are read as local wall-clock ticks (live charts). History charts plot UTC ticks
+    /// and format each instant to local time, so a recording across a clock change keeps its order and shows the right time.
+    /// </summary>
+    public Func<DateTime, string>? TimeLabel { get; init; }
+    public Func<DateTime, string>? TooltipTimeLabel { get; init; }
     public ObservableCollection<TimeValue> Points { get; } = [];
     /// <summary>Visible time range in DateTime ticks; null lets the chart fit the data.</summary>
     public double? XMin { get => xMin; private set => Set(ref xMin, value); }

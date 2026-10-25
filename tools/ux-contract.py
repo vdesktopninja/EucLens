@@ -38,7 +38,7 @@ def extract():
         sources.append({'file': source, 'tokenCount': count})
     archetypes = []
     for name, kind in [('Dashboard', 'session-overview'), ('Diagnostics', 'diagnostic-evidence'),
-                       ('Recorder', 'recording-and-export'), ('System', 'technical-inventory'),
+                       ('Recorder', 'recording-and-export'), ('SessionHistory', 'incident-timeline'), ('System', 'technical-inventory'),
                        ('Advanced', 'raw-metric-inspection'), ('Settings', 'preferences')]:
         source = f'src/EucLens.App/Views/{name}View.xaml'
         ET.parse(ROOT / source)

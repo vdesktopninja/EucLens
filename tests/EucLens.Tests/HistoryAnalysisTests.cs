@@ -395,3 +395,34 @@ public sealed class HistoryAnalysisTests
         Assert.True(history.Info.DataCoverage < 1);
     }
 }
+
+/// <summary>The optional incident export keeps its own columns and never changes the session exports.</summary>
+public sealed class HistoryExportTests
+{
+    [Fact]
+    public async Task TheTimelineExportHasItsOwnColumnsIncludesAnnotationsAndEscapesText()
+    {
+        var rec = await HistoryFixture.RecordAsync(60, step: async (i, c) => { if (i == 30) await c.MarkIncidentAsync(); if (i == 40) c.Mark(RecordingMarkKind.Note, "=HYPERLINK(\"x\"), \"quoted\""); }, compress: false);
+        var history = HistoryFixture.Load(rec.Storage, rec.ShortId);
+        var annotations = new RecordingAnnotations(null, new Dictionary<Guid, IncidentAnnotation> { [rec.Incidents[0].Id] = new(IncidentCategory.Freeze, "Froze, then recovered", HistoryFixture.T0) });
+
+        var all = HistoryExport.TimelineCsv(history, annotations, TimeZoneInfo.Utc);
+        var incidentsOnly = HistoryExport.TimelineCsv(history, annotations, TimeZoneInfo.Utc, incidentsOnly: true);
+
+        var lines = all.Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(HistoryExport.Header, lines[0]);
+        Assert.Equal(1 + history.Events.Count, lines.Length);
+        var incident = Assert.Single(lines, l => l.Contains(",UserIncident,", StringComparison.Ordinal));
+        Assert.Contains(rec.Incidents[0].Id.ToString("D"), incident, StringComparison.Ordinal);
+        Assert.Contains(",Freeze,\"Froze, then recovered\",", incident, StringComparison.Ordinal);
+        var note = Assert.Single(lines, l => l.Contains(",Note,", StringComparison.Ordinal));
+        Assert.Contains("'=HYPERLINK", note, StringComparison.Ordinal);               // never a live formula
+        Assert.Contains("\"\"quoted\"\"", note, StringComparison.Ordinal);
+        Assert.Equal(2, incidentsOnly.Split("\r\n", StringSplitOptions.RemoveEmptyEntries).Length);
+        // The session exports still have the columns they always had.
+        var recorder = new SessionRecorder(); recorder.Start(); recorder.Add(HistoryFixture.Sample(0)); recorder.Stop();
+        var path = Path.Combine(Path.GetTempPath(), "euclens-export-" + Guid.NewGuid().ToString("N") + ".csv");
+        try { await recorder.ExportCsvAsync(path); Assert.StartsWith("timestamp,data_source,is_demo", File.ReadAllLines(path)[0]); Assert.DoesNotContain("incident", File.ReadAllLines(path)[0], StringComparison.OrdinalIgnoreCase); }
+        finally { File.Delete(path); }
+    }
+}

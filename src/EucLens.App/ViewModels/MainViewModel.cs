@@ -70,6 +70,8 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>Persisted recordings are already on disk; only an in-memory recording can be lost by exiting.</summary>
     public bool HasUnexportedSamples => !recorder.IsPersistent && recorder.SampleCount > exportedSamples;
     public BackgroundViewModel Background { get; }
+    /// <summary>Session History: saved recordings, incident timeline and historical charts. Independent of the live view and of monitoring.</summary>
+    public SessionHistoryViewModel History { get; }
     public MonitoringService Monitoring => monitoring;
     public IReadOnlyList<Choice<RemoteProtocol>> Protocols { get; } = [new(RemoteProtocol.CitrixHdx, "Citrix HDX"), new(RemoteProtocol.OmnissaBlast, "Omnissa Blast"), new(RemoteProtocol.MicrosoftRdp, "Microsoft RDP")];
     public IReadOnlyList<Choice<DemoScenario>> Scenarios { get; } = [new(DemoScenario.Healthy, "Healthy session"), new(DemoScenario.HighNetworkLatency, "High network latency"), new(DemoScenario.LowFps, "Low FPS"), new(DemoScenario.GpuBottleneck, "GPU bottleneck"), new(DemoScenario.BandwidthCongestion, "Bandwidth congestion")];
@@ -80,7 +82,11 @@ public sealed class MainViewModel : ObservableObject
         get => selectedPage;
         set
         {
+            var previous = selectedPage;
             if (!Set(ref selectedPage, value)) return;
+            // Leaving Session History cancels its loading and releases the loaded recording; coming back opens it again.
+            if (previous is SessionHistoryPage) History.OnPageHidden();
+            if (value is SessionHistoryPage) History.OnPageShown();
             if (value is AdvancedPage) RebuildAdvanced();
             else if (value is RecorderPage) _ = Background.RefreshRecordingsAsync();
         }
@@ -152,13 +158,21 @@ public sealed class MainViewModel : ObservableObject
         this.provider = provider; this.diagnostics = diagnostics; this.recorder = recorder; this.desktop = desktop; this.logger = logger;
         this.monitoring = monitoring ?? new MonitoringService(new MonitoringCoordinator(), recorder);
         Background = background ?? new BackgroundViewModel(this.monitoring, recorder, desktop, logger: logger);
+        History = new SessionHistoryViewModel(Background, desktop, recorder, Background.Storage, logger: logger);
         recorder.Ended += reason => Post(() => OnRecordingEnded(reason));
         this.monitoring.StatusChanged += _ => Post(RefreshRecorder);
         Background.IncidentCompleted += result => Status = result.Message;
         selectedProtocol = Protocols[0]; selectedScenario = Scenarios[0]; selectedWorkload = Workloads[realProvider is null ? 2 : 0];
         selectedAdvancedCategory = AdvancedCategories[0];
-        Pages = [new DashboardPage(this), new DiagnosticsPage(this), new RecorderPage(this), new SystemPage(this), new AdvancedPage(this), new SettingsPage(this)];
+        Pages = [new DashboardPage(this), new DiagnosticsPage(this), new RecorderPage(this), new SessionHistoryPage(this), new SystemPage(this), new AdvancedPage(this), new SettingsPage(this)];
         selectedPage = Pages[0];
+        Background.AnalyzeRequested += summary =>
+        {
+            // Opening first marks the history as loading, so showing the page does not start a second load.
+            var opening = History.OpenAsync(summary);
+            SelectedPage = Pages.Single(p => p is SessionHistoryPage);
+            _ = opening;
+        };
         StartRecordingCommand = new(StartRecording, () => ready && !recorder.IsRecording && this.monitoring.Coordinator.State == MonitoringState.Running);
         StopRecordingCommand = new(() => { recorder.Stop(); Status = "Recording stopped. Export to save the collected metrics."; RefreshRecorder(); }, () => recorder.IsRecording);
         ExportJsonCommand = new(() => ExportAsync(true), () => recorder.SampleCount > 0);

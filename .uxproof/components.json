@@ -231,6 +231,13 @@
     "targetType": "Path"
   },
   {
+    "name": "EventIcon",
+    "file": "src/EucLens.App/Themes/Controls.xaml",
+    "root": "src/EucLens.App/Themes",
+    "kind": "Style",
+    "targetType": "Path"
+  },
+  {
     "name": "StatusText",
     "file": "src/EucLens.App/Themes/Controls.xaml",
     "root": "src/EucLens.App/Themes",
@@ -294,6 +301,12 @@
   {
     "name": "RecorderView",
     "file": "src/EucLens.App/Views/RecorderView.xaml",
+    "root": "src/EucLens.App/Views",
+    "kind": "UserControl"
+  },
+  {
+    "name": "SessionHistoryView",
+    "file": "src/EucLens.App/Views/SessionHistoryView.xaml",
     "root": "src/EucLens.App/Views",
     "kind": "UserControl"
   },

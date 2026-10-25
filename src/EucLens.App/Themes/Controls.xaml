@@ -98,7 +98,31 @@
    <Trigger Property="Tag" Value="Recovered"><Setter Property="Data" Value="{StaticResource SeverityGeometryRecovered}" /></Trigger>
   </Style.Triggers>
  </Style>
- <Style x:Key="StatusText" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}"><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+<!-- EventIcon: the one symbol of a timeline event. Tag = Incident | FindingInfo | FindingWarning | FindingCritical | FindingRecovered | Pause | Resume | Disconnect | Reconnect |
+      Availability | DataLoss | Lock | Unlock | Start | End | Note | SessionChange | Other (HistoryEventKinds.IconTag). Each tag has its own shape; the kind is always written next to it. -->
+ <Style x:Key="EventIcon" TargetType="Path"><Setter Property="Width" Value="{StaticResource SeverityIconSize}" /><Setter Property="Height" Value="{StaticResource SeverityIconSize}" /><Setter Property="Stretch" Value="None" /><Setter Property="VerticalAlignment" Value="Center" /><Setter Property="IsHitTestVisible" Value="False" /><Setter Property="Focusable" Value="False" /><Setter Property="SnapsToDevicePixels" Value="False" />
+  <Setter Property="Data" Value="{StaticResource EventGeometryOther}" /><Setter Property="Fill" Value="{DynamicResource MutedBrush}" />
+  <Style.Triggers>
+   <Trigger Property="Tag" Value="Incident"><Setter Property="Data" Value="{StaticResource EventGeometryIncident}" /><Setter Property="Fill" Value="{DynamicResource AccentBrush}" /></Trigger>
+   <Trigger Property="Tag" Value="FindingInfo"><Setter Property="Data" Value="{StaticResource SeverityGeometryInfo}" /><Setter Property="Fill" Value="{DynamicResource AccentBrush}" /></Trigger>
+   <Trigger Property="Tag" Value="FindingWarning"><Setter Property="Data" Value="{StaticResource SeverityGeometryWarning}" /><Setter Property="Fill" Value="{DynamicResource WarningBrush}" /></Trigger>
+   <Trigger Property="Tag" Value="FindingCritical"><Setter Property="Data" Value="{StaticResource SeverityGeometryCritical}" /><Setter Property="Fill" Value="{DynamicResource CriticalBrush}" /></Trigger>
+   <Trigger Property="Tag" Value="FindingRecovered"><Setter Property="Data" Value="{StaticResource SeverityGeometryRecovered}" /></Trigger>
+   <Trigger Property="Tag" Value="Pause"><Setter Property="Data" Value="{StaticResource EventGeometryPause}" /></Trigger>
+   <Trigger Property="Tag" Value="Resume"><Setter Property="Data" Value="{StaticResource EventGeometryResume}" /></Trigger>
+   <Trigger Property="Tag" Value="Disconnect"><Setter Property="Data" Value="{StaticResource EventGeometryDisconnect}" /><Setter Property="Fill" Value="{DynamicResource WarningBrush}" /></Trigger>
+   <Trigger Property="Tag" Value="Reconnect"><Setter Property="Data" Value="{StaticResource EventGeometryReconnect}" /><Setter Property="Fill" Value="{DynamicResource SuccessBrush}" /></Trigger>
+   <Trigger Property="Tag" Value="Availability"><Setter Property="Data" Value="{StaticResource EventGeometryAvailability}" /></Trigger>
+   <Trigger Property="Tag" Value="DataLoss"><Setter Property="Data" Value="{StaticResource EventGeometryDataLoss}" /><Setter Property="Fill" Value="{DynamicResource CriticalBrush}" /></Trigger>
+   <Trigger Property="Tag" Value="Lock"><Setter Property="Data" Value="{StaticResource EventGeometryLock}" /></Trigger>
+   <Trigger Property="Tag" Value="Unlock"><Setter Property="Data" Value="{StaticResource EventGeometryUnlock}" /></Trigger>
+   <Trigger Property="Tag" Value="Start"><Setter Property="Data" Value="{StaticResource EventGeometryStart}" /></Trigger>
+   <Trigger Property="Tag" Value="End"><Setter Property="Data" Value="{StaticResource EventGeometryEnd}" /></Trigger>
+   <Trigger Property="Tag" Value="Note"><Setter Property="Data" Value="{StaticResource EventGeometryNote}" /></Trigger>
+   <Trigger Property="Tag" Value="SessionChange"><Setter Property="Data" Value="{StaticResource EventGeometrySessionChange}" /></Trigger>
+  </Style.Triggers>
+ </Style>
+  <Style x:Key="StatusText" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}"><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
   <Style.Triggers>
    <Trigger Property="Tag" Value="Healthy"><Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" /></Trigger>
    <Trigger Property="Tag" Value="Warning"><Setter Property="Foreground" Value="{DynamicResource WarningBrush}" /></Trigger>

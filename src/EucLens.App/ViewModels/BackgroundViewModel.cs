@@ -208,6 +208,14 @@ public sealed class BackgroundViewModel : ObservableObject
 
     // ---------- recordings ----------
 
+    internal IRecordingStorage Storage => storage;
+
+    /// <summary>Raised when the user asks to analyze a saved recording; the main view model opens Session History.</summary>
+    public event Action<RecordingSummary>? AnalyzeRequested;
+    internal void RequestAnalyze(RecordingSummary summary) => AnalyzeRequested?.Invoke(summary);
+    internal bool IsActiveRecording(RecordingSummary summary) =>
+        recorder.IsRecording && recorder.SinkStatus?.RecordingId is { } id && RecordingFormat.ShortId(id) == summary.ShortId;
+
     public ObservableCollection<RecordingItem> Recordings { get; } = [];
     public string RecordingsMessage { get => recordingsMessage; private set => Set(ref recordingsMessage, value); }
     public string StorageStatus { get => storageStatus; private set => Set(ref storageStatus, value); }
@@ -292,14 +300,18 @@ public sealed class RecordingItem(RecordingSummary summary, BackgroundViewModel 
     public string Duration => $"{(int)Summary.Duration.TotalHours:00}:{Summary.Duration.Minutes:00}:{Summary.Duration.Seconds:00}";
     public string Size => BackgroundViewModel.FormatBytes(Summary.Bytes);
     public string Samples => Summary.Samples.ToString("N0", CultureInfo.CurrentCulture);
-    public string Events => $"{Summary.Warnings} warning · {Summary.Criticals} critical";
+    public string Events => $"{Summary.Warnings} warning · {Summary.Criticals} critical · {Summary.Incidents} marked incident(s)";
+    /// <summary>A recording is never called complete unless its end was written; the one still being written is not called interrupted either.</summary>
+    public bool IsActive => !Summary.IsComplete && owner.IsActiveRecording(Summary);
     public string Status => Summary.IsComplete
         ? Summary.EndReason + (Summary.LostSamples > 0 ? $" · {Summary.LostSamples:N0} samples lost" : "")
-        : "Interrupted · readable up to the last complete line" + (Summary.LostSamples > 0 ? $" · {Summary.LostSamples:N0} samples lost" : "");
+        : (IsActive ? "Recording in progress · saved as it is collected" : "Interrupted · readable up to the last complete line") + (Summary.LostSamples > 0 ? $" · {Summary.LostSamples:N0} samples lost" : "");
     public string Source => Summary.Source == "Demo" ? "Demo data" : "Real session";
     public string AutomationName => $"Recording from {Started}, {Duration}, {Samples} samples, {Events}, {Status}";
     public RelayCommand OpenFileCommand { get; } = new(() => owner.Open(summary, folderOnly: false));
     public RelayCommand OpenFolderCommand { get; } = new(() => owner.Open(summary, folderOnly: true));
     public AsyncCommand ExportJsonCommand { get; } = new(() => owner.ExportAsync(summary, json: true));
     public AsyncCommand ExportCsvCommand { get; } = new(() => owner.ExportAsync(summary, json: false));
+    /// <summary>Opens the recording in Session History.</summary>
+    public RelayCommand AnalyzeCommand { get; } = new(() => owner.RequestAnalyze(summary));
 }

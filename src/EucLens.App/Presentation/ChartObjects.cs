@@ -34,13 +34,15 @@ public sealed class ChartObjects
         Line = new LineSeries<DateTimePoint>
         {
             Values = values, Name = data.Name, GeometrySize = 0, LineSmoothness = data.Smoothness, Stroke = null, Fill = null,
-            XToolTipLabelFormatter = p => p.Model?.DateTime.ToString("HH:mm:ss", CultureInfo.InvariantCulture) ?? "",
+            XToolTipLabelFormatter = p => p.Model is { } model ? (data.TooltipTimeLabel ?? data.TimeLabel)?.Invoke(model.DateTime) ?? model.DateTime.ToString("HH:mm:ss", CultureInfo.InvariantCulture) : "",
             YToolTipLabelFormatter = p => $"{p.Coordinate.PrimaryValue.ToString("0.##", CultureInfo.InvariantCulture)} {unit}",
         };
         Series = [Line];
         XAxes = [new Axis
         {
-            Labeler = v => v > 0 && v <= DateTime.MaxValue.Ticks ? new DateTime((long)v).ToString("HH:mm:ss", CultureInfo.InvariantCulture) : "",
+            Labeler = v => v > 0 && v <= DateTime.MaxValue.Ticks
+                ? data.TimeLabel is { } label ? label(new DateTime((long)v, DateTimeKind.Utc)) : new DateTime((long)v).ToString("HH:mm:ss", CultureInfo.InvariantCulture)
+                : "",
             UnitWidth = TimeSpan.TicksPerSecond, MinStep = TimeSpan.TicksPerSecond * data.XStepSeconds, TextSize = data.LabelSize, SeparatorsPaint = null,
         }];
         YAxes = [new Axis { Name = data.AxisName, MinLimit = data.YMin, TextSize = data.LabelSize, MinStep = data.YMinStep }];
