@@ -85,7 +85,11 @@
      <ComboBox Grid.Column="1" Width="200" ItemsSource="{Binding Monitor.History.Filters}" SelectedItem="{Binding Monitor.History.SelectedFilter}" DisplayMemberPath="Label" AutomationProperties.Name="Event filter" />
     </Grid>
     <ui:AdaptiveColumnsPanel MinimumColumnWidth="430" MaximumColumns="2" Margin="0,8,0,0" AutomationProperties.Name="Events and selected incident">
-     <ListBox ItemsSource="{Binding Monitor.History.Events}" SelectedItem="{Binding Monitor.History.SelectedEvent}" Style="{StaticResource TableList}" ItemContainerStyle="{StaticResource TableRow}" AutomationProperties.Name="Timeline events">
+     <!-- Virtualized: the page measures this list with unlimited height, so it has its own bounded viewport (MaxHeight) and scroll viewer; only the rows in view
+          (plus a few) get containers, which are recycled while scrolling. Every entry stays in the collection. The wheel passes to the page at either end. -->
+     <ListBox x:Name="EventList" ItemsSource="{Binding Monitor.History.Events}" SelectedItem="{Binding Monitor.History.SelectedEvent}" Style="{StaticResource TableList}" ItemContainerStyle="{StaticResource TableRow}" MaxHeight="{x:Static ui:HistoryLayout.EventListMaxHeight}" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" VirtualizingPanel.ScrollUnit="Item" VirtualizingPanel.CacheLength="1,1" VirtualizingPanel.CacheLengthUnit="Item" ScrollViewer.CanContentScroll="True" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Timeline events">
+      <ListBox.Template><ControlTemplate TargetType="ListBox"><Border Background="{TemplateBinding Background}"><ScrollViewer x:Name="EventScroll" Focusable="False" CanContentScroll="True" VerticalScrollBarVisibility="{TemplateBinding ScrollViewer.VerticalScrollBarVisibility}" HorizontalScrollBarVisibility="{TemplateBinding ScrollViewer.HorizontalScrollBarVisibility}" ui:WheelChaining.Enabled="True"><ItemsPresenter /></ScrollViewer></Border></ControlTemplate></ListBox.Template>
+      <ListBox.ItemsPanel><ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate></ListBox.ItemsPanel>
       <ListBox.ItemTemplate><DataTemplate>
        <Grid AutomationProperties.Name="{Binding AutomationName}"><Grid.ColumnDefinitions><ColumnDefinition Width="26" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
         <Path Style="{StaticResource EventIcon}" Tag="{Binding IconTag}" />

@@ -87,7 +87,12 @@ Events (list, filter) │ Selected incident: description + category, recorded st
   that channel's own session P95 (or P5) and median; only a clear excursion is reported. If nothing stands out the text says so. It never names a
   cause: "correlation is not proof of causation".
 * Recorded findings are taken from the file. Nothing is re-evaluated with newer thresholds.
-* Keyboard: every action is a button; the timeline strip and the chart area are focusable and take the arrow keys; the event list is a normal list.
+* Keyboard: every action is a button; the timeline strip and the chart area are focusable and take the arrow keys; the event list is a normal list (arrow keys, Home and End move the selection and scroll it into view).
+* The event list is virtualized: every entry is in the list, but only the rows in view (plus one above and below) have WPF containers, which are recycled
+  while scrolling. The list has its own bounded viewport (520 DIP) and scroll viewer; the mouse wheel passes to the page at either end. Filtering or
+  opening another recording replaces the list with one collection notification. A selection made in code (marker, Previous/Next incident, filter change)
+  is scrolled into view even when its row does not exist yet. Measured on a recording with 5,005 entries: see `history-events-result.txt` in the Windows
+  validation artifact (the numbers for the earlier, non-virtualized list were +203.9 MiB managed heap, a 2.8 s slowest frame and 5,005 containers).
 * Event icons are vector paths with a text label (never colour alone).
 
 ## 7. Lifecycle, threading and memory

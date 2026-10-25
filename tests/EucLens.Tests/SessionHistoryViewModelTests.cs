@@ -241,6 +241,51 @@ public sealed class SessionHistoryViewModelTests
     }
 
     [Fact]
+    public async Task FilteringReplacesTheEventListWithOneNotificationKeepsTheSelectionWhileItIsListedAndClearsItOtherwise()
+    {
+        var (rig, _) = await OpenAsync(count: 600, step: async (i, c) => { if (i == 300) await c.MarkIncidentAsync(); });
+        var h = rig.History;
+        var all = h.Events.Count;
+        var notifications = new List<System.Collections.Specialized.NotifyCollectionChangedAction>();
+        h.Events.CollectionChanged += (_, e) => notifications.Add(e.Action);
+        h.SelectedEvent = h.Events.Single(e => e.IsIncident);
+        var incident = h.SelectedEvent;
+        notifications.Clear();
+
+        h.SelectedFilter = h.Filters.Single(f => f.Value == HistoryEventFilter.Incidents);
+        Assert.Equal([System.Collections.Specialized.NotifyCollectionChangedAction.Reset], notifications);   // one notification, not one per entry
+        Assert.Same(incident, h.SelectedEvent);                                                               // still listed: still selected
+        Assert.Equal($"{h.Events.Count} of {all} timeline entries", h.EventsHeading);
+
+        notifications.Clear();
+        h.SelectedFilter = h.Filters.Single(f => f.Value == HistoryEventFilter.Findings);
+        Assert.Equal([System.Collections.Specialized.NotifyCollectionChangedAction.Reset], notifications);
+        Assert.Empty(h.Events);
+        Assert.Null(h.SelectedEvent);                                                                         // excluded: the selection is cleared
+        Assert.Equal($"0 of {all} timeline entries", h.EventsHeading);
+
+        h.SelectedFilter = h.Filters[0];
+        Assert.Equal(all, h.Events.Count);
+        Assert.Equal($"{all} of {all} timeline entries", h.EventsHeading);
+    }
+
+    [Fact]
+    public void ReplacingAThousandsOfEntriesRaisesOneCollectionNotification()
+    {
+        var items = new BulkObservableCollection<int> { 1, 2, 3 };
+        var collection = 0; var properties = new List<string?>();
+        items.CollectionChanged += (_, _) => collection++;
+        ((System.ComponentModel.INotifyPropertyChanged)items).PropertyChanged += (_, e) => properties.Add(e.PropertyName);
+        items.ReplaceAll(Enumerable.Range(0, 5005));
+        Assert.Equal(1, collection);
+        Assert.Equal(5005, items.Count);
+        Assert.Equal(["Count", "Item[]"], properties);
+        Assert.Equal(Enumerable.Range(0, 5005), items);
+        items.ReplaceAll([]);
+        Assert.Empty(items); Assert.Equal(2, collection);
+    }
+
+    [Fact]
     public async Task AnAnnotationIsSavedBesideTheRecordingShownInTheListAndFoundAgainWhenReopened()
     {
         var (rig, rec) = await OpenAsync(count: 600, step: async (i, c) => { if (i == 300) await c.MarkIncidentAsync(); });

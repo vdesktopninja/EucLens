@@ -128,7 +128,7 @@ internal static class HistoryValidation
     /// Saves a screenshot only once what is drawn has stopped changing: the same pixels in five consecutive frames and every LiveCharts canvas reporting that it has
     /// nothing left to draw. LiveCharts repaints after the frame in which its axis range changed, so a capture taken right after a range change shows the old range.
     /// </summary>
-    private static async Task Shot(HistorySmokeContext c, FrameworkElement visual, string path)
+    private static async Task<ShotInfo> Shot(HistorySmokeContext c, FrameworkElement visual, string path)
     {
         var sw = Stopwatch.StartNew();
         string? previous = null; var identical = 0; var frames = 0; RenderTargetBitmap? bitmap = null; var canvasesIdle = false; var slowestFrame = 0d;
@@ -150,7 +150,10 @@ internal static class HistoryValidation
         var chart = DesktopValidation.Descendants<CartesianChart>(visual).FirstOrDefault();
         var range = chart?.XAxes.FirstOrDefault() is LiveChartsCore.SkiaSharpView.Axis axis ? $"; engine axis {axis.VisibleDataBounds.Min:0} to {axis.VisibleDataBounds.Max:0} ticks" : "";
         Log(c, $"NOTE: screenshot {Path.GetFileName(path)} taken after {sw.ElapsedMilliseconds} ms ({frames} frames, slowest {slowestFrame:0} ms, stable pixels, canvases idle: {canvasesIdle}{range})");
+        return new(sw.ElapsedMilliseconds, frames, slowestFrame);
     }
+
+    private sealed record ShotInfo(long Milliseconds, int Frames, double SlowestFrameMilliseconds);
 
     private static long HeapAfterCollection()
     {
@@ -753,6 +756,69 @@ internal static class HistoryValidation
         finally { h.UseTimeZone(TimeZoneInfo.Local); }
     }
 
+    // ---------- the virtualized event list ----------
+
+    /// <summary>Containers the list may realize for any number of entries: the viewport holds about nine rows; the cache adds a few.</summary>
+    private const int MaximumRealizedEventContainers = 100;
+
+    private static ListBox EventListOf(HistorySmokeContext c) => View(c).EventListControl;
+    private static ScrollViewer ScrollerOf(ListBox list) => (ScrollViewer)(list.Template.FindName("EventScroll", list) ?? throw new InvalidOperationException("The event list has no scroll viewer."));
+    private static ListBoxItem[] RealizedRows(ListBox list) => DesktopValidation.Descendants<ListBoxItem>(list).ToArray();
+    private static ListBoxItem? ContainerOf(ListBox list, object item) => list.ItemContainerGenerator.ContainerFromItem(item) as ListBoxItem;
+
+    private static bool MostlyVisible(ListBox list, ListBoxItem row)
+    {
+        if (!row.IsVisible || row.ActualHeight <= 0) return false;
+        var bounds = row.TransformToAncestor(list).TransformBounds(new Rect(row.RenderSize));
+        return Math.Min(bounds.Bottom, list.ActualHeight) - Math.Max(bounds.Top, 0) >= bounds.Height / 2;
+    }
+
+    /// <summary>Every realized row shows exactly the entry it is bound to: no stale icon, text, annotation or selection after recycling. Returns the number of realized rows.</summary>
+    private static int CheckRows(SessionHistoryViewModel h, ListBox list, string when)
+    {
+        var rows = RealizedRows(list);
+        Require(rows.Length > 0 && rows.Length <= MaximumRealizedEventContainers, $"{when}: {rows.Length} containers are realized for {list.Items.Count:N0} entries (at most {MaximumRealizedEventContainers} allowed).");
+        foreach (var row in rows)
+        {
+            var item = row.DataContext as HistoryEventItem ?? throw new InvalidOperationException($"{when}: a container is bound to {row.DataContext?.GetType().Name ?? "nothing"}.");
+            Require(list.Items.IndexOf(item) >= 0, $"{when}: a container shows an entry that is no longer in the list ('{item.Title}').");
+            Require(row.IsSelected == ReferenceEquals(item, h.SelectedEvent), $"{when}: '{item.Title}' has IsSelected={row.IsSelected} but the selection is '{h.SelectedEvent?.Title ?? "none"}'.");
+            var grid = DesktopValidation.Descendants<Grid>(row).First(g => System.Windows.Automation.AutomationProperties.GetName(g).Length > 0);
+            Require(System.Windows.Automation.AutomationProperties.GetName(grid) == item.AutomationName, $"{when}: the automation name of a row is stale ('{System.Windows.Automation.AutomationProperties.GetName(grid)}' for '{item.AutomationName}').");
+            Require(DesktopValidation.Descendants<WpfPath>(row).First(x => x.Tag is not null).Tag as string == item.IconTag, $"{when}: the icon of '{item.Title}' is stale.");
+            var texts = DesktopValidation.Descendants<TextBlock>(row).Where(t => t.IsVisible).ToArray();
+            Require(texts.Any(t => t.Text == item.Title) && texts.Any(t => t.Text == item.Time) && texts.Any(t => t.Text == item.KindLabel), $"{when}: the text of '{item.Title}' is stale.");
+            Require(item.HasAnnotation == texts.Any(t => t.Text == item.Annotation && item.Annotation.Length > 0), $"{when}: the annotation of '{item.Title}' is not shown exactly when it exists.");
+            var expectedTexts = 3 + (item.HasDetail ? 1 : 0) + (item.HasAnnotation ? 1 : 0);
+            Require(texts.Length == expectedTexts, $"{when}: '{item.Title}' shows {texts.Length} texts, expected {expectedTexts} (a stale detail or annotation).");
+        }
+        return rows.Length;
+    }
+
+    /// <summary>Selects an entry in code and waits until its row exists, is selected and is in view. Returns the milliseconds that took.</summary>
+    private static async Task<double> ShowAsync(HistorySmokeContext c, SessionHistoryViewModel h, ListBox list, HistoryEventItem item, string what)
+    {
+        var sw = Stopwatch.StartNew();
+        h.SelectedEvent = item;
+        await WaitFor(() => ContainerOf(list, item) is { } row && row.IsSelected && MostlyVisible(list, row), $"{what} to be selected and in view", 30_000);
+        await Idle(c);
+        var elapsed = sw.Elapsed.TotalMilliseconds;
+        await h.Settled;
+        return elapsed;
+    }
+
+    /// <summary>Scrolls the page so the timeline panel starts at the top of the visible page.</summary>
+    private static async Task ShowPanelAsync(HistorySmokeContext c, FrameworkElement panel)
+    {
+        var viewer = (ScrollViewer)PageViewport(View(c));
+        var top = panel.TransformToAncestor(viewer).Transform(new Point()).Y;
+        viewer.ScrollToVerticalOffset(Math.Max(0, viewer.VerticalOffset + top - 8));
+        await Idle(c);
+    }
+
+    // The same fixture and measurements as CI run 40216989417 (commit d4d60e0), made before the list was virtualized.
+    private const string NonVirtualizedBaseline = "managed heap +203.9 MiB while open, working set 203.2 → 501.4 MiB, slowest rendered frame 2,826 ms, filter to incidents 379 ms, select the last entry 47 ms, rebuild 81 ms, dispatcher worst 95 ms, 5,005 containers";
+
     private static async Task LargeEventList(HistorySmokeContext c)
     {
         var directory = c.Vm.Background.RecordingFolder;
@@ -763,60 +829,195 @@ internal static class HistoryValidation
         var sw = Stopwatch.StartNew();
         var fixture = await WriteAsync(directory, new DateTimeOffset(2026, 10, 25, 6, 0, 0, TimeSpan.Zero), 600, template, i => (30 + i % 6, 20 + i % 5, 30, i is >= 100 and < 110), [300], null, 64L << 20, notes: notes);
         var writing = sw.Elapsed;
-        var baseline = HeapAfterCollection(); var workingBefore = Environment.WorkingSet;
-        sw.Restart();
-        await c.Vm.Background.RefreshRecordingsAsync();
-        c.Vm.Background.Recordings.Single(r => r.Summary.ShortId == fixture.ShortId).AnalyzeCommand.Execute(null);
-        var h = History(c);
-        await WaitFor(() => h.HasHistory || h.HasError, "the event-heavy recording to load", 120_000);
-        Require(h.HasHistory, "The recording did not load: " + h.Error);
-        var loaded = sw.Elapsed;
-        await WaitFor(() => View0(c) is { } v && DesktopValidation.Descendants<ListBoxItem>(v).Count() >= h.Events.Count, "the event list to be built", 180_000);
-        var built = sw.Elapsed;
-        await h.Settled; await Idle(c);
-        var heapOpen = HeapAfterCollection(); var workingOpen = Environment.WorkingSet;
-        Require(h.Loaded!.Events.Count(e => e.Kind == HistoryEventKind.Note) == notes && h.Events.Count == h.Loaded.Events.Count, $"{h.Loaded.Events.Count(e => e.Kind == HistoryEventKind.Note)} of {notes} events were read.");
-        // Responsiveness with every row realized: a dispatcher round trip, selecting the last entry, and a filter change.
-        var probes = new List<double>();
-        for (var i = 0; i < 20; i++) { var t = Stopwatch.StartNew(); await c.App.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Input).Task; probes.Add(t.Elapsed.TotalMilliseconds); await Task.Delay(20); }
-        probes.Sort();
-        sw.Restart();
-        h.SelectedEvent = h.Events[^1]; await Idle(c);
-        var selectMs = sw.Elapsed.TotalMilliseconds;
-        sw.Restart();
-        h.SelectedFilter = h.Filters.Single(f => f.Value == HistoryEventFilter.Incidents); await Idle(c);
-        var filterMs = sw.Elapsed.TotalMilliseconds;
-        sw.Restart();
-        h.SelectedFilter = h.Filters[0]; await WaitFor(() => View0(c) is { } v && DesktopValidation.Descendants<ListBoxItem>(v).Count() >= h.Events.Count, "the full list again", 180_000);
-        var rebuildMs = sw.Elapsed.TotalMilliseconds;
-        // Read before leaving the page: leaving releases the recording.
-        var entryCount = h.Loaded.Events.Count; var noteCount = h.Loaded.Events.Count(e => e.Kind == HistoryEventKind.Note); var rowCount = h.Events.Count;
         var resultPath = Path.Combine(c.EvidenceDirectory, "history-events-result.txt");
-        string Text(string heapAfterText, string screenshotText) =>
-            $"Session History with {entryCount:N0} timeline entries ({noteCount:N0} synthetic notes in {rowCount:N0} list rows, nonvirtualized list; fixture written through the real writer in {writing.TotalSeconds:0.0} s){Environment.NewLine}" +
-            $"Read and aggregate {loaded.TotalSeconds:0.0} s; every row realized after {built.TotalSeconds:0.0} s{Environment.NewLine}" +
-            $"Managed heap after a full collection: before {MiB(baseline)} MiB, open {MiB(heapOpen)} MiB (+{MiB(heapOpen - baseline)} MiB), page left {heapAfterText}; working set {MiB(workingBefore)} → {MiB(workingOpen)} MiB{Environment.NewLine}" +
-            $"Dispatcher round trip with all rows realized: median {probes[probes.Count / 2]:0.0} ms, worst {probes[^1]:0.0} ms (20 probes){Environment.NewLine}" +
-            $"Select the last entry {selectMs:0} ms; filter to incidents {filterMs:0} ms; back to all entries (rebuild) {rebuildMs:0} ms{Environment.NewLine}" +
-            $"Screenshot of the page viewport: {screenshotText}{Environment.NewLine}" +
-            $"No threshold is applied to these numbers; the section fails only if the page does not finish within 180 s, entries are missing or the screenshot does not settle.{Environment.NewLine}";
-        // The measurements are saved before the screenshot is attempted, so a screenshot problem cannot erase them.
-        await File.WriteAllTextAsync(resultPath, Text("not measured yet", "not taken yet"));
-        Log(c, $"MEASURED: {entryCount:N0} timeline entries: read {loaded.TotalSeconds:0.0} s, list built in {built.TotalSeconds:0.0} s, managed heap +{MiB(heapOpen - baseline)} MiB while open, dispatcher median {probes[probes.Count / 2]:0.0} ms / worst {probes[^1]:0.0} ms, select {selectMs:0} ms, filter {filterMs:0} ms, rebuild {rebuildMs:0} ms (no threshold)");
-        // Only the viewport the user sees, without the application header; the five-identical-frame and canvas-idle rules are unchanged.
-        Exception? screenshotFailure = null;
-        sw.Restart();
-        try { await Shot(c, PageViewport(View(c)), Path.Combine(c.EvidenceDirectory, "history-large-event-list.png")); }
-        catch (Exception ex) { screenshotFailure = ex; }
-        var screenshotMs = sw.ElapsedMilliseconds;
-        var screenshotText = screenshotFailure is null ? $"settled after {screenshotMs} ms" : $"FAILED after {screenshotMs} ms: {screenshotFailure.Message}";
-        await File.WriteAllTextAsync(resultPath, Text("not measured yet", screenshotText));
-        c.Vm.SelectedPage = c.Vm.Pages[0]; await Idle(c); await Task.Delay(300);
-        var heapAfter = HeapAfterCollection();
-        await File.WriteAllTextAsync(resultPath, Text($"{MiB(heapAfter)} MiB (+{MiB(heapAfter - baseline)} MiB)", screenshotText));
-        try { foreach (var file in FilesOf(directory, fixture.ShortId)) File.Delete(file); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
-        if (screenshotFailure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(screenshotFailure).Throw();
-        Log(c, $"PASS: {entryCount:N0} timeline entries: all read, list built in {built.TotalSeconds:0.0} s, managed heap +{MiB(heapOpen - baseline)} MiB while open (+{MiB(heapAfter - baseline)} MiB after leaving), dispatcher median {probes[probes.Count / 2]:0.0} ms / worst {probes[^1]:0.0} ms, select {selectMs:0} ms, filter {filterMs:0} ms, rebuild {rebuildMs:0} ms (measured, no threshold)");
+        var lines = new List<string> { $"Session History event list, virtualized (recycling VirtualizingStackPanel, bounded viewport {HistoryLayout.EventListMaxHeight:0} DIP); fixture written through the real writer in {writing.TotalSeconds:0.0} s" };
+        // Every stage is saved as it completes: a later problem cannot erase what was measured before it.
+        void Save() => File.WriteAllText(resultPath, string.Join(Environment.NewLine, lines) + Environment.NewLine);
+        void Add(string line) { lines.Add(line); Save(); }
+        var screenshotFailures = new List<Exception>();
+        async Task<ShotInfo?> Capture(string name)
+        {
+            try { return await Shot(c, PageViewport(View(c)), Path.Combine(c.EvidenceDirectory, name)); }
+            catch (Exception ex) { screenshotFailures.Add(ex); Add($"Screenshot {name}: FAILED: {ex.Message}"); return null; }
+        }
+        var baseline = HeapAfterCollection(); var workingBefore = Environment.WorkingSet;
+        var weakFirstItem = default(WeakReference); var total = 0;
+        try
+        {
+            // ----- load and first render
+            sw.Restart();
+            await c.Vm.Background.RefreshRecordingsAsync();
+            c.Vm.Background.Recordings.Single(r => r.Summary.ShortId == fixture.ShortId).AnalyzeCommand.Execute(null);
+            var h = History(c);
+            await WaitFor(() => h.HasHistory || h.HasError, "the event-heavy recording to load", 120_000);
+            Require(h.HasHistory, "The recording did not load: " + h.Error);
+            var loaded = sw.Elapsed;
+            await WaitFor(() => View0(c) is { } v && RealizedRows(v.EventListControl).Length > 0, "the first rows of the event list", 120_000);
+            await h.Settled; await Idle(c);
+            var firstRender = sw.Elapsed;
+            var list = EventListOf(c); var scroller = ScrollerOf(list);
+            var timeline = DesktopValidation.Descendants<Border>(View(c)).First(b => System.Windows.Automation.AutomationProperties.GetName(b) == "Incident timeline");
+            var entryCount = h.Loaded!.Events.Count; var noteCount = h.Loaded.Events.Count(e => e.Kind == HistoryEventKind.Note);
+            weakFirstItem = new WeakReference(h.Events[0]); total = entryCount;
+            var heapOpen = HeapAfterCollection(); var workingOpen = Environment.WorkingSet;
+
+            // ----- 1-2: all entries are in the list, only a few containers exist
+            Require(noteCount == notes && h.Events.Count == entryCount && list.Items.Count == entryCount && entryCount >= notes + 1, $"{list.Items.Count:N0} entries in the list, {entryCount:N0} read, {noteCount:N0} of {notes:N0} notes.");
+            Require(VirtualizingPanel.GetIsVirtualizing(list) && VirtualizingPanel.GetVirtualizationMode(list) == VirtualizationMode.Recycling && DesktopValidation.Descendants<VirtualizingStackPanel>(list).Count() == 1, "The event list does not use a recycling VirtualizingStackPanel.");
+            Require(list.ActualHeight <= HistoryLayout.EventListMaxHeight + 1, $"The event list is {list.ActualHeight:0} DIP tall; its viewport is bounded to {HistoryLayout.EventListMaxHeight:0}.");
+            var realizedFirst = CheckRows(h, list, "at the beginning");
+            Require(ContainerOf(list, h.Events[0]) is { } firstRow && MostlyVisible(list, firstRow) && scroller.VerticalOffset == 0, "The first entry is not shown at the beginning of the list.");
+            Add($"{entryCount:N0} timeline entries ({noteCount:N0} synthetic notes) are all in the list; {realizedFirst} containers are realized at the beginning");
+            Add($"Read and aggregate {loaded.TotalSeconds:0.00} s; first rows rendered and the page idle {firstRender.TotalSeconds:0.00} s after Analyze");
+            Add($"Managed heap after a full collection: before {MiB(baseline)} MiB, open {MiB(heapOpen)} MiB (+{MiB(heapOpen - baseline)} MiB); working set {MiB(workingBefore)} → {MiB(workingOpen)} MiB (+{MiB(workingOpen - workingBefore)} MiB)");
+
+            // ----- responsiveness
+            var probes = new List<double>();
+            for (var i = 0; i < 20; i++) { var t = Stopwatch.StartNew(); await c.App.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Input).Task; probes.Add(t.Elapsed.TotalMilliseconds); await Task.Delay(20); }
+            probes.Sort();
+            Add($"Dispatcher round trip: median {probes[probes.Count / 2]:0.0} ms, worst {probes[^1]:0.0} ms (20 probes)");
+
+            // ----- 8: screenshots of the beginning, with the page scrolled to the timeline
+            await ShowPanelAsync(c, timeline);
+            var shotBegin = await Capture("history-events-begin.png");
+
+            // ----- 4: a middle entry, scrolled into view although it had no container
+            var middle = h.Events[h.Events.Count / 2];
+            Require(ContainerOf(list, middle) is null, "The middle entry already had a container before it was selected; the list is not virtualized.");
+            var middleMs = await ShowAsync(c, h, list, middle, "the middle entry");
+            var realizedMiddle = CheckRows(h, list, "in the middle");
+            Require(scroller.VerticalOffset > 1000, $"The list did not scroll to the middle (offset {scroller.VerticalOffset:0}).");
+            Add($"Select the middle entry (no container yet): in view after {middleMs:0} ms; {realizedMiddle} containers realized");
+            await Capture("history-events-middle.png");
+
+            // ----- 5: the last entry
+            var last = h.Events[^1];
+            var lastMs = await ShowAsync(c, h, list, last, "the last entry");
+            var realizedLast = CheckRows(h, list, "at the end");
+            Require(scroller.VerticalOffset >= list.Items.Count - 40, $"The list did not scroll to the end (offset {scroller.VerticalOffset:0} of {list.Items.Count:N0}).");
+            Add($"Select the last entry: in view after {lastMs:0} ms; {realizedLast} containers realized");
+            await Capture("history-events-end.png");
+
+            // ----- 6: keyboard navigation through the real list
+            var row = ContainerOf(list, last)!;
+            row.Focus(); await Idle(c);
+            Require(Keyboard.FocusedElement is ListBoxItem, "The selected row cannot take keyboard focus (focus is on " + Keyboard.FocusedElement?.GetType().Name + ").");
+            DesktopValidation.RaiseKey((UIElement)Keyboard.FocusedElement!, Key.Up);
+            await WaitFor(() => ReferenceEquals(h.SelectedEvent, h.Events[^2]), "Up to select the previous entry");
+            await h.Settled; await Idle(c);
+            Require(Keyboard.FocusedElement is ListBoxItem focused && ReferenceEquals(focused.DataContext, h.SelectedEvent), "After Up the keyboard focus is not on the selected row.");
+            DesktopValidation.RaiseKey((UIElement)Keyboard.FocusedElement!, Key.Home);
+            await WaitFor(() => ReferenceEquals(h.SelectedEvent, h.Events[0]) && ContainerOf(list, h.Events[0]) is { } top && MostlyVisible(list, top), "Home to select and show the first entry");
+            await h.Settled; await Idle(c);
+            Require(scroller.VerticalOffset == 0, "Home did not scroll to the beginning.");
+            DesktopValidation.RaiseKey((UIElement)Keyboard.FocusedElement!, Key.End);
+            await WaitFor(() => ReferenceEquals(h.SelectedEvent, h.Events[^1]) && ContainerOf(list, h.Events[^1]) is { } bottom && MostlyVisible(list, bottom), "End to select and show the last entry");
+            await h.Settled; await Idle(c);
+            var realizedAfterKeys = CheckRows(h, list, "after keyboard navigation");
+            Add($"Keyboard: Up, Home and End moved the selection and scrolled the list; focus stayed on the selected row; {realizedAfterKeys} containers realized");
+
+            // ----- 7-9: filtering, incident selection, annotation
+            var incidentItem = h.Events.Single(e => e.IsIncident);
+            var incident = h.Loaded.Incidents.Single();
+            sw.Restart();
+            h.SelectedFilter = h.Filters.Single(f => f.Value == HistoryEventFilter.Incidents);
+            await WaitFor(() => list.Items.Count == 1 && RealizedRows(list).Length == 1, "the filtered list", 30_000);
+            await Idle(c);
+            var filterMs = sw.Elapsed.TotalMilliseconds;
+            Require(h.Events.Count == 1 && ReferenceEquals(h.Events[0], incidentItem) && h.SelectedEvent is null && h.EventsHeading == $"1 of {entryCount} timeline entries", $"Filtering left a stale state: {h.Events.Count} entries, selection '{h.SelectedEvent?.Title ?? "none"}', heading '{h.EventsHeading}'.");
+            CheckRows(h, list, "after filtering to incidents");
+            Require(scroller.VerticalOffset == 0, "The filtered list did not return to its beginning.");
+            Add($"Filter to incidents: list rebuilt and idle after {filterMs:0} ms ({list.Items.Count} entry, {RealizedRows(list).Length} container)");
+            h.SelectedEvent = incidentItem; await h.Settled; await Idle(c); await DesktopValidation.WaitForChartMeasureAsync(c.Window);
+            Require(h.SelectedIncident?.Incident.Id == incident.Id && h.ViewStart <= incident.At && incident.At <= h.ViewEnd, "Selecting the incident did not select it and bring it into the charts' range.");
+            foreach (var chart in Charts(c))
+            {
+                var axis = (LiveChartsCore.SkiaSharpView.Axis)chart.XAxes.First();
+                Require(Math.Abs((axis.MinLimit ?? 0) - h.ViewStart.UtcDateTime.Ticks) < 1000 && Math.Abs((axis.MaxLimit ?? 0) - h.ViewEnd.UtcDateTime.Ticks) < 1000, "A chart is not on the range of the selected incident.");
+            }
+            h.SelectedIncident!.Category = HistoryIncidentViewModel.Categories.Single(x => x.Value == IncidentCategory.Freeze);
+            h.SelectedIncident.Description = "Desktop froze while the list was scrolled.";
+            await h.SelectedIncident.SaveCommand.ExecuteAsync();
+            Require(h.SelectedIncident.SaveMessage.Contains("Saved beside the recording", StringComparison.Ordinal) && incidentItem.HasAnnotation, "The annotation was not saved: " + h.SelectedIncident.SaveMessage);
+            await Idle(c);
+            await Capture("history-events-filtered-incidents.png");
+            Add("Filtered incidents: the incident is selected, the charts show its range, the annotation was saved");
+
+            // ----- back to all entries: the selection survives and is scrolled to
+            sw.Restart();
+            h.SelectedFilter = h.Filters[0];
+            await WaitFor(() => list.Items.Count == entryCount && ContainerOf(list, incidentItem) is { } shown && shown.IsSelected && MostlyVisible(list, shown), "the full list with the incident in view", 60_000);
+            await Idle(c);
+            var rebuildMs = sw.Elapsed.TotalMilliseconds;
+            Require(ReferenceEquals(h.SelectedEvent, incidentItem) && h.EventsHeading == $"{entryCount} of {entryCount} timeline entries", "The selection or the heading is wrong after the filter was removed.");
+            CheckRows(h, list, "after the filter was removed");
+            Add($"Back to all entries: rebuilt, the selected incident scrolled into view after {rebuildMs:0} ms");
+
+            // ----- the details panel does not move or get recreated while the list scrolls
+            await ShowPanelAsync(c, timeline);
+            var details = DesktopValidation.Descendants<StackPanel>(View(c)).First(x => System.Windows.Automation.AutomationProperties.GetName(x) == "Selected incident");
+            var detailsAt = details.TranslatePoint(new Point(), timeline); var detailsContext = details.DataContext; var pageOffset = ((ScrollViewer)PageViewport(View(c))).VerticalOffset;
+            scroller.ScrollToVerticalOffset(list.Items.Count * 0.75); await Idle(c);
+            var detailsAfter = details.TranslatePoint(new Point(), timeline);
+            Require(ReferenceEquals(details.DataContext, detailsContext) && ReferenceEquals(h.SelectedIncident, detailsContext) && Math.Abs(detailsAfter.Y - detailsAt.Y) < 0.5 && Math.Abs(detailsAfter.X - detailsAt.X) < 0.5, $"Scrolling the list moved or recreated the selected incident panel (from {detailsAt} to {detailsAfter}).");
+            Require(Math.Abs(((ScrollViewer)PageViewport(View(c))).VerticalOffset - pageOffset) < 0.5, "Scrolling the list scrolled the page.");
+            CheckRows(h, list, "after scrolling past the incident");
+
+            // ----- 9: the annotation is right after the incident row was recycled away and comes back
+            await ShowAsync(c, h, list, h.Events[^1], "the last entry again");
+            Require(ContainerOf(list, incidentItem) is null, "The incident row was not recycled while it was out of view.");
+            var backMs = await ShowAsync(c, h, list, incidentItem, "the incident again");
+            CheckRows(h, list, "after the incident row came back");
+            var incidentRow = ContainerOf(list, incidentItem)!;
+            Require(DesktopValidation.Descendants<TextBlock>(incidentRow).Any(t => t.IsVisible && t.Text.StartsWith("Freeze", StringComparison.Ordinal) && t.Text.Contains("Desktop froze while the list was scrolled.", StringComparison.Ordinal)), "The annotation is not shown on the incident row after recycling.");
+            Add($"Annotation: shown on the incident row again {backMs:0} ms after it was recycled away; no other row shows one; the details panel stayed in place while the list scrolled");
+            await ShowPanelAsync(c, timeline);
+            await Capture("history-events-selected-incident.png");
+
+            // ----- 10: every entry is exportable
+            var csv = HistoryExport.TimelineCsv(h.Loaded, null, TimeZoneInfo.Utc);
+            var csvLines = csv.Split("\r\n", StringSplitOptions.RemoveEmptyEntries).Length - 1;
+            Require(csvLines == entryCount, $"The timeline export has {csvLines:N0} lines for {entryCount:N0} entries.");
+            Add($"Timeline CSV export: {csvLines:N0} lines for {entryCount:N0} entries");
+
+            // ----- 11: another recording replaces the list; the old rows are gone
+            var other = shortRun!;
+            await OpenAnalyze(c, other, 5);
+            var h2 = History(c); var list2 = EventListOf(c);
+            Require(list2.Items.Count == h2.Events.Count && RealizedRows(list2).Length is > 0 && RealizedRows(list2).Length <= h2.Events.Count && h2.Events.Count < 100, $"After switching recordings the list holds {list2.Items.Count} entries with {RealizedRows(list2).Length} containers (expected at most {h2.Events.Count}).");
+            CheckRows(h2, list2, "after switching recordings");
+            Add($"Switching to another recording: the list now holds its {h2.Events.Count} entries, {RealizedRows(list2).Length} containers, none of the 5,005 rows");
+
+            // ----- leaving the page releases the list
+            c.Vm.SelectedPage = c.Vm.Pages[0]; await Idle(c); await Task.Delay(300);
+            var heapAfter = HeapAfterCollection();
+            Add($"After leaving the page: managed heap {MiB(heapAfter)} MiB (+{MiB(heapAfter - baseline)} MiB over before); old first entry still referenced: {(weakFirstItem.IsAlive ? "yes" : "no")} (informational)");
+
+            // ----- the numbers against the non-virtualized list
+            var slowest = shotBegin?.SlowestFrameMilliseconds;
+            Add(string.Join(Environment.NewLine,
+                "Summary (targets: heap below +40 MiB, slowest frame below 500 ms, filter below 100 ms, 5,005 of 5,005 entries, bounded containers; reported whether or not they are met)",
+                $"  containers realized: {realizedFirst} / {realizedMiddle} / {realizedLast} (beginning / middle / end) for {entryCount:N0} entries (was 5,005)",
+                $"  managed heap while open: +{MiB(heapOpen - baseline)} MiB (target < 40; was +203.9)",
+                $"  working set while open: +{MiB(workingOpen - workingBefore)} MiB (was +298)",
+                $"  slowest rendered frame: {(slowest is { } s0 ? s0.ToString("0", System.Globalization.CultureInfo.InvariantCulture) + " ms" : "not measured")} (target < 500; was 2,826)",
+                $"  filter to incidents: {filterMs:0} ms (target < 100; was 379); back to all: {rebuildMs:0} ms (was 81)",
+                $"  scroll to the last entry: {lastMs:0} ms (was 47 for a selection); to the middle: {middleMs:0} ms",
+                $"  dispatcher: median {probes[probes.Count / 2]:0.0} ms, worst {probes[^1]:0.0} ms (was worst 95)",
+                $"  before virtualization (CI run 40216989417): {NonVirtualizedBaseline}"));
+            Log(c, $"MEASURED: {entryCount:N0} entries, {realizedFirst}/{realizedMiddle}/{realizedLast} containers realized, managed heap +{MiB(heapOpen - baseline)} MiB, working set +{MiB(workingOpen - workingBefore)} MiB, first render {firstRender.TotalSeconds:0.00} s, slowest frame {(slowest is { } s1 ? s1.ToString("0", System.Globalization.CultureInfo.InvariantCulture) : "n/a")} ms, filter {filterMs:0} ms, rebuild {rebuildMs:0} ms, scroll to last {lastMs:0} ms, dispatcher worst {probes[^1]:0.0} ms (targets reported, not enforced)");
+        }
+        catch (Exception ex)
+        {
+            Add($"FAILED: {ex.GetType().Name}: {ex.Message}");
+            throw;
+        }
+        finally
+        {
+            try { foreach (var file in FilesOf(directory, fixture.ShortId)) File.Delete(file); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
+        if (screenshotFailures.Count > 0) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(screenshotFailures[0]).Throw();
+        Log(c, $"PASS: the virtualized event list holds all {total:N0} entries with at most {MaximumRealizedEventContainers} containers; first, middle and last entry, keyboard, filtering, incident selection, annotation after recycling, the details panel, export and switching recordings checked");
     }
 
     private static SessionHistoryView? View0(HistorySmokeContext c) => DesktopValidation.Descendants<SessionHistoryView>(c.Window).FirstOrDefault();
@@ -824,7 +1025,7 @@ internal static class HistoryValidation
     private static async Task RepeatedNavigation(HistorySmokeContext c)
     {
         var a = shortRun!;
-        var views = new List<WeakReference>(); var objects = new List<WeakReference>(); var controls = new List<WeakReference>();
+        var views = new List<WeakReference>(); var objects = new List<WeakReference>(); var controls = new List<WeakReference>(); var lists = new List<WeakReference>(); var rows = new List<WeakReference>();
         var heaps = new List<long>();
         var sw = Stopwatch.StartNew();
         for (var cycle = 1; cycle <= 12; cycle++)
@@ -835,6 +1036,8 @@ internal static class HistoryValidation
             h.ZoomBy(2); h.SetRange(h.SessionStart + TimeSpan.FromMinutes(2), h.SessionStart + TimeSpan.FromMinutes(7)); await h.Settled; await Idle(c);
             if (cycle == 1) Require(h.Events.Single(e => e.Event.IncidentId == h.Loaded!.Incidents[1].Id).Annotation.StartsWith("Display stutter", StringComparison.Ordinal), "The annotation saved earlier is not shown after reopening.");
             views.Add(new WeakReference(View(c)));
+            lists.Add(new WeakReference(EventListOf(c)));
+            foreach (var row in RealizedRows(EventListOf(c))) rows.Add(new WeakReference(row));
             foreach (var chart in Charts(c)) { controls.Add(new WeakReference(chart)); objects.Add(new WeakReference(LiveChart.GetObjects(chart))); }
             c.Vm.SelectedPage = c.Vm.Pages[0];                          // leaving the page releases the recording
             await Idle(c); await Task.Delay(120);
@@ -843,19 +1046,20 @@ internal static class HistoryValidation
         }
         await Idle(c); await Task.Delay(500); await Idle(c);
         HeapAfterCollection();
-        var aliveViews = views.Count(w => w.IsAlive); var aliveObjects = objects.Count(w => w.IsAlive); var aliveControls = controls.Count(w => w.IsAlive);
+        var aliveViews = views.Count(w => w.IsAlive); var aliveObjects = objects.Count(w => w.IsAlive); var aliveControls = controls.Count(w => w.IsAlive); var aliveLists = lists.Count(w => w.IsAlive); var aliveRows = rows.Count(w => w.IsAlive);
         var growth = heaps[^1] - heaps[0];
         var perBatch = heaps.Zip(heaps.Skip(1), (x, y) => y - x).DefaultIfEmpty(0).Max();
         await File.WriteAllTextAsync(Path.Combine(c.EvidenceDirectory, "history-navigation-result.txt"),
             $"Session History, 12 × (Analyze, select incident, leave): {sw.Elapsed.TotalSeconds:0.0} s{Environment.NewLine}" +
             $"Managed heap after a full collection at cycles 3/6/9/12: {string.Join(" → ", heaps.Select(h => MiB(h) + " MiB"))} (growth {MiB(growth)} MiB, largest step {MiB(perBatch)} MiB){Environment.NewLine}" +
             $"Working set now: {MiB(Environment.WorkingSet)} MiB{Environment.NewLine}" +
-            $"Still alive after the last collection: views {aliveViews}/{views.Count}, LiveCharts objects {aliveObjects}/{objects.Count}, chart controls {aliveControls}/{controls.Count}{Environment.NewLine}" +
-            $"Limits: views and LiveCharts objects of released pages must be collected; managed heap growth ≤ 24 MiB overall and ≤ 12 MiB per three cycles." + Environment.NewLine);
+            $"Still alive after the last collection: views {aliveViews}/{views.Count}, LiveCharts objects {aliveObjects}/{objects.Count}, chart controls {aliveControls}/{controls.Count}, event lists {aliveLists}/{lists.Count}, event list rows {aliveRows}/{rows.Count}{Environment.NewLine}" +
+            $"Limits: views, event lists and LiveCharts objects of released pages must be collected; managed heap growth ≤ 24 MiB overall and ≤ 12 MiB per three cycles." + Environment.NewLine);
         Require(aliveViews == 0, $"{aliveViews} of {views.Count} released history views are still reachable.");
         Require(aliveObjects == 0, $"{aliveObjects} of {objects.Count} released LiveCharts objects are still reachable.");
+        Require(aliveLists == 0, $"{aliveLists} of {lists.Count} released virtualized event lists are still reachable.");
         Require(growth <= 24L << 20 && perBatch <= 12L << 20, $"Managed heap keeps growing across history visits: {string.Join(" → ", heaps.Select(h => MiB(h)))} MiB.");
-        Log(c, $"PASS: 12 × open and leave: managed heap {string.Join(" → ", heaps.Select(h => MiB(h)))} MiB (growth {MiB(growth)} MiB); views alive {aliveViews}/{views.Count}, LiveCharts objects alive {aliveObjects}/{objects.Count}; chart controls alive {aliveControls}/{controls.Count} (informational: controls are released by WPF, not by this code)");
+        Log(c, $"PASS: 12 × open and leave: managed heap {string.Join(" → ", heaps.Select(h => MiB(h)))} MiB (growth {MiB(growth)} MiB); views alive {aliveViews}/{views.Count}, LiveCharts objects alive {aliveObjects}/{objects.Count}; event lists alive {aliveLists}/{lists.Count}, event list rows alive {aliveRows}/{rows.Count} (informational), chart controls alive {aliveControls}/{controls.Count} (informational: controls are released by WPF, not by this code)");
     }
 
     private static async Task LongRecording(HistorySmokeContext c)

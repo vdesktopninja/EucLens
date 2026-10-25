@@ -269,7 +269,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
 
     // ---------- timeline and charts ----------
 
-    public ObservableCollection<HistoryEventItem> Events { get; } = [];
+    public BulkObservableCollection<HistoryEventItem> Events { get; } = [];
     public IReadOnlyList<TimelineMarker> Markers { get; private set; } = [];
     public IReadOnlyList<HistoryGap> Gaps { get; private set; } = [];
     public ObservableCollection<HistoryChartRow> Charts { get; } = [];
@@ -445,8 +445,8 @@ public sealed class SessionHistoryViewModel : ObservableObject
     {
         var keep = selectedEvent?.Event;
         suppressSelection = true;
-        Events.Clear();
-        foreach (var item in allEvents.Where(i => HistoryEventFilters.Matches(filter.Value, i.Event))) Events.Add(item);
+        // One Reset for the whole list: thousands of single additions would each be handled by the list control.
+        Events.ReplaceAll(allEvents.Where(i => HistoryEventFilters.Matches(filter.Value, i.Event)));
         selectedEvent = keep is null ? null : Events.FirstOrDefault(i => ReferenceEquals(i.Event, keep));
         suppressSelection = false;
         Raise(nameof(SelectedEvent)); Raise(nameof(EventsHeading));
