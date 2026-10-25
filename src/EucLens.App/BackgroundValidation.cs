@@ -97,7 +97,7 @@ internal static class BackgroundValidation
         catch (Exception ex)
         {
             failures.Add(name);
-            Log(c, $"FAIL: {name}: {ex.GetType().Name}: {ex.Message}");
+            Log(c, $"FAIL: {name}: {ex.GetType().Name}: {ex.Message} | first frame: {HistoryValidation.FirstFrame(ex)}");
         }
         await ResetAsync(c);
     }

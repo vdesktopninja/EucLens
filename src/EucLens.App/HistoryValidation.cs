@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using EucLens.App.Presentation;
 using EucLens.App.ViewModels;
@@ -36,6 +37,13 @@ internal static class HistoryValidation
 
     private sealed record Fixture(string ShortId, DateTimeOffset Start, int Seconds, IReadOnlyList<IncidentMarker> Incidents, int Parts, int CompressedParts, long Bytes);
 
+    /// <summary>The first stack frame inside EUC Lens code, with its line, for the FAIL line of a section.</summary>
+    internal static string FirstFrame(Exception ex)
+    {
+        var frame = (ex.StackTrace ?? "").Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.StartsWith("at EucLens", StringComparison.Ordinal)) ?? (ex.StackTrace ?? "no stack").Split('\n')[0].Trim();
+        return frame.Length > 400 ? frame[..400] : frame;
+    }
+
     private static void Require(bool condition, string failure) { if (!condition) throw new InvalidOperationException(failure); }
     private static void Log(HistorySmokeContext c, string line)
     {
@@ -59,6 +67,71 @@ internal static class HistoryValidation
     /// <summary>Safe while the page is still being created: no view yet means no charts yet.</summary>
     private static CartesianChart[] Charts(HistorySmokeContext c) =>
         DesktopValidation.Descendants<SessionHistoryView>(c.Window).FirstOrDefault() is { } view ? DesktopValidation.Descendants<CartesianChart>(view).ToArray() : [];
+
+    // ---------- screenshots that wait for the charts to be drawn ----------
+
+    private static Task NextFrame()
+    {
+        var done = new TaskCompletionSource();
+        EventHandler? handler = null;
+        handler = (_, _) => { CompositionTarget.Rendering -= handler; done.TrySetResult(); };
+        CompositionTarget.Rendering += handler;
+        // WPF raises Rendering only while something is being drawn; a short timeout keeps the loop moving when nothing is.
+        return Task.WhenAny(done.Task, Task.Delay(60)).ContinueWith(_ => CompositionTarget.Rendering -= handler, TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
+    private static RenderTargetBitmap RenderOnce(Window window, FrameworkElement visual)
+    {
+        var bitmap = new RenderTargetBitmap((int)Math.Ceiling(visual.ActualWidth), (int)Math.Ceiling(visual.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+        var drawing = new DrawingVisual();
+        using (var context = drawing.RenderOpen())
+        {
+            var bounds = new Rect(0, 0, visual.ActualWidth, visual.ActualHeight);
+            context.DrawRectangle(window.Background, null, bounds);
+            context.DrawRectangle(new VisualBrush(visual) { Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top }, null, bounds);
+        }
+        bitmap.Render(drawing);
+        return bitmap;
+    }
+
+    private static string PixelHash(BitmapSource bitmap)
+    {
+        var stride = bitmap.PixelWidth * 4; var pixels = new byte[stride * bitmap.PixelHeight];
+        bitmap.CopyPixels(pixels, stride, 0);
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(pixels))[..16];
+    }
+
+    /// <summary>
+    /// Saves a screenshot only once what is drawn has stopped changing: the same pixels in five consecutive frames and every LiveCharts canvas reporting that it has
+    /// nothing left to draw. LiveCharts repaints after the frame in which its axis range changed, so a capture taken right after a range change shows the old range.
+    /// </summary>
+    private static async Task Shot(HistorySmokeContext c, FrameworkElement visual, string path)
+    {
+        var sw = Stopwatch.StartNew();
+        string? previous = null; var identical = 0; var frames = 0; RenderTargetBitmap? bitmap = null; var canvasesIdle = false;
+        while (sw.ElapsedMilliseconds < 10_000)
+        {
+            await NextFrame(); await Idle(c); frames++;
+            bitmap = RenderOnce(c.Window, visual);
+            var hash = PixelHash(bitmap);
+            identical = hash == previous ? identical + 1 : 0; previous = hash;
+            canvasesIdle = DesktopValidation.Descendants<MotionCanvas>(c.Window).All(m => m.CanvasCore.IsValid);
+            if (identical >= 5 && canvasesIdle) break;
+        }
+        // The last picture is kept even when it never settled, so the evidence exists whatever the verdict.
+        if (bitmap is not null)
+        {
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            await using var stream = File.Create(path);
+            encoder.Save(stream);
+        }
+        Require(bitmap is not null && identical >= 5, $"{Path.GetFileName(path)}: what is drawn did not settle within 10 s ({frames} frames, {identical} identical).");
+        // Evidence of what the engine had applied at that moment: the visible axis range of the first chart against the range the page shows.
+        var chart = DesktopValidation.Descendants<CartesianChart>(visual).FirstOrDefault();
+        var range = chart?.XAxes.FirstOrDefault() is LiveChartsCore.SkiaSharpView.Axis axis ? $"; engine axis {axis.VisibleDataBounds.Min:0} to {axis.VisibleDataBounds.Max:0} ticks" : "";
+        Log(c, $"NOTE: screenshot {Path.GetFileName(path)} taken after {sw.ElapsedMilliseconds} ms ({frames} frames, stable pixels, canvases idle: {canvasesIdle}{range})");
+    }
 
     private static long HeapAfterCollection()
     {
@@ -168,7 +241,7 @@ internal static class HistoryValidation
         catch (Exception ex)
         {
             failures.Add(name);
-            Log(c, $"FAIL: {name}: {ex.GetType().Name}: {ex.Message}");
+            Log(c, $"FAIL: {name}: {ex.GetType().Name}: {ex.Message} | first frame: {FirstFrame(ex)}");
             try { var view = DesktopValidation.Descendants<SessionHistoryView>(c.Window).FirstOrDefault(); if (view is not null && view.ActualWidth > 0) DesktopValidation.Capture(c.Window, view, Path.Combine(c.EvidenceDirectory, $"FAILED-history-{name.Replace(' ', '-')}.png")); }
             catch (Exception captureFailure) { SmokeLog.Write("history failure capture: " + captureFailure.Message); }
         }
@@ -242,7 +315,7 @@ internal static class HistoryValidation
         DesktopValidation.CheckChartList(Charts(c), "Session History");
         Require(Charts(c).Length == h.Charts.Count, "The number of chart controls differs from the rows.");
         Require(DesktopValidation.Descendants<ListBox>(View(c)).Any(l => l.Items.Count == h.Events.Count && h.Events.Count > 0), "The event list does not show every timeline entry.");
-        DesktopValidation.Capture(c.Window, View(c), Path.Combine(c.EvidenceDirectory, "history-overview-light.png"));
+        await Shot(c, View(c), Path.Combine(c.EvidenceDirectory, "history-overview-light.png"));
         Log(c, $"PASS: Analyze opened recording {a.ShortId} in {sw.Elapsed.TotalSeconds:0.0} s: {h.Charts.Count} charts ({string.Join(", ", ids)}), {h.Events.Count} timeline entries, {info.Samples} samples, {info.Incidents} incidents, coverage {info.DataCoverage:P1}, state Complete; every chart passes the ownership, theme and no-animation checks");
     }
 
@@ -386,11 +459,11 @@ internal static class HistoryValidation
         Require(Math.Abs((Overlay(c).SelectedAt!.Value - first.At).TotalMilliseconds) < 1 && Math.Abs((Strip(c).SelectedAt!.Value - first.At).TotalMilliseconds) < 1, "The selected incident is not marked on the overlay and the strip.");
         Require(h.SelectedIncident.Evidence.Any(r => r.Value == "380"), "The evidence does not hold the recorded spike value.");
         Require(Charts(c).All(chart => ((LiveChartsCore.SkiaSharpView.Axis)chart.XAxes.First()).MinLimit is { } min && Math.Abs(min - h.ViewStart.UtcDateTime.Ticks) < 1000), "The charts are not on the incident's range.");
-        DesktopValidation.Capture(c.Window, View(c), Path.Combine(c.EvidenceDirectory, "history-incident-light.png"));
-        DesktopValidation.Capture(c.Window, Strip(c), Path.Combine(c.EvidenceDirectory, "history-timeline-strip-light.png"));
+        await Shot(c, View(c), Path.Combine(c.EvidenceDirectory, "history-incident-light.png"));
+        await Shot(c, Strip(c), Path.Combine(c.EvidenceDirectory, "history-timeline-strip-light.png"));
         var chartStack = (FrameworkElement)VisualTreeHelper.GetParent(Overlay(c));
         Overlay(c).HoverAt = first.At + TimeSpan.FromSeconds(20); h.SetHover(first.At + TimeSpan.FromSeconds(20)); await Idle(c);
-        DesktopValidation.Capture(c.Window, chartStack, Path.Combine(c.EvidenceDirectory, "history-synchronized-charts-light.png"));
+        await Shot(c, chartStack, Path.Combine(c.EvidenceDirectory, "history-synchronized-charts-light.png"));
         Overlay(c).HoverAt = null; h.SetHover(null);
         // The second incident has no network problem: the recording shows a frame-rate dip, and the text says what stands out.
         h.NextIncidentCommand.Execute(null);
@@ -406,7 +479,7 @@ internal static class HistoryValidation
         Require(h.SelectedIncident.SaveMessage.Contains("Saved beside the recording", StringComparison.Ordinal), "The annotation was not saved: " + h.SelectedIncident.SaveMessage);
         Require(File.Exists(Path.Combine(a.ShortId.Length > 0 ? h.Loaded.Info.Directory : "", RecordingFormat.AnnotationName(RecordingFormat.Stamp(h.Loaded.Info.StartedUtc), a.ShortId))), "The annotation file does not exist.");
         Require(h.Events.Single(e => e.Event.IncidentId == second.Id).Annotation.StartsWith("Display stutter", StringComparison.Ordinal), "The list does not show the annotation.");
-        DesktopValidation.Capture(c.Window, View(c), Path.Combine(c.EvidenceDirectory, "history-incident2-annotated-light.png"));
+        await Shot(c, View(c), Path.Combine(c.EvidenceDirectory, "history-incident2-annotated-light.png"));
         Log(c, "PASS: selecting an incident centres the view with ±2 min, marks it on strip and overlay, and the deterministic text reports the recorded RTT spike (380 ms) for the first and the frame-rate dip (3 FPS, no RTT claim) for the second; evidence lists recorded values; the annotation is saved beside the recording");
     }
 
@@ -463,7 +536,7 @@ internal static class HistoryValidation
             foreach (HistoryTimeElement element in new HistoryTimeElement[] { Overlay(c), Strip(c) })
                 Require(element.GetValue(HistoryTimeElement.AccentFillProperty) is SolidColorBrush accent && accent.Color == expected, $"{element.GetType().Name} did not follow the {(dark ? "dark" : "light")} theme.");
             var tag = dark ? "dark" : "light";
-            DesktopValidation.Capture(c.Window, View(c), Path.Combine(c.EvidenceDirectory, $"history-incident-{tag}-theme.png"));
+            await Shot(c, View(c), Path.Combine(c.EvidenceDirectory, $"history-incident-{tag}-theme.png"));
             // Every event shape resolves to its own geometry; findings use the severity shapes. The probes live in the page for a moment so the style applies as it does on screen.
             var probes = new WrapPanel();
             var style = (Style)c.Window.FindResource("EventIcon");
@@ -535,7 +608,7 @@ internal static class HistoryValidation
         Require(h.StateNote.Contains("no end of recording was written", StringComparison.Ordinal) && !h.Facts.Any(f => f.Label == "End" || f.Value == "Complete"), "The interrupted recording is described as ended or complete.");
         Require(h.IssueLines.Any(l => l.StartsWith("Note:", StringComparison.Ordinal) && l.Contains("incomplete line", StringComparison.Ordinal)), "The cut-off last line is not reported.");
         Require(h.Loaded!.Incidents.Count == 1 && h.Loaded.SampleCount is >= 380 and < 400, $"Interrupted recording: {h.Loaded.SampleCount} samples, {h.Loaded.Incidents.Count} incidents.");
-        DesktopValidation.Capture(c.Window, View(c), Path.Combine(c.EvidenceDirectory, "history-interrupted.png"));
+        await Shot(c, View(c), Path.Combine(c.EvidenceDirectory, "history-interrupted.png"));
         results.Add($"interrupted (labelled Interrupted, {h.Loaded.SampleCount} of 400 samples, tail reported)");
 
         // Missing part: the middle of a rotated recording is gone.
@@ -572,7 +645,7 @@ internal static class HistoryValidation
             await WaitFor(() => h.HasError || h.HasHistory, "the unsupported recording to be rejected");
             Require(h.HasError && !h.HasHistory && h.Charts.Count == 0 && h.Error.Length > 0 && !h.IsLoading, $"{id}: an unreadable recording is not explained: error='{h.Error}', history={h.HasHistory}.");
             if (id == "0f0f0f0f") Require(h.Error.Contains("unsupported format", StringComparison.Ordinal) && h.Error.Contains("euclens.recording/9", StringComparison.Ordinal), "The unsupported version is not named: " + h.Error);
-            DesktopValidation.Capture(c.Window, View(c), Path.Combine(c.EvidenceDirectory, $"history-unreadable-{id}.png"));
+            await Shot(c, View(c), Path.Combine(c.EvidenceDirectory, $"history-unreadable-{id}.png"));
             results.Add($"{id} rejected with \"{h.Error}\"");
         }
         Log(c, "PASS: incomplete and damaged recordings opened through the real page: " + string.Join("; ", results));
@@ -591,7 +664,7 @@ internal static class HistoryValidation
             Require(!h.Facts.Any(f => f.Value is "Complete" || f.Label is "End" or "Duration"), "A partial analysis is described as complete or as a whole session.");
             Require(h.IssueLines.Any(l => l.Contains("Only the first 400", StringComparison.Ordinal)), "The limit is not listed with the reading notes.");
             Require(h.SessionEnd - h.SessionStart < TimeSpan.FromSeconds(401) && h.Loaded!.Incidents.Count == 1, "The analysis covers more than the loaded part.");
-            DesktopValidation.Capture(c.Window, View(c), Path.Combine(c.EvidenceDirectory, "history-partial-analysis.png"));
+            await Shot(c, View(c), Path.Combine(c.EvidenceDirectory, "history-partial-analysis.png"));
         }
         finally { h.SampleLimit = HistoryLoader.MaximumSamples; }
         await OpenAnalyze(c, a, 1);
@@ -644,7 +717,7 @@ internal static class HistoryValidation
             Require(labels(second.At.UtcDateTime).StartsWith("02:30", StringComparison.Ordinal) && labels(second.At.UtcDateTime.AddHours(1)).StartsWith("03:30", StringComparison.Ordinal), "The axis labels after the clock change are wrong.");
             foreach (var row in h.Charts) Require(row.Data.Points.Zip(row.Data.Points.Skip(1)).All(pair => pair.First.At <= pair.Second.At), $"{row.Title}: points are not in time order across the clock change.");
             h.SelectedEvent = items[1]; await h.Settled; await Idle(c); await DesktopValidation.WaitForChartMeasureAsync(c.Window);
-            DesktopValidation.Capture(c.Window, View(c), Path.Combine(c.EvidenceDirectory, "history-clock-change-second-0230.png"));
+            await Shot(c, View(c), Path.Combine(c.EvidenceDirectory, "history-clock-change-second-0230.png"));
             Log(c, $"PASS: recording across a clock change (test zone UTC+2 to UTC+1): both incidents read 02:30 on the wall clock and are told apart ('{items[0].Time}' and '{items[1].Time}'), the timeline stays in UTC order, the charts plot UTC so the incidents are {measured:0.#} px (= one real hour) apart, every chart shares the range, axis labels follow the zone");
         }
         finally { h.UseTimeZone(TimeZoneInfo.Local); }
@@ -686,18 +759,20 @@ internal static class HistoryValidation
         sw.Restart();
         h.SelectedFilter = h.Filters[0]; await WaitFor(() => View0(c) is { } v && DesktopValidation.Descendants<ListBoxItem>(v).Count() >= h.Events.Count, "the full list again", 180_000);
         var rebuildMs = sw.Elapsed.TotalMilliseconds;
-        DesktopValidation.Capture(c.Window, View(c), Path.Combine(c.EvidenceDirectory, "history-large-event-list.png"));
+        // Read before leaving the page: leaving releases the recording.
+        var entryCount = h.Loaded.Events.Count; var noteCount = h.Loaded.Events.Count(e => e.Kind == HistoryEventKind.Note); var rowCount = h.Events.Count;
+        await Shot(c, (FrameworkElement)c.Window.Content, Path.Combine(c.EvidenceDirectory, "history-large-event-list.png"));
         c.Vm.SelectedPage = c.Vm.Pages[0]; await Idle(c); await Task.Delay(300);
         var heapAfter = HeapAfterCollection();
         var text =
-            $"Session History with {h.Loaded.Events.Count:N0} timeline entries ({notes:N0} synthetic notes, nonvirtualized list; fixture written through the real writer in {writing.TotalSeconds:0.0} s){Environment.NewLine}" +
+            $"Session History with {entryCount:N0} timeline entries ({noteCount:N0} synthetic notes in {rowCount:N0} list rows, nonvirtualized list; fixture written through the real writer in {writing.TotalSeconds:0.0} s){Environment.NewLine}" +
             $"Read and aggregate {loaded.TotalSeconds:0.0} s; every row realized after {built.TotalSeconds:0.0} s{Environment.NewLine}" +
             $"Managed heap after a full collection: before {MiB(baseline)} MiB, open {MiB(heapOpen)} MiB (+{MiB(heapOpen - baseline)} MiB), page left {MiB(heapAfter)} MiB (+{MiB(heapAfter - baseline)} MiB); working set {MiB(workingBefore)} → {MiB(workingOpen)} MiB{Environment.NewLine}" +
             $"Dispatcher round trip with all rows realized: median {probes[probes.Count / 2]:0.0} ms, worst {probes[^1]:0.0} ms (20 probes){Environment.NewLine}" +
             $"Select the last entry {selectMs:0} ms; filter to incidents {filterMs:0} ms; back to all entries (rebuild) {rebuildMs:0} ms{Environment.NewLine}" +
             $"No threshold is applied to these numbers; the section fails only if the page does not finish within 180 s or entries are missing.{Environment.NewLine}";
         await File.WriteAllTextAsync(Path.Combine(c.EvidenceDirectory, "history-events-result.txt"), text);
-        Log(c, $"PASS: {h.Loaded.Events.Count:N0} timeline entries: all read, list built in {built.TotalSeconds:0.0} s, managed heap +{MiB(heapOpen - baseline)} MiB while open (+{MiB(heapAfter - baseline)} MiB after leaving), dispatcher median {probes[probes.Count / 2]:0.0} ms / worst {probes[^1]:0.0} ms, select {selectMs:0} ms, filter {filterMs:0} ms, rebuild {rebuildMs:0} ms (measured, no threshold)");
+        Log(c, $"PASS: {entryCount:N0} timeline entries: all read, list built in {built.TotalSeconds:0.0} s, managed heap +{MiB(heapOpen - baseline)} MiB while open (+{MiB(heapAfter - baseline)} MiB after leaving), dispatcher median {probes[probes.Count / 2]:0.0} ms / worst {probes[^1]:0.0} ms, select {selectMs:0} ms, filter {filterMs:0} ms, rebuild {rebuildMs:0} ms (measured, no threshold)");
         try { foreach (var file in FilesOf(directory, fixture.ShortId)) File.Delete(file); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
@@ -749,9 +824,9 @@ internal static class HistoryValidation
         var sw = Stopwatch.StartNew();
         const int seconds = 6 * 3600;
         longRun = await WriteAsync(directory, new DateTimeOffset(2026, 10, 24, 6, 0, 0, TimeSpan.Zero), seconds, template,
-            i => (i is >= 3 * 3600 - 2 and <= 3 * 3600 + 6 ? 420 : 30 + i % 9, 15 + i % 11, 28 + i % 5, false), [3 * 3600, 5 * 3600 + 1800], (4 * 3600, 4 * 3600 + 300), 16L << 20);
+            i => (i is >= 3 * 3600 - 2 and <= 3 * 3600 + 6 ? 420 : 30 + i % 9, 15 + i % 11, 28 + i % 5, false), [3 * 3600, 5 * 3600 + 1800], (4 * 3600, 4 * 3600 + 300), 6L << 20);
         var writing = sw.Elapsed;
-        Require(longRun.Parts >= 3, "The long recording did not rotate.");
+        Require(longRun.Parts >= 3, $"The long recording did not rotate: {longRun.Parts} part(s), {MiB(longRun.Bytes)} MiB written.");
         var baseline = HeapAfterCollection();
         var processBefore = Environment.WorkingSet;
         sw.Restart();
@@ -769,7 +844,7 @@ internal static class HistoryValidation
         var maxPoints = h.Charts.Max(r => r.Data.Points.Count);
         Require(maxPoints <= SessionHistoryViewModel.MaximumChartPoints + 8, $"A chart holds {maxPoints} points.");
         DesktopValidation.CheckChartList(Charts(c), "Session History (six hours)");
-        DesktopValidation.Capture(c.Window, View(c), Path.Combine(c.EvidenceDirectory, "history-6h-overview.png"));
+        await Shot(c, View(c), Path.Combine(c.EvidenceDirectory, "history-6h-overview.png"));
         var rtt = h.Charts.Single(r => r.Id == "rtt");
         Require(rtt.Data.Points.Any(p => p.Value is { } v && v >= 420), "The 420 ms spike of the six hour recording is missing from the reduced chart: peaks must survive.");
         Require(rtt.Stats.Contains("peaks kept", StringComparison.Ordinal), "The reduction is not announced: " + rtt.Stats);
@@ -779,22 +854,24 @@ internal static class HistoryValidation
         var zoom = sw.Elapsed;
         Require(h.SelectedIncident!.Summary.Contains("Round-trip time reached 420", StringComparison.Ordinal), "The six hour analysis did not report the spike: " + h.SelectedIncident.Summary);
         Require(h.Charts.All(r => r.Data.Points.Count <= 241), "Zooming to the incident did not raise the resolution (one point per sample).");
-        DesktopValidation.Capture(c.Window, View(c), Path.Combine(c.EvidenceDirectory, "history-6h-incident.png"));
+        await Shot(c, View(c), Path.Combine(c.EvidenceDirectory, "history-6h-incident.png"));
         var peakHeap = HeapAfterCollection();
+        // Everything the report needs is read here: leaving the page releases the recording and its view model state.
+        var sampleCount = h.Loaded.SampleCount; var columnsBytes = h.Loaded.ApproximateBytes; var chartCount = h.Charts.Count; var incidentCount = h.Loaded.Incidents.Count;
         c.Vm.SelectedPage = c.Vm.Pages[0]; await Idle(c); await Task.Delay(200);
         var released = HeapAfterCollection();
         var text =
-            $"Session History, six hour recording (accelerated fixture written through the real writer; not a six hour real run): {seconds - 300:N0} samples, {longRun.Parts} parts ({longRun.CompressedParts} compressed), {MiB(longRun.Bytes)} MiB on disk, written in {writing.TotalSeconds:0.0} s{Environment.NewLine}" +
+            $"Session History, six hour recording (accelerated fixture written through the real writer; not a six hour real run): {sampleCount:N0} samples, {incidentCount} incidents, {longRun.Parts} parts ({longRun.CompressedParts} compressed), {MiB(longRun.Bytes)} MiB on disk, written in {writing.TotalSeconds:0.0} s{Environment.NewLine}" +
             $"Load (read, decompress, decode, aggregate) {load.TotalSeconds:0.0} s; select incident, centre and re-aggregate {zoom.TotalMilliseconds:0} ms{Environment.NewLine}" +
             $"Managed heap after a full collection: before {MiB(baseline)} MiB, history open {MiB(open)} MiB (+{MiB(open - baseline)} MiB), after zoom {MiB(peakHeap)} MiB, page left {MiB(released)} MiB (+{MiB(released - baseline)} MiB){Environment.NewLine}" +
             $"Working set: before {MiB(processBefore)} MiB, with history open {MiB(workingSet)} MiB{Environment.NewLine}" +
-            $"History columns {MiB(h.Loaded.ApproximateBytes)} MiB for {h.Charts.Count} metrics; largest chart {maxPoints} points (limit {SessionHistoryViewModel.MaximumChartPoints}){Environment.NewLine}" +
+            $"History columns {MiB(columnsBytes)} MiB for {chartCount} metrics; largest chart {maxPoints} points (limit {SessionHistoryViewModel.MaximumChartPoints}){Environment.NewLine}" +
             $"Limits: load ≤ 120 s, history open ≤ +96 MiB managed heap, ≤ +24 MiB after leaving the page.{Environment.NewLine}";
         await File.WriteAllTextAsync(Path.Combine(c.EvidenceDirectory, "history-6h-result.txt"), text);
         Require(load < TimeSpan.FromSeconds(120), $"Loading took {load.TotalSeconds:0} s.");
         Require(open - baseline <= 96L << 20, $"History open retains {MiB(open - baseline)} MiB.");
         Require(released - baseline <= 24L << 20, $"{MiB(released - baseline)} MiB stay after leaving the page.");
-        Log(c, $"PASS: six hour recording ({seconds - 300:N0} samples, {longRun.Parts} parts): loaded in {load.TotalSeconds:0.0} s, managed heap +{MiB(open - baseline)} MiB while open and +{MiB(released - baseline)} MiB after leaving, working set {MiB(workingSet)} MiB, largest chart {maxPoints} points, the 420 ms spike survives the reduction, selecting its incident re-aggregates in {zoom.TotalMilliseconds:0} ms");
+        Log(c, $"PASS: six hour recording ({sampleCount:N0} samples, {longRun.Parts} parts): loaded in {load.TotalSeconds:0.0} s, managed heap +{MiB(open - baseline)} MiB while open and +{MiB(released - baseline)} MiB after leaving, working set {MiB(workingSet)} MiB, largest chart {maxPoints} points, the 420 ms spike survives the reduction, selecting its incident re-aggregates in {zoom.TotalMilliseconds:0} ms");
         // Remove the large fixture: it is evidence of measurement, not of content.
         try { foreach (var file in Directory.GetFiles(directory, $"EucLens-*-{longRun.ShortId}*")) File.Delete(file); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Log(c, "NOTE: the six hour fixture could not be removed: " + ex.Message); }
