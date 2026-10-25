@@ -22,7 +22,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '10.0.402'
       - name: Verify SDK on PATH
         run: dotnet --info
       - name: Validate WPF design contract
