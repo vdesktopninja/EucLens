@@ -107,7 +107,9 @@ public sealed class IncidentActionTests
 
         Assert.True(result.Saved);
         Assert.Equal(result.Marker, rig.Monitoring.LastIncident);
-        Assert.Single(results); Assert.Single(completed);
+        Assert.Single(completed);
+        await WaitUntil(() => results.Count == 1);                  // the view model reports on its UI context
+        Assert.Single(results);
         Assert.Contains("saved to the recording", rig.Vm.Background.LastIncidentText, StringComparison.Ordinal);
         Assert.Contains($"no. {result.Marker!.Sequence}", rig.Vm.Background.LastIncidentText, StringComparison.Ordinal);
         Assert.False(rig.Vm.Background.LastIncidentFailed);
@@ -133,6 +135,7 @@ public sealed class IncidentActionTests
         rig.Storage.WriteFault = new UnauthorizedAccessException("Access denied");
 
         var result = await rig.Vm.Background.MarkIncidentAsync();
+        await WaitUntil(() => rig.Vm.Status == result.Message);
 
         Assert.Equal(IncidentOutcome.StorageFailed, result.Outcome);
         Assert.Null(rig.Monitoring.LastIncident);
@@ -151,6 +154,7 @@ public sealed class IncidentActionTests
     {
         await using var rig = await Rig.CreateAsync();
         var result = await rig.Vm.Background.MarkIncidentAsync();
+        await WaitUntil(() => rig.Vm.Status == result.Message);
         Assert.Equal(IncidentOutcome.NoRecording, result.Outcome);
         Assert.True(rig.Vm.Background.LastIncidentFailed);
         Assert.Contains("Start a recording", rig.Vm.Status, StringComparison.Ordinal);
