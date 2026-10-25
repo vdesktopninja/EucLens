@@ -282,6 +282,7 @@ public partial class App : Application
         vm.IsDark = true;
         await DesktopValidation.RunAsync(MainWindow, vm);
         await BackgroundValidation.RunAsync(new(this, MainWindow, vm, monitoring!, tray!, lifetime!, recorder, Path.Combine(AppContext.BaseDirectory, "visual-evidence")));
+        await HistoryValidation.RunAsync(new(this, MainWindow, vm, Path.Combine(AppContext.BaseDirectory, "visual-evidence")));
         directory = Path.Combine(Path.GetTempPath(), "EucLens-smoke-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try

@@ -156,6 +156,14 @@ public abstract class HistoryTimeElement : FrameworkElement
 
     // ---- pointer ----
 
+    /// <summary>
+    /// Validation seam: the Windows smoke test raises real routed mouse events at the element and supplies the pointer position (a synthesized event carries
+    /// none) and the modifier keys. Null in the application, where the real pointer and keyboard are used.
+    /// </summary>
+    internal Func<MouseEventArgs, Point>? PointerSource { get; set; }
+    internal Func<ModifierKeys>? ModifierSource { get; set; }
+    protected Point Pointer(MouseEventArgs e) => PointerSource?.Invoke(e) ?? e.GetPosition(this);
+
     private Point? pressed;
     private bool dragging;
     protected double? DragFrom { get; private set; }
@@ -181,7 +189,7 @@ public abstract class HistoryTimeElement : FrameworkElement
         base.OnMouseLeftButtonDown(e);
         Focus();
         if (!HasRange) return;
-        pressed = e.GetPosition(this); dragging = false; DragFrom = pressed.Value.X; DragTo = DragFrom;
+        pressed = Pointer(e); dragging = false; DragFrom = pressed.Value.X; DragTo = DragFrom;
         CaptureMouse();
         e.Handled = true;
         if (e.ClickCount == 2) { pressed = null; ReleaseMouseCapture(); NavigationRequested?.Invoke(this, new(HistoryNavigation.Reset)); }
@@ -190,8 +198,8 @@ public abstract class HistoryTimeElement : FrameworkElement
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        if (pressed is not { } start || !IsMouseCaptured) return;
-        var position = e.GetPosition(this);
+        if (pressed is not { } start) return;
+        var position = Pointer(e);
         if (!dragging && Math.Abs(position.X - start.X) > 4) dragging = true;
         if (dragging) { DragTo = position.X; InvalidateVisual(); }
     }
@@ -200,7 +208,7 @@ public abstract class HistoryTimeElement : FrameworkElement
     {
         base.OnMouseLeftButtonUp(e);
         if (pressed is not { } start) return;
-        var end = e.GetPosition(this);
+        var end = Pointer(e);
         var wasDragging = dragging;
         pressed = null; dragging = false; DragFrom = DragTo = null;
         ReleaseMouseCapture();
@@ -229,8 +237,8 @@ public abstract class HistoryTimeElement : FrameworkElement
     protected override void OnMouseWheel(MouseWheelEventArgs e)
     {
         // Ctrl + wheel zooms around the pointer; the plain wheel keeps scrolling the page.
-        if (!HasRange || (Keyboard.Modifiers & ModifierKeys.Control) == 0) { base.OnMouseWheel(e); return; }
-        NavigationRequested?.Invoke(this, new(e.Delta > 0 ? HistoryNavigation.ZoomIn : HistoryNavigation.ZoomOut, TimeAt(e.GetPosition(this).X)));
+        if (!HasRange || ((ModifierSource?.Invoke() ?? Keyboard.Modifiers) & ModifierKeys.Control) == 0) { base.OnMouseWheel(e); return; }
+        NavigationRequested?.Invoke(this, new(e.Delta > 0 ? HistoryNavigation.ZoomIn : HistoryNavigation.ZoomOut, TimeAt(Pointer(e).X)));
         e.Handled = true;
     }
 
@@ -351,7 +359,7 @@ public sealed class HistoryChartOverlay : HistoryTimeElement
     {
         base.OnMouseMove(e);
         if (!HasRange) return;
-        var x = e.GetPosition(this).X;
+        var x = Pointer(e).X;
         var (left, right) = AxisExtent;
         DateTimeOffset? at = x >= left && x <= right ? TimeAt(x) : null;
         HoverChanged?.Invoke(this, new(at));

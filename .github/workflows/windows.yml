@@ -12,7 +12,7 @@ concurrency:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
@@ -61,7 +61,7 @@ jobs:
             throw 'Portable publish must contain exactly EucLens.exe'
           }
           $app = Start-Process artifacts/win-x64/EucLens.exe -ArgumentList '--smoke-test' -PassThru
-          if (-not $app.WaitForExit(480000)) {
+          if (-not $app.WaitForExit(900000)) {
             $app.Kill()
             throw 'WPF smoke test timed out'
           }
@@ -77,6 +77,16 @@ jobs:
           $exitCheck = Get-Content artifacts/win-x64/visual-evidence/background-validation.txt -Raw
           if ($exitCheck -notmatch 'PASS: Exit finalized the running recording') { throw 'Exit did not finalize the recording' }
           if ($exitCheck -match 'FAIL:') { throw 'Background validation reported a failure' }
+          if (Test-Path artifacts/win-x64/visual-evidence/history-validation.txt) {
+            Get-Content artifacts/win-x64/visual-evidence/history-validation.txt
+          }
+          foreach ($result in 'history-navigation-result.txt', 'history-6h-result.txt') {
+            if (Test-Path "artifacts/win-x64/visual-evidence/$result") { Get-Content "artifacts/win-x64/visual-evidence/$result" }
+          }
+          if (-not (Test-Path artifacts/win-x64/visual-evidence/history-validation.txt)) { throw 'Missing history validation result' }
+          $historyCheck = Get-Content artifacts/win-x64/visual-evidence/history-validation.txt -Raw
+          if ($historyCheck -notmatch 'PASS: history validation complete') { throw 'History validation did not complete' }
+          if ($historyCheck -match 'FAIL:') { throw 'History validation reported a failure' }
           if (-not ((Get-Content artifacts/win-x64/smoke-result.txt -Raw).StartsWith('PASS:'))) {
             throw 'WPF smoke result did not pass'
           }
