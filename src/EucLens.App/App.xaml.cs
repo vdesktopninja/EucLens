@@ -282,7 +282,14 @@ public partial class App : Application
         vm.IsDark = true;
         await DesktopValidation.RunAsync(MainWindow, vm);
         await BackgroundValidation.RunAsync(new(this, MainWindow, vm, monitoring!, tray!, lifetime!, recorder, Path.Combine(AppContext.BaseDirectory, "visual-evidence")));
-        await HistoryValidation.RunAsync(new(this, MainWindow, vm, Path.Combine(AppContext.BaseDirectory, "visual-evidence")));
+        // From here on every check is recorded on its own: a failure in one never hides the others, and the exit check always runs.
+        var deferred = new List<string>();
+        try { await HistoryValidation.RunAsync(new(this, MainWindow, vm, Path.Combine(AppContext.BaseDirectory, "visual-evidence"))); }
+        catch (Exception ex)
+        {
+            deferred.Add("history validation: " + ex.Message);
+            SmokeLog.Write("history validation failed: " + ex.Message + " | first frame: " + HistoryValidation.FirstFrame(ex));
+        }
         directory = Path.Combine(Path.GetTempPath(), "EucLens-smoke-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try
@@ -291,11 +298,21 @@ public partial class App : Application
             await recorder.ExportCsvAsync(Path.Combine(directory, "demo.csv"));
             if (new FileInfo(Path.Combine(directory, "demo.json")).Length == 0) throw new IOException("Empty JSON export.");
         }
+        catch (Exception ex) { deferred.Add("JSON/CSV export: " + ex.Message); }
         finally { Directory.Delete(directory, true); }
-        if (errors.Errors.Count > 0) throw new InvalidOperationException("WPF binding errors: " + string.Join("\n", errors.Errors));
+        if (errors.Errors.Count > 0) deferred.Add("WPF binding errors: " + string.Join("\n", errors.Errors));
         GC.Collect(); GC.WaitForPendingFinalizers();
-        if (unhandled.Count > 0) throw new InvalidOperationException("Unhandled exceptions: " + string.Join("\n", unhandled));
-        await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"), "PASS: startup, diagnostics (3 independent domains, Insufficient Data and no conclusion on short observation, evidence coverage vs collector availability, software rendering as neutral information, trends with gaps and a shared window, conditional low-FPS threshold hidden at idle, compact status counts, resizable findings/evidence split with independent scrolling, wheel chaining and keyboard access, filters with counts and empty states, sorting, stable selection with evidence, clipboard, diag export columns), Real Session without Horizon Agent (Blast N/A, real CPU/RAM, recording + JSON/CSV with host columns), protocol display, Advanced Metrics filter/search, NVML-absent initialization, Real↔Demo switching, demo sampling and live charts, all six views, themes, recording, JSON/CSV export, themed charts, navigation/resize layout matrix, WPF client captures, no WPF binding errors. Actual Windows DPI changes require manual acceptance.\n" + soak + "\n" + string.Join("\n", evidence));
+        if (unhandled.Count > 0) deferred.Add("Unhandled exceptions: " + string.Join("\n", unhandled));
+        if (deferred.Count > 0)
+        {
+            // The overall run still fails (exit code 1), but only after the exit finalization below has been exercised and recorded.
+            smokeExitFailed = true;
+            await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"),
+                "FAIL: " + deferred.Count + " check(s) failed:" + Environment.NewLine + string.Join(Environment.NewLine, deferred.Select(d => "- " + d)) + Environment.NewLine + Environment.NewLine +
+                "--- evidence gathered ---" + Environment.NewLine + soak + Environment.NewLine + string.Join(Environment.NewLine, evidence));
+        }
+        else
+            await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"), "PASS: startup, diagnostics (3 independent domains, Insufficient Data and no conclusion on short observation, evidence coverage vs collector availability, software rendering as neutral information, trends with gaps and a shared window, conditional low-FPS threshold hidden at idle, compact status counts, resizable findings/evidence split with independent scrolling, wheel chaining and keyboard access, filters with counts and empty states, sorting, stable selection with evidence, clipboard, diag export columns), Real Session without Horizon Agent (Blast N/A, real CPU/RAM, recording + JSON/CSV with host columns), protocol display, Advanced Metrics filter/search, NVML-absent initialization, Real↔Demo switching, demo sampling and live charts, all six views, themes, recording, JSON/CSV export, themed charts, navigation/resize layout matrix, WPF client captures, no WPF binding errors. Actual Windows DPI changes require manual acceptance.\n" + soak + "\n" + string.Join("\n", evidence));
         // The run ends the way a user ends it: Exit with a recording in progress. Exit finalizes the recording file first.
         // The recording is created for this purpose alone; its id is captured so the finalization is checked against exactly this recording.
         var folder = Path.Combine(AppContext.BaseDirectory, "visual-evidence");

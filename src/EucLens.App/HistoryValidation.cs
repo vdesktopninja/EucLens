@@ -80,18 +80,41 @@ internal static class HistoryValidation
         return Task.WhenAny(done.Task, Task.Delay(60)).ContinueWith(_ => CompositionTarget.Rendering -= handler, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
-    private static RenderTargetBitmap RenderOnce(Window window, FrameworkElement visual)
+    /// <summary>Largest side of a failure picture: the page of a nonvirtualized list can be tens of thousands of pixels tall, which no bitmap or PNG codec accepts.</summary>
+    private const int MaxFailurePictureSide = 4096;
+
+    private static RenderTargetBitmap RenderOnce(Window window, FrameworkElement visual, int maxSide = int.MaxValue)
     {
-        var bitmap = new RenderTargetBitmap((int)Math.Ceiling(visual.ActualWidth), (int)Math.Ceiling(visual.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+        var width = (int)Math.Min(Math.Ceiling(visual.ActualWidth), maxSide); var height = (int)Math.Min(Math.Ceiling(visual.ActualHeight), maxSide);
+        var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
         var drawing = new DrawingVisual();
         using (var context = drawing.RenderOpen())
         {
-            var bounds = new Rect(0, 0, visual.ActualWidth, visual.ActualHeight);
+            var bounds = new Rect(0, 0, width, height);
             context.DrawRectangle(window.Background, null, bounds);
             context.DrawRectangle(new VisualBrush(visual) { Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top }, null, bounds);
         }
         bitmap.Render(drawing);
         return bitmap;
+    }
+
+    /// <summary>
+    /// The part of the page a user sees: the scroll viewer that holds the page, not the page's full height. The application header (live clock, status) lies outside it,
+    /// so its once-per-second updates cannot keep the pixels from settling, and a nonvirtualized list of thousands of rows is never rendered at its full height.
+    /// </summary>
+    private static FrameworkElement PageViewport(FrameworkElement view)
+    {
+        for (DependencyObject? node = VisualTreeHelper.GetParent(view); node is not null; node = VisualTreeHelper.GetParent(node))
+            if (node is ScrollViewer viewer && viewer.ActualHeight > 0) return viewer;
+        throw new InvalidOperationException("The page is not inside a scroll viewer, so its viewport cannot be captured.");
+    }
+
+    private static void SavePng(BitmapSource bitmap, string path)
+    {
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using var stream = File.Create(path);
+        encoder.Save(stream);
     }
 
     private static string PixelHash(BitmapSource bitmap)
@@ -108,29 +131,25 @@ internal static class HistoryValidation
     private static async Task Shot(HistorySmokeContext c, FrameworkElement visual, string path)
     {
         var sw = Stopwatch.StartNew();
-        string? previous = null; var identical = 0; var frames = 0; RenderTargetBitmap? bitmap = null; var canvasesIdle = false;
+        string? previous = null; var identical = 0; var frames = 0; RenderTargetBitmap? bitmap = null; var canvasesIdle = false; var slowestFrame = 0d;
         while (sw.ElapsedMilliseconds < 10_000)
         {
+            var frameStart = sw.Elapsed.TotalMilliseconds;
             await NextFrame(); await Idle(c); frames++;
             bitmap = RenderOnce(c.Window, visual);
             var hash = PixelHash(bitmap);
+            slowestFrame = Math.Max(slowestFrame, sw.Elapsed.TotalMilliseconds - frameStart);
             identical = hash == previous ? identical + 1 : 0; previous = hash;
             canvasesIdle = DesktopValidation.Descendants<MotionCanvas>(c.Window).All(m => m.CanvasCore.IsValid);
             if (identical >= 5 && canvasesIdle) break;
         }
         // The last picture is kept even when it never settled, so the evidence exists whatever the verdict.
-        if (bitmap is not null)
-        {
-            var encoder = new PngBitmapEncoder();
-            encoder.Frames.Add(BitmapFrame.Create(bitmap));
-            await using var stream = File.Create(path);
-            encoder.Save(stream);
-        }
-        Require(bitmap is not null && identical >= 5, $"{Path.GetFileName(path)}: what is drawn did not settle within 10 s ({frames} frames, {identical} identical).");
+        if (bitmap is not null) SavePng(bitmap, path);
+        Require(bitmap is not null && identical >= 5, $"{Path.GetFileName(path)}: what is drawn did not settle within 10 s ({frames} frames, {identical} identical, slowest frame {slowestFrame:0} ms, picture {bitmap?.PixelWidth}×{bitmap?.PixelHeight} px).");
         // Evidence of what the engine had applied at that moment: the visible axis range of the first chart against the range the page shows.
         var chart = DesktopValidation.Descendants<CartesianChart>(visual).FirstOrDefault();
         var range = chart?.XAxes.FirstOrDefault() is LiveChartsCore.SkiaSharpView.Axis axis ? $"; engine axis {axis.VisibleDataBounds.Min:0} to {axis.VisibleDataBounds.Max:0} ticks" : "";
-        Log(c, $"NOTE: screenshot {Path.GetFileName(path)} taken after {sw.ElapsedMilliseconds} ms ({frames} frames, stable pixels, canvases idle: {canvasesIdle}{range})");
+        Log(c, $"NOTE: screenshot {Path.GetFileName(path)} taken after {sw.ElapsedMilliseconds} ms ({frames} frames, slowest {slowestFrame:0} ms, stable pixels, canvases idle: {canvasesIdle}{range})");
     }
 
     private static long HeapAfterCollection()
@@ -242,11 +261,22 @@ internal static class HistoryValidation
         {
             failures.Add(name);
             Log(c, $"FAIL: {name}: {ex.GetType().Name}: {ex.Message} | first frame: {FirstFrame(ex)}");
-            try { var view = DesktopValidation.Descendants<SessionHistoryView>(c.Window).FirstOrDefault(); if (view is not null && view.ActualWidth > 0) DesktopValidation.Capture(c.Window, view, Path.Combine(c.EvidenceDirectory, $"FAILED-history-{name.Replace(' ', '-')}.png")); }
-            catch (Exception captureFailure) { SmokeLog.Write("history failure capture: " + captureFailure.Message); }
+            try { CaptureFailure(c, name); }
+            catch (Exception captureFailure) { Log(c, $"NOTE: the failure picture for '{name}' could not be saved: {captureFailure.GetType().Name}: {captureFailure.Message} | first frame: {FirstFrame(captureFailure)}"); }
         }
         try { c.Vm.SelectedPage = c.Vm.Pages[0]; await Idle(c); }
         catch (Exception ex) { SmokeLog.Write("history reset: " + ex.Message); }
+    }
+
+    /// <summary>A bounded picture of what the user sees on the page (its viewport, at most 4096 px a side), never the full height of the page.</summary>
+    private static void CaptureFailure(HistorySmokeContext c, string name)
+    {
+        var view = DesktopValidation.Descendants<SessionHistoryView>(c.Window).FirstOrDefault();
+        if (view is null || view.ActualWidth <= 0) return;
+        var bitmap = RenderOnce(c.Window, PageViewport(view), MaxFailurePictureSide);
+        var path = Path.Combine(c.EvidenceDirectory, $"FAILED-history-{name.Replace(' ', '-')}.png");
+        SavePng(bitmap, path);
+        Log(c, $"NOTE: failure picture {Path.GetFileName(path)} saved ({bitmap.PixelWidth}×{bitmap.PixelHeight} px, the page viewport)");
     }
 
     // ---------- sections ----------
@@ -761,19 +791,32 @@ internal static class HistoryValidation
         var rebuildMs = sw.Elapsed.TotalMilliseconds;
         // Read before leaving the page: leaving releases the recording.
         var entryCount = h.Loaded.Events.Count; var noteCount = h.Loaded.Events.Count(e => e.Kind == HistoryEventKind.Note); var rowCount = h.Events.Count;
-        await Shot(c, (FrameworkElement)c.Window.Content, Path.Combine(c.EvidenceDirectory, "history-large-event-list.png"));
-        c.Vm.SelectedPage = c.Vm.Pages[0]; await Idle(c); await Task.Delay(300);
-        var heapAfter = HeapAfterCollection();
-        var text =
+        var resultPath = Path.Combine(c.EvidenceDirectory, "history-events-result.txt");
+        string Text(string heapAfterText, string screenshotText) =>
             $"Session History with {entryCount:N0} timeline entries ({noteCount:N0} synthetic notes in {rowCount:N0} list rows, nonvirtualized list; fixture written through the real writer in {writing.TotalSeconds:0.0} s){Environment.NewLine}" +
             $"Read and aggregate {loaded.TotalSeconds:0.0} s; every row realized after {built.TotalSeconds:0.0} s{Environment.NewLine}" +
-            $"Managed heap after a full collection: before {MiB(baseline)} MiB, open {MiB(heapOpen)} MiB (+{MiB(heapOpen - baseline)} MiB), page left {MiB(heapAfter)} MiB (+{MiB(heapAfter - baseline)} MiB); working set {MiB(workingBefore)} → {MiB(workingOpen)} MiB{Environment.NewLine}" +
+            $"Managed heap after a full collection: before {MiB(baseline)} MiB, open {MiB(heapOpen)} MiB (+{MiB(heapOpen - baseline)} MiB), page left {heapAfterText}; working set {MiB(workingBefore)} → {MiB(workingOpen)} MiB{Environment.NewLine}" +
             $"Dispatcher round trip with all rows realized: median {probes[probes.Count / 2]:0.0} ms, worst {probes[^1]:0.0} ms (20 probes){Environment.NewLine}" +
             $"Select the last entry {selectMs:0} ms; filter to incidents {filterMs:0} ms; back to all entries (rebuild) {rebuildMs:0} ms{Environment.NewLine}" +
-            $"No threshold is applied to these numbers; the section fails only if the page does not finish within 180 s or entries are missing.{Environment.NewLine}";
-        await File.WriteAllTextAsync(Path.Combine(c.EvidenceDirectory, "history-events-result.txt"), text);
-        Log(c, $"PASS: {entryCount:N0} timeline entries: all read, list built in {built.TotalSeconds:0.0} s, managed heap +{MiB(heapOpen - baseline)} MiB while open (+{MiB(heapAfter - baseline)} MiB after leaving), dispatcher median {probes[probes.Count / 2]:0.0} ms / worst {probes[^1]:0.0} ms, select {selectMs:0} ms, filter {filterMs:0} ms, rebuild {rebuildMs:0} ms (measured, no threshold)");
+            $"Screenshot of the page viewport: {screenshotText}{Environment.NewLine}" +
+            $"No threshold is applied to these numbers; the section fails only if the page does not finish within 180 s, entries are missing or the screenshot does not settle.{Environment.NewLine}";
+        // The measurements are saved before the screenshot is attempted, so a screenshot problem cannot erase them.
+        await File.WriteAllTextAsync(resultPath, Text("not measured yet", "not taken yet"));
+        Log(c, $"MEASURED: {entryCount:N0} timeline entries: read {loaded.TotalSeconds:0.0} s, list built in {built.TotalSeconds:0.0} s, managed heap +{MiB(heapOpen - baseline)} MiB while open, dispatcher median {probes[probes.Count / 2]:0.0} ms / worst {probes[^1]:0.0} ms, select {selectMs:0} ms, filter {filterMs:0} ms, rebuild {rebuildMs:0} ms (no threshold)");
+        // Only the viewport the user sees, without the application header; the five-identical-frame and canvas-idle rules are unchanged.
+        Exception? screenshotFailure = null;
+        sw.Restart();
+        try { await Shot(c, PageViewport(View(c)), Path.Combine(c.EvidenceDirectory, "history-large-event-list.png")); }
+        catch (Exception ex) { screenshotFailure = ex; }
+        var screenshotMs = sw.ElapsedMilliseconds;
+        var screenshotText = screenshotFailure is null ? $"settled after {screenshotMs} ms" : $"FAILED after {screenshotMs} ms: {screenshotFailure.Message}";
+        await File.WriteAllTextAsync(resultPath, Text("not measured yet", screenshotText));
+        c.Vm.SelectedPage = c.Vm.Pages[0]; await Idle(c); await Task.Delay(300);
+        var heapAfter = HeapAfterCollection();
+        await File.WriteAllTextAsync(resultPath, Text($"{MiB(heapAfter)} MiB (+{MiB(heapAfter - baseline)} MiB)", screenshotText));
         try { foreach (var file in FilesOf(directory, fixture.ShortId)) File.Delete(file); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        if (screenshotFailure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(screenshotFailure).Throw();
+        Log(c, $"PASS: {entryCount:N0} timeline entries: all read, list built in {built.TotalSeconds:0.0} s, managed heap +{MiB(heapOpen - baseline)} MiB while open (+{MiB(heapAfter - baseline)} MiB after leaving), dispatcher median {probes[probes.Count / 2]:0.0} ms / worst {probes[^1]:0.0} ms, select {selectMs:0} ms, filter {filterMs:0} ms, rebuild {rebuildMs:0} ms (measured, no threshold)");
     }
 
     private static SessionHistoryView? View0(HistorySmokeContext c) => DesktopValidation.Descendants<SessionHistoryView>(c.Window).FirstOrDefault();
