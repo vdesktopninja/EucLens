@@ -27,6 +27,7 @@ internal sealed class TrayIconService : IDisposable
     private readonly WinForms.ToolStripMenuItem openItem = new("Open EUC Lens");
     private readonly WinForms.ToolStripMenuItem monitorItem = new("Pause Monitoring");
     private readonly WinForms.ToolStripMenuItem recordItem = new("Start Recording");
+    private readonly WinForms.ToolStripMenuItem incidentItem = new("Mark Performance Issue");
     private readonly WinForms.ToolStripMenuItem folderItem = new("Open Recordings Folder");
     private readonly WinForms.ToolStripMenuItem settingsItem = new("Settings");
     private readonly WinForms.ToolStripMenuItem exitItem = new("Exit EUC Lens");
@@ -37,11 +38,12 @@ internal sealed class TrayIconService : IDisposable
     {
         this.monitoring = monitoring; this.vm = vm; this.dispatcher = dispatcher; this.actions = actions;
         openItem.Font = new Drawing.Font(openItem.Font, Drawing.FontStyle.Bold);
-        menu.Items.AddRange([openItem, new WinForms.ToolStripSeparator(), monitorItem, recordItem, new WinForms.ToolStripSeparator(), folderItem, settingsItem, new WinForms.ToolStripSeparator(), exitItem]);
+        menu.Items.AddRange([openItem, new WinForms.ToolStripSeparator(), monitorItem, recordItem, incidentItem, new WinForms.ToolStripSeparator(), folderItem, settingsItem, new WinForms.ToolStripSeparator(), exitItem]);
         menu.Opening += (_, _) => UpdateMenu();
         openItem.Click += (_, _) => actions.Open();
         monitorItem.Click += (_, _) => ToggleMonitoring();
         recordItem.Click += (_, _) => ToggleRecording();
+        incidentItem.Click += async (_, _) => await MarkIncidentAsync();
         folderItem.Click += (_, _) => vm.Background.OpenRecordingsFolderCommand.Execute(null);
         settingsItem.Click += (_, _) => actions.OpenSettings();
         exitItem.Click += async (_, _) => await actions.Exit();
@@ -100,6 +102,20 @@ internal sealed class TrayIconService : IDisposable
         monitorItem.Text = state switch { MonitoringState.Running => "Pause Monitoring", MonitoringState.Paused => "Resume Monitoring", _ => "Start Monitoring" };
         recordItem.Text = status.IsRecording ? "Stop Recording" : "Start Recording";
         recordItem.Enabled = status.IsRecording || state == MonitoringState.Running;
+        // One click, no dialog. Without a saved recording the item says why it is unavailable instead of vanishing.
+        var canMark = monitoring.CanMarkIncident;
+        incidentItem.Enabled = canMark;
+        incidentItem.Text = canMark ? "Mark Performance Issue" : "Mark Performance Issue (needs a recording)";
+        incidentItem.ToolTipText = canMark ? "Saves a timestamped marker into the running recording." : vm.Background.IncidentHint;
+    }
+
+    /// <summary>Saves an incident marker without opening the window; the balloon says what happened, and never says "saved" for a failure.</summary>
+    public async Task MarkIncidentAsync()
+    {
+        var result = await vm.Background.MarkIncidentAsync();
+        if (disposed) return;
+        if (result.Saved) ShowBalloon("EUC Lens", $"Performance issue marked at {result.Marker!.At.ToLocalTime():HH:mm:ss}.", WinForms.ToolTipIcon.Info, 3000);
+        else ShowBalloon("EUC Lens", result.Message, WinForms.ToolTipIcon.Warning);
     }
 
     public IReadOnlyList<(string Text, bool Enabled)> MenuState() =>
@@ -130,11 +146,11 @@ internal sealed class TrayIconService : IDisposable
     public void ShowHint() => ShowBalloon("EUC Lens is still running",
         "Monitoring" + (monitoring.Status.IsRecording ? " and the recording continue" : " continues") + " in the notification area. Right-click the icon to pause, stop recording or exit.", WinForms.ToolTipIcon.Info);
 
-    private void ShowBalloon(string title, string text, WinForms.ToolTipIcon kind)
+    private void ShowBalloon(string title, string text, WinForms.ToolTipIcon kind, int milliseconds = 8000)
     {
         if (disposed) return;
         icon.BalloonTipTitle = title; icon.BalloonTipText = text; icon.BalloonTipIcon = kind;
-        icon.ShowBalloonTip(8000);
+        icon.ShowBalloonTip(milliseconds);
     }
 
     public void Dispose()

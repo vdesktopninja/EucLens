@@ -33,13 +33,28 @@ public static partial class RecordingFormat
     [GeneratedRegex(@"^EucLens-(?<stamp>\d{8}-\d{6})-(?<id>[0-9a-f]{8})\.meta\.json$", RegexOptions.CultureInvariant)]
     private static partial Regex MetaPattern();
 
+    [GeneratedRegex(@"^EucLens-(?<stamp>\d{8}-\d{6})-(?<id>[0-9a-f]{8})\.annotations\.json$", RegexOptions.CultureInvariant)]
+    private static partial Regex AnnotationPattern();
+
     public static string ShortId(Guid id) => id.ToString("N")[..8];
     public static string Stamp(DateTimeOffset started) => started.UtcDateTime.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
     public static string PartName(DateTimeOffset started, Guid id, int part) => $"{FilePrefix}{Stamp(started)}-{ShortId(id)}-part{part:000}.jsonl";
     public static string MetaName(DateTimeOffset started, Guid id) => $"{FilePrefix}{Stamp(started)}-{ShortId(id)}.meta.json";
+    public static string AnnotationName(string stamp, string shortId) => $"{FilePrefix}{stamp}-{shortId}.annotations.json";
 
     /// <summary>True for files EUC Lens wrote as recordings; retention never touches anything else.</summary>
-    public static bool IsRecordingFile(string fileName) => PartPattern().IsMatch(fileName) || MetaPattern().IsMatch(fileName);
+    public static bool IsRecordingFile(string fileName) => PartPattern().IsMatch(fileName) || MetaPattern().IsMatch(fileName) || AnnotationPattern().IsMatch(fileName);
+
+    public static bool TryParseAnnotation(string fileName, out string stamp, out string id)
+    {
+        var m = AnnotationPattern().Match(fileName);
+        stamp = m.Groups["stamp"].Value; id = m.Groups["id"].Value;
+        return m.Success;
+    }
+
+    /// <summary>The short recording id a file belongs to (part, index or annotation file); empty for any other file.</summary>
+    public static string ShortIdOf(string fileName) =>
+        TryParsePart(fileName, out _, out var id, out _) ? id : TryParseMeta(fileName, out _, out var metaId) ? metaId : TryParseAnnotation(fileName, out _, out var noteId) ? noteId : "";
 
     public static bool TryParsePart(string fileName, out string stamp, out string id, out int part)
     {

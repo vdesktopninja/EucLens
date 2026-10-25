@@ -20,6 +20,8 @@ public sealed class SessionRecorder : ISessionRecorder
     private long total;
     private Task ending = Task.CompletedTask;
     private volatile bool recording;
+    private readonly object incidentGate = new();
+    private int incidentSequence;
 
     public SessionRecorder(IRecordingSink? sink = null, TimeProvider? clock = null)
     {
@@ -46,6 +48,7 @@ public sealed class SessionRecorder : ISessionRecorder
         if (recording) throw new InvalidOperationException("A recording is already active.");
         samples.Clear();
         Interlocked.Exchange(ref total, 0);
+        lock (incidentGate) incidentSequence = 0;
         // Begin throws when the location is unusable; the recorder then stays idle.
         sink?.Begin(new(Guid.NewGuid(), clock.GetUtcNow(), isDemo, "0.4.3"));
         lock (gate) elapsed.Restart();
@@ -88,6 +91,29 @@ public sealed class SessionRecorder : ISessionRecorder
 
     /// <summary>Records a pause, resume, availability change or similar. Only meaningful for persisted recordings.</summary>
     public void Mark(RecordingMark mark) { if (recording) sink?.Mark(mark); }
+
+    /// <summary>
+    /// Saves a user-marked performance issue. The time comes from the injected clock (UTC), the id is new, and the marker is queued behind the samples
+    /// already collected; the result is Saved only after the line is on disk.
+    /// </summary>
+    public async Task<IncidentResult> MarkIncidentAsync(CancellationToken cancellationToken = default)
+    {
+        Task<MarkWriteResult> written; IncidentMarker marker;
+        lock (incidentGate)
+        {
+            if (!recording) return new(IncidentOutcome.NoRecording, null, "No recording is running. Start a recording first, then mark the issue.");
+            if (sink is null) return new(IncidentOutcome.NotPersistent, null, "Only a recording saved to disk can hold incident markers.");
+            marker = new(Guid.NewGuid(), clock.GetUtcNow(), incidentSequence + 1);
+            written = sink.MarkDurableAsync(new RecordingMark(RecordingMarkKind.UserIncident, marker.At, "Performance issue marked by the user.", null, marker.Id, marker.Sequence), cancellationToken);
+            incidentSequence = marker.Sequence;
+        }
+        MarkWriteResult result;
+        try { result = await written.ConfigureAwait(false); }
+        catch (OperationCanceledException) { return new(IncidentOutcome.StorageFailed, null, "The incident marker was cancelled before it was confirmed on disk."); }
+        return result.Saved
+            ? new(IncidentOutcome.Saved, marker, $"Incident {marker.Sequence} saved at {marker.At.ToLocalTime():HH:mm:ss}.")
+            : new(IncidentOutcome.StorageFailed, null, $"The incident marker could not be saved: {result.Failure} The recording continues.");
+    }
 
     private void OnSinkEnded(RecordingEndReason reason)
     {

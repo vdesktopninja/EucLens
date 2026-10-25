@@ -4,10 +4,26 @@ namespace EucLens.Core;
 public enum RecordingEndReason { UserStopped, ModeSwitched, MonitoringStopped, AppExit, SessionEnding, StorageError, QuotaReached, Unknown }
 
 /// <summary>Timeline entries that are not samples. Pauses and measurement gaps are explicit; they are never filled with values.</summary>
-public enum RecordingMarkKind { Paused, Resumed, Availability, SessionLocked, SessionUnlocked, RemoteDisconnected, RemoteReconnected, DataLoss, Note }
+public enum RecordingMarkKind { Paused, Resumed, Availability, SessionLocked, SessionUnlocked, RemoteDisconnected, RemoteReconnected, DataLoss, Note, UserIncident }
 
 /// <param name="Gap">Length of the interval without samples, for <see cref="RecordingMarkKind.Resumed"/> and <see cref="RecordingMarkKind.DataLoss"/>.</param>
-public sealed record RecordingMark(RecordingMarkKind Kind, DateTimeOffset At, string Detail = "", TimeSpan? Gap = null);
+/// <param name="IncidentId">Identity of a <see cref="RecordingMarkKind.UserIncident"/>; it stays the same when the recording is opened again.</param>
+/// <param name="Sequence">1-based number of the incident within its recording.</param>
+public sealed record RecordingMark(RecordingMarkKind Kind, DateTimeOffset At, string Detail = "", TimeSpan? Gap = null, Guid? IncidentId = null, int? Sequence = null);
+
+/// <summary>A performance issue the user marked while a recording was running.</summary>
+public sealed record IncidentMarker(Guid Id, DateTimeOffset At, int Sequence);
+
+public enum IncidentOutcome { Saved, NoRecording, NotPersistent, StorageFailed }
+
+/// <summary><see cref="Marker"/> is set only for <see cref="IncidentOutcome.Saved"/>: nothing is reported as saved that was not written.</summary>
+public sealed record IncidentResult(IncidentOutcome Outcome, IncidentMarker? Marker, string Message)
+{
+    public bool Saved => Outcome == IncidentOutcome.Saved;
+}
+
+/// <summary>Whether a mark reached the file (flushed to the operating system and to disk), and why not otherwise.</summary>
+public sealed record MarkWriteResult(bool Saved, string? Failure);
 
 public sealed record RecordingStartInfo(Guid Id, DateTimeOffset StartedAt, bool IsDemo, string AppVersion);
 
@@ -35,6 +51,15 @@ public interface IRecordingSink
     /// <summary>Never blocks. A sample that cannot be queued is counted as lost.</summary>
     void Add(SessionSnapshot sample);
     void Mark(RecordingMark mark);
+    /// <summary>
+    /// Writes a mark in sample order and completes when it is on disk, or reports why it is not. The mark is queued before this method returns,
+    /// so callers that queue under a lock keep their order. Sinks that cannot confirm a write report failure.
+    /// </summary>
+    Task<MarkWriteResult> MarkDurableAsync(RecordingMark mark, CancellationToken cancellationToken = default)
+    {
+        Mark(mark);
+        return Task.FromResult(new MarkWriteResult(false, "This recording target cannot confirm writes."));
+    }
     /// <summary>Writes everything queued so far to disk.</summary>
     Task FlushAsync(CancellationToken cancellationToken = default);
     Task EndAsync(RecordingEndReason reason, CancellationToken cancellationToken = default);

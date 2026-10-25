@@ -38,7 +38,25 @@ public sealed class MonitoringService
     public MonitoringStatus Status { get { lock (gate) return status; } }
     public DateTimeOffset? LastSampleAt { get { lock (gate) return lastSampleAt; } }
     public event Action<MonitoringStatus>? StatusChanged;
+    /// <summary>Raised on whichever thread finished the write, for every outcome including failures.</summary>
+    public event Action<IncidentResult>? IncidentCompleted;
     public event Action<NotificationRequest>? NotificationRaised;
+
+    private IncidentMarker? lastIncident;
+    /// <summary>The latest incident that was really written to the recording, or null.</summary>
+    public IncidentMarker? LastIncident { get { lock (gate) return lastIncident; } }
+
+    /// <summary>True while a recording saved to disk is open: the only state in which an incident marker can be kept.</summary>
+    public bool CanMarkIncident => recorder is { IsRecording: true, IsPersistent: true };
+
+    /// <summary>Saves a performance issue marked by the user into the open recording. Monitoring and recording are not interrupted.</summary>
+    public async Task<IncidentResult> MarkIncidentAsync(CancellationToken cancellationToken = default)
+    {
+        var result = await recorder.MarkIncidentAsync(cancellationToken).ConfigureAwait(false);
+        if (result is { Saved: true, Marker: { } marker }) lock (gate) lastIncident = marker;
+        try { IncidentCompleted?.Invoke(result); } catch (Exception) { /* a subscriber must not turn a saved marker into an error */ }
+        return result;
+    }
 
     public bool StartMonitoring() => Coordinator.Start();
     public bool PauseMonitoring() => Coordinator.Pause();

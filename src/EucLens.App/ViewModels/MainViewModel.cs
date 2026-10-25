@@ -154,6 +154,7 @@ public sealed class MainViewModel : ObservableObject
         Background = background ?? new BackgroundViewModel(this.monitoring, recorder, desktop, logger: logger);
         recorder.Ended += reason => Post(() => OnRecordingEnded(reason));
         this.monitoring.StatusChanged += _ => Post(RefreshRecorder);
+        Background.IncidentCompleted += result => Status = result.Message;
         selectedProtocol = Protocols[0]; selectedScenario = Scenarios[0]; selectedWorkload = Workloads[realProvider is null ? 2 : 0];
         selectedAdvancedCategory = AdvancedCategories[0];
         Pages = [new DashboardPage(this), new DiagnosticsPage(this), new RecorderPage(this), new SystemPage(this), new AdvancedPage(this), new SettingsPage(this)];

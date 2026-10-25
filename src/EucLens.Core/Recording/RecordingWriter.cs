@@ -33,6 +33,7 @@ public sealed class RecordingWriter : IRecordingSink, IAsyncDisposable
     private abstract record Item;
     private sealed record SampleItem(SessionSnapshot Sample) : Item;
     private sealed record MarkItem(RecordingMark Mark) : Item;
+    private sealed record DurableMarkItem(RecordingMark Mark, TaskCompletionSource<MarkWriteResult> Done) : Item;
     private sealed record FlushItem(TaskCompletionSource Done) : Item;
     private sealed record EndItem(RecordingEndReason Reason, TaskCompletionSource Done) : Item;
 
@@ -54,7 +55,7 @@ public sealed class RecordingWriter : IRecordingSink, IAsyncDisposable
     private DateTimeOffset started;
     private bool isDemo;
     private int part;
-    private long partBytes, bytesTotal, otherBytes, samplesWritten, lost, lostSinceMark, warnings, criticals;
+    private long partBytes, bytesTotal, otherBytes, samplesWritten, lost, lostSinceMark, warnings, criticals, incidents;
     private SessionInfo? lastSession;
     private DateTimeOffset lastFlush, lastRetry;
     private DateTimeOffset? faultStart;
@@ -90,7 +91,7 @@ public sealed class RecordingWriter : IRecordingSink, IAsyncDisposable
             if (state != RecordingSinkState.Idle || !loop.IsCompleted) throw new InvalidOperationException("The previous recording is still being finalized.");
             options = optionsProvider();
             id = info.Id; shortId = RecordingFormat.ShortId(id); started = info.StartedAt; isDemo = info.IsDemo;
-            part = 0; partBytes = bytesTotal = samplesWritten = lost = lostSinceMark = warnings = criticals = 0;
+            part = 0; partBytes = bytesTotal = samplesWritten = lost = lostSinceMark = warnings = criticals = incidents = 0;
             lastSession = null; faultStart = null; lastFault = null; overflowReported = false;
             codec = new();
             storage.EnsureDirectory(options.Directory);
@@ -106,6 +107,34 @@ public sealed class RecordingWriter : IRecordingSink, IAsyncDisposable
             var reader = channel.Reader;
             loop = Task.Run(() => RunAsync(reader));
         }
+    }
+
+    /// <summary>How long a caller waits for a durable mark: the queue to have room and the disk to confirm.</summary>
+    private static readonly TimeSpan DurableMarkTimeout = TimeSpan.FromSeconds(10);
+
+    public Task<MarkWriteResult> MarkDurableAsync(RecordingMark mark, CancellationToken cancellationToken = default)
+    {
+        Channel<Item>? c;
+        lock (gate) { if (state == RecordingSinkState.Idle) return Task.FromResult(new MarkWriteResult(false, "No recording is active.")); c = channel; }
+        var done = new TaskCompletionSource<MarkWriteResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var item = new DurableMarkItem(mark, done);
+        // Queued before this method returns: callers that hold a lock around the call keep their order.
+        if (c!.Writer.TryWrite(item)) return AwaitDurableAsync(done.Task, cancellationToken);
+        return QueueThenAwaitAsync(c, item, cancellationToken);
+    }
+
+    private static async Task<MarkWriteResult> QueueThenAwaitAsync(Channel<Item> c, DurableMarkItem item, CancellationToken cancellationToken)
+    {
+        try { await c.Writer.WriteAsync(item, cancellationToken).AsTask().WaitAsync(DurableMarkTimeout, cancellationToken).ConfigureAwait(false); }
+        catch (ChannelClosedException) { return new(false, "The recording ended before the marker could be written."); }
+        catch (TimeoutException) { return new(false, "The disk is too slow: the write queue is full."); }
+        return await AwaitDurableAsync(item.Done.Task, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<MarkWriteResult> AwaitDurableAsync(Task<MarkWriteResult> written, CancellationToken cancellationToken)
+    {
+        try { return await written.WaitAsync(DurableMarkTimeout, cancellationToken).ConfigureAwait(false); }
+        catch (TimeoutException) { return new(false, "The disk did not confirm the write in time."); }
     }
 
     public void Add(SessionSnapshot sample) => Enqueue(new SampleItem(sample), isSample: true);
@@ -187,6 +216,7 @@ public sealed class RecordingWriter : IRecordingSink, IAsyncDisposable
                 {
                     case SampleItem s: if (!await WriteSampleAsync(s.Sample).ConfigureAwait(false)) return; break;
                     case MarkItem m: await GuardedAsync(() => WriteMarkAsync(m.Mark, flush: true), countAsLostSample: false).ConfigureAwait(false); break;
+                    case DurableMarkItem d: await WriteDurableMarkAsync(d).ConfigureAwait(false); break;
                     case FlushItem f: await GuardedAsync(() => FlushFileAsync(force: true), false).ConfigureAwait(false); f.Done.TrySetResult(); break;
                     case EndItem e:
                         await FinishAsync(e.Reason).ConfigureAwait(false);
@@ -206,6 +236,7 @@ public sealed class RecordingWriter : IRecordingSink, IAsyncDisposable
                 {
                     case FlushItem f: f.Done.TrySetResult(); break;
                     case EndItem e: e.Done.TrySetResult(); break;
+                    case DurableMarkItem d: d.Done.TrySetResult(new(false, "The recording ended before the marker could be written.")); break;
                     case SampleItem: CountLost(); break;
                 }
             }
@@ -241,6 +272,28 @@ public sealed class RecordingWriter : IRecordingSink, IAsyncDisposable
         }
         catch (Exception ex) when (IsStorageError(ex)) { OnWriteFailure(ex); CountLost(); }
         return true;
+    }
+
+    /// <summary>A mark the caller waits for: success is reported only after the line is flushed to disk; every failure is reported as such.</summary>
+    private async Task WriteDurableMarkAsync(DurableMarkItem item)
+    {
+        if (faultStart is not null)
+        {
+            string? reason; lock (gate) reason = lastFault?.Message;
+            item.Done.TrySetResult(new(false, $"The recording folder is not writable right now ({reason ?? "storage unavailable"})."));
+            return;
+        }
+        try
+        {
+            await WriteMarkAsync(item.Mark, flush: true).ConfigureAwait(false);
+            if (file is FileStream fs) fs.Flush(flushToDisk: true);
+            item.Done.TrySetResult(new(true, null));
+        }
+        catch (Exception ex) when (IsStorageError(ex))
+        {
+            OnWriteFailure(ex);
+            item.Done.TrySetResult(new(false, ex.Message));
+        }
     }
 
     private async Task GuardedAsync(Func<Task> action, bool countAsLostSample)
@@ -377,8 +430,11 @@ public sealed class RecordingWriter : IRecordingSink, IAsyncDisposable
             w.WriteString("t", "mark"); w.WriteString("at", mark.At.ToString("O")); w.WriteString("kind", mark.Kind.ToString());
             if (mark.Detail.Length > 0) w.WriteString("detail", mark.Detail);
             if (mark.Gap is { } gap) w.WriteNumber("gapSeconds", Math.Round(gap.TotalSeconds, 3));
+            if (mark.IncidentId is { } incident) w.WriteString("id", incident.ToString("D"));
+            if (mark.Sequence is { } sequence) w.WriteNumber("seq", sequence);
             w.WriteEndObject();
         })).ConfigureAwait(false);
+        if (mark.Kind == RecordingMarkKind.UserIncident) Interlocked.Increment(ref incidents);
         if (flush) await FlushFileAsync(force: true).ConfigureAwait(false);
     }
 
@@ -390,6 +446,7 @@ public sealed class RecordingWriter : IRecordingSink, IAsyncDisposable
             w.WriteString("t", "footer"); w.WriteString("endedUtc", clock.GetUtcNow().UtcDateTime.ToString("O")); w.WriteString("reason", reason);
             w.WriteNumber("part", part); w.WriteNumber("samples", Interlocked.Read(ref samplesWritten)); w.WriteNumber("warnings", warnings); w.WriteNumber("criticals", criticals);
             w.WriteNumber("lost", Interlocked.Read(ref lost)); w.WriteNumber("bytes", bytesTotal); w.WriteBoolean("complete", complete);
+            w.WriteNumber("incidents", Interlocked.Read(ref incidents));
             w.WriteEndObject();
         })).ConfigureAwait(false);
     }
@@ -465,6 +522,7 @@ public sealed class RecordingWriter : IRecordingSink, IAsyncDisposable
                 w.WriteString("source", isDemo ? "Demo" : "RealSession");
                 w.WriteNumber("parts", part); w.WriteNumber("samples", Interlocked.Read(ref samplesWritten));
                 w.WriteNumber("warnings", warnings); w.WriteNumber("criticals", criticals); w.WriteNumber("lost", Interlocked.Read(ref lost)); w.WriteNumber("bytes", bytesTotal);
+                w.WriteNumber("incidents", Interlocked.Read(ref incidents));
                 w.WriteEndObject();
             }
             storage.Rename(temporary, path);

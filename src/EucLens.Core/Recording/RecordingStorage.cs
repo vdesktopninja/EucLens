@@ -82,5 +82,5 @@ public static class RecordingRetention
         return new(deleted, freed, kept);
     }
 
-    private static string Id(string name) => RecordingFormat.TryParsePart(name, out _, out var id, out _) ? id : RecordingFormat.TryParseMeta(name, out _, out var metaId) ? metaId : "";
+    private static string Id(string name) => RecordingFormat.ShortIdOf(name);
 }

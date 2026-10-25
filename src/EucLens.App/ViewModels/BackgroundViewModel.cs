@@ -37,6 +37,7 @@ public sealed class BackgroundViewModel : ObservableObject
         UseDefaultFolderCommand = new(() => RecordingDirectory = "");
         OpenRecordingsFolderCommand = new(OpenRecordingsFolder);
         RefreshRecordingsCommand = new(RefreshRecordingsAsync);
+        MarkIncidentCommand = new(() => MarkIncidentAsync(), () => monitoring.CanMarkIncident);
         monitoring.StatusChanged += _ => Post(RefreshMonitoring);
         Apply(BackgroundSettings.Defaults);
     }
@@ -63,8 +64,41 @@ public sealed class BackgroundViewModel : ObservableObject
     public RelayCommand PauseMonitoringCommand { get; }
     public RelayCommand ResumeMonitoringCommand { get; }
 
+    // ---------- incident marker ----------
+
+    private string lastIncidentText = "";
+    private bool lastIncidentFailed;
+    public AsyncCommand MarkIncidentCommand { get; }
+    /// <summary>Raised on the UI context after every attempt, so the status bar and the tray can confirm or explain.</summary>
+    public event Action<IncidentResult>? IncidentCompleted;
+    public bool CanMarkIncident => monitoring.CanMarkIncident;
+    /// <summary>Time and outcome of the latest attempt; empty before the first one.</summary>
+    public string LastIncidentText { get => lastIncidentText; private set => Set(ref lastIncidentText, value); }
+    public bool LastIncidentFailed { get => lastIncidentFailed; private set => Set(ref lastIncidentFailed, value); }
+    /// <summary>Why the action is unavailable, shown next to the disabled button; empty while it can be used.</summary>
+    public string IncidentHint => monitoring.CanMarkIncident ? "" : recorder.IsRecording
+        ? "Only a recording saved to disk can hold incident markers."
+        : "Start a recording to mark performance issues. The marker is saved into the recording at the moment you click.";
+
+    /// <summary>Marks a performance issue now. Never reports success unless the marker is on disk.</summary>
+    public async Task<IncidentResult> MarkIncidentAsync()
+    {
+        var result = await monitoring.MarkIncidentAsync().ConfigureAwait(false);
+        Post(() =>
+        {
+            LastIncidentFailed = !result.Saved;
+            LastIncidentText = result is { Saved: true, Marker: { } marker }
+                ? $"Last incident: no. {marker.Sequence} at {marker.At.ToLocalTime():HH:mm:ss} (saved to the recording)."
+                : $"Incident not saved: {result.Message}";
+            Raise(nameof(IncidentHint)); Raise(nameof(CanMarkIncident));
+            IncidentCompleted?.Invoke(result);
+        });
+        return result;
+    }
+
     private void RefreshMonitoring()
     {
+        MarkIncidentCommand.Refresh(); Raise(nameof(CanMarkIncident)); Raise(nameof(IncidentHint));
         foreach (var name in new[] { nameof(State), nameof(IsStopped), nameof(IsRunning), nameof(IsPaused), nameof(MonitoringText), nameof(TrayDescription) }) Raise(name);
         StartMonitoringCommand.Refresh(); PauseMonitoringCommand.Refresh(); ResumeMonitoringCommand.Refresh();
         RefreshStorage();
