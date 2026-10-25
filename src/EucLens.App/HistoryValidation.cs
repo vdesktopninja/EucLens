@@ -216,7 +216,7 @@ internal static class HistoryValidation
         Require(h.Loaded.Events.Count(e => e.Kind == HistoryEventKind.MonitoringPaused) == 1 && h.Loaded.Gaps.Count == 1, "The pause and its gap are not on the timeline.");
         var ids = h.Charts.Select(r => r.Id).ToArray();
         Require(new[] { "rtt", "packetLoss", "fps", "cpu" }.All(ids.Contains), "Expected charts are missing: " + string.Join(",", ids));
-        Require(!ids.Contains("gpu"), "A chart without any recorded values was drawn.");
+        Require(!ids.Contains("dirtyFps") && h.Loaded.UnavailableChannels.Any(u => u.Channel.Id == "dirtyFps"), "A chart without any recorded values was drawn (the mock records no Blast counters).");
         DesktopValidation.CheckChartList(Charts(c), "Session History");
         Require(Charts(c).Length == h.Charts.Count, "The number of chart controls differs from the rows.");
         Require(DesktopValidation.Descendants<ListBox>(View(c)).Any(l => l.Items.Count == h.Events.Count && h.Events.Count > 0), "The event list does not show every timeline entry.");
@@ -238,6 +238,7 @@ internal static class HistoryValidation
             Require(Math.Abs((axis.MinLimit ?? 0) - h.ViewStart.UtcDateTime.Ticks) < 1000 && Math.Abs((axis.MaxLimit ?? 0) - h.ViewEnd.UtcDateTime.Ticks) < 1000, "A chart does not show the shared range.");
         }
         // One plot area, in every chart, and the same one the overlay uses.
+        await WaitFor(() => Charts(c).All(chart => ((LiveChartsCore.CartesianChartEngine)chart.CoreChart).DrawMarginSize.Width > 0), "the chart plot areas to be measured");
         var left = engines.Select(e => e.DrawMarginLocation.X).ToArray(); var width = engines.Select(e => e.DrawMarginSize.Width).ToArray();
         Require(left.Max() - left.Min() < 1.5 && width.Max() - width.Min() < 1.5, $"Plot areas are not aligned: left {string.Join("/", left.Select(v => v.ToString("0.#")))}, width {string.Join("/", width.Select(v => v.ToString("0.#")))}.");
         Require(Math.Abs(overlay.XOf(h.ViewStart) - left[0]) < 1.5 && Math.Abs(overlay.XOf(h.ViewEnd) - (left[0] + width[0])) < 1.5,

@@ -51,8 +51,8 @@
  <StreamGeometry x:Key="EventGeometryNote">F0 M3,1.5 H10 L13,4.5 V14.5 H3 Z M5,6 H11 V7.2 H5 Z M5,8.7 H11 V9.9 H5 Z M5,11.4 H9 V12.6 H5 Z</StreamGeometry>
  <StreamGeometry x:Key="EventGeometrySessionChange">F0 M8,1.5 L14.5,8 L8,14.5 L1.5,8 Z M8,4.5 L11.5,8 L8,11.5 L4.5,8 Z</StreamGeometry>
  <StreamGeometry x:Key="EventGeometryOther">F0 M5.5,8 A2.5,2.5 0 1 1 10.5,8 A2.5,2.5 0 1 1 5.5,8 Z</StreamGeometry>
- <StaticResource x:Key="EventGeometryAvailability" ResourceKey="SeverityGeometryNoData" />
- <StaticResource x:Key="EventGeometryReconnect" ResourceKey="SeverityGeometryHealthy" />
+ <StreamGeometry x:Key="EventGeometryAvailability">F0 M0.5,8 A7.5,7.5 0 1 1 15.5,8 A7.5,7.5 0 1 1 0.5,8 Z M2,8 A6,6 0 1 1 14,8 A6,6 0 1 1 2,8 Z M4.5,7 H11.5 V9 H4.5 Z</StreamGeometry>
+ <StreamGeometry x:Key="EventGeometryReconnect">F0 M0.5,8 A7.5,7.5 0 1 1 15.5,8 A7.5,7.5 0 1 1 0.5,8 Z M3.76,8.94 L7.04,12.21 L12.37,6.20 L11.03,5.00 L6.96,9.59 L5.04,7.66 Z</StreamGeometry>
  <GridLength x:Key="FindingSeverityWidth">92</GridLength>
  <GridLength x:Key="FindingCategoryWidth">96</GridLength>
  <GridLength x:Key="FindingTimeWidth">76</GridLength>

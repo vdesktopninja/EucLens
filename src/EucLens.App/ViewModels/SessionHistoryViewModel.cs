@@ -26,7 +26,7 @@ public sealed class HistoryEventItem(HistoryEvent source, string time, string no
     public bool HasDetail => Event.Detail.Length > 0;
     public bool IsIncident => Event.Kind == HistoryEventKind.UserIncident;
     /// <summary>The administrator's category and description, shown under the incident.</summary>
-    public string Annotation { get => annotation; set { if (Set(ref annotation, value)) Raise(nameof(HasAnnotation)); } }
+    public string Annotation { get => annotation; set { if (Set(ref annotation, value)) { Raise(nameof(HasAnnotation)); Raise(nameof(AutomationName)); } } }
     public bool HasAnnotation => annotation.Length > 0;
     public string AutomationName => $"{Time}, {KindLabel}, {Title}" + (HasAnnotation ? $", {Annotation}" : "");
 }
@@ -165,7 +165,9 @@ public sealed class SessionHistoryViewModel : ObservableObject
         ExportTimelineCommand = new(() => ExportAsync(incidentsOnly: false), () => HasHistory);
         OpenFolderCommand = new(() => { if (opened is not null) desktop.OpenPath(opened.Directory); });
         // The list is rebuilt whenever it is refreshed; keep the recording that is open selected in it.
-        background.Recordings.CollectionChanged += (_, _) => ReselectOpened();
+        var uiContext = SynchronizationContext.Current;
+        // After the list's own handlers have run: selecting an item the list has not processed yet could be undone by it.
+        background.Recordings.CollectionChanged += (_, _) => { if (uiContext is null) ReselectOpened(); else uiContext.Post(_ => ReselectOpened(), null); };
     }
 
     // ---------- recordings ----------

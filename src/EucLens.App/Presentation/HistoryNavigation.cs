@@ -64,6 +64,8 @@ public abstract class HistoryTimeElement : FrameworkElement
 
     protected HistoryTimeElement()
     {
+        // Focusing by click must not scroll the page to the top of a tall overlay.
+        RequestBringIntoView += (_, e) => e.Handled = true;
         Focusable = true; FocusVisualStyle = null; SnapsToDevicePixels = true; Cursor = Cursors.Cross;
         SetResourceReference(AccentFillProperty, "AccentBrush"); SetResourceReference(AccentSurfaceFillProperty, "AccentSurfaceBrush");
         SetResourceReference(MutedFillProperty, "MutedBrush"); SetResourceReference(TextFillProperty, "TextBrush"); SetResourceReference(GridFillProperty, "ChartGridBrush");
@@ -262,6 +264,8 @@ public abstract class HistoryTimeElement : FrameworkElement
     }
 
     protected override AutomationPeer OnCreateAutomationPeer() => new FrameworkElementAutomationPeer(this);
+
+    protected override void OnIsKeyboardFocusedChanged(DependencyPropertyChangedEventArgs e) { base.OnIsKeyboardFocusedChanged(e); InvalidateVisual(); }
 
     protected void DrawFocus(DrawingContext dc, Rect bounds)
     {
