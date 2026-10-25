@@ -23,6 +23,9 @@ public static class RecordingAnnotationStore
 {
     public const string Schema = "euclens.annotations/1";
     public const int MaximumDescription = 500;
+    /// <summary>The largest annotation file that is read: 5,000 incidents at the description limit take about 2.5 MiB.</summary>
+    public const long MaximumFileBytes = 8L << 20;
+    private static readonly object UpdateGate = new();
 
     public static string PathFor(string directory, string stamp, string shortId) => Path.Combine(directory, RecordingFormat.AnnotationName(stamp, shortId));
 
@@ -60,6 +63,8 @@ public static class RecordingAnnotationStore
         catch (DirectoryNotFoundException) { return null; }
         using (stream)
         {
+            // A sidecar holds at most a few thousand short notes; a file far beyond that is not one, and is neither parsed nor overwritten.
+            if (stream.CanSeek && stream.Length > MaximumFileBytes) throw new RecordingFormatException($"the annotation file is larger than {MaximumFileBytes >> 20} MiB");
             using var document = JsonDocument.Parse(stream);
             var root = document.RootElement;
             var schema = root.GetProperty("schema").GetString();
@@ -86,44 +91,54 @@ public static class RecordingAnnotationStore
     {
         if (annotation is not null) _ = Normalize(annotation.Description);
         var path = PathFor(directory, stamp, shortId);
-        RecordingAnnotations current;
-        try { current = Read(storage, path) ?? RecordingAnnotations.Empty; }
-        catch (Exception ex) when (ex is JsonException or RecordingFormatException or KeyNotFoundException or InvalidOperationException or FormatException)
+        // One read-modify-write at a time: two saves for different incidents both end up in the file.
+        lock (UpdateGate)
         {
-            storage.Rename(path, path + ".unreadable-" + DateTimeOffset.UtcNow.UtcTicks);
-            current = RecordingAnnotations.Empty;
+            RecordingAnnotations current;
+            try { current = Read(storage, path) ?? RecordingAnnotations.Empty; }
+            catch (RecordingFormatException) { throw; }   // written by a newer version (or not an annotation file of this size): left exactly as it is
+            catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
+            {
+                storage.Rename(path, path + ".unreadable-" + DateTimeOffset.UtcNow.UtcTicks);
+                current = RecordingAnnotations.Empty;
+            }
+            var map = new Dictionary<Guid, IncidentAnnotation>(current.Incidents);
+            if (annotation is null) map.Remove(incidentId); else map[incidentId] = annotation with { Description = Normalize(annotation.Description) };
+            var result = new RecordingAnnotations(recordingId ?? current.RecordingId, map);
+            Write(storage, directory, path, result);
+            return result;
         }
-        var map = new Dictionary<Guid, IncidentAnnotation>(current.Incidents);
-        if (annotation is null) map.Remove(incidentId); else map[incidentId] = annotation with { Description = Normalize(annotation.Description) };
-        var result = new RecordingAnnotations(recordingId ?? current.RecordingId, map);
-        Write(storage, directory, path, result);
-        return result;
     }
 
     private static void Write(IRecordingStorage storage, string directory, string path, RecordingAnnotations annotations)
     {
         storage.EnsureDirectory(directory);
-        var temporary = path + ".partial";
-        try { storage.Delete(temporary); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        // A name of its own: a leftover or a concurrent writer never makes this write fail or mix two files.
+        var temporary = path + "." + Guid.NewGuid().ToString("N")[..8] + ".partial";
         try
         {
             using (var stream = storage.Create(temporary))
-            using (var w = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
             {
-                w.WriteStartObject();
-                w.WriteString("schema", Schema);
-                if (annotations.RecordingId is { } id) w.WriteString("recordingId", id.ToString("D"));
-                w.WriteStartObject("incidents");
-                foreach (var (incident, note) in annotations.Incidents.OrderBy(i => i.Value.UpdatedUtc).ThenBy(i => i.Key))
+                using (var w = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
                 {
-                    w.WriteStartObject(incident.ToString("D"));
-                    w.WriteString("category", note.Category.ToString());
-                    w.WriteString("description", note.Description);
-                    w.WriteString("updatedUtc", note.UpdatedUtc.UtcDateTime.ToString("O"));
+                    w.WriteStartObject();
+                    w.WriteString("schema", Schema);
+                    if (annotations.RecordingId is { } id) w.WriteString("recordingId", id.ToString("D"));
+                    w.WriteStartObject("incidents");
+                    foreach (var (incident, note) in annotations.Incidents.OrderBy(i => i.Value.UpdatedUtc).ThenBy(i => i.Key))
+                    {
+                        w.WriteStartObject(incident.ToString("D"));
+                        w.WriteString("category", note.Category.ToString());
+                        w.WriteString("description", note.Description);
+                        w.WriteString("updatedUtc", note.UpdatedUtc.UtcDateTime.ToString("O"));
+                        w.WriteEndObject();
+                    }
+                    w.WriteEndObject();
                     w.WriteEndObject();
                 }
-                w.WriteEndObject();
-                w.WriteEndObject();
+                // On disk before it replaces the previous file: a power loss leaves the old annotations or the new ones, never an empty file.
+                stream.Flush();
+                if (stream is FileStream fs) fs.Flush(flushToDisk: true);
             }
             storage.Rename(temporary, path);
         }

@@ -50,7 +50,7 @@ public sealed class SessionRecorder : ISessionRecorder
         Interlocked.Exchange(ref total, 0);
         lock (incidentGate) incidentSequence = 0;
         // Begin throws when the location is unusable; the recorder then stays idle.
-        sink?.Begin(new(Guid.NewGuid(), clock.GetUtcNow(), isDemo, "0.4.3"));
+        sink?.Begin(new(Guid.NewGuid(), clock.GetUtcNow(), isDemo, AppVersion.Current));
         lock (gate) elapsed.Restart();
         recording = true;
     }
@@ -110,9 +110,11 @@ public sealed class SessionRecorder : ISessionRecorder
         MarkWriteResult result;
         try { result = await written.ConfigureAwait(false); }
         catch (OperationCanceledException) { return new(IncidentOutcome.StorageFailed, null, "The incident marker was cancelled before it was confirmed on disk."); }
-        return result.Saved
-            ? new(IncidentOutcome.Saved, marker, $"Incident {marker.Sequence} saved at {marker.At.ToLocalTime():HH:mm:ss}.")
-            : new(IncidentOutcome.StorageFailed, null, $"The incident marker could not be saved: {result.Failure} The recording continues.");
+        if (result.Saved) return new(IncidentOutcome.Saved, marker, $"Incident {marker.Sequence} saved at {marker.At.ToLocalTime():HH:mm:ss}.");
+        // Not confirmed, but the writer had started on it: it may still be in the file. Said as such, with its identity, and never retried.
+        if (result.OutcomeUnknown)
+            return new(IncidentOutcome.Unknown, marker, $"The incident marker may or may not have been saved: {result.Failure} Check Session History before marking again.");
+        return new(IncidentOutcome.StorageFailed, null, $"The incident marker could not be saved: {result.Failure} The recording continues.");
     }
 
     private void OnSinkEnded(RecordingEndReason reason)

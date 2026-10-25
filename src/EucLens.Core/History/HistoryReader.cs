@@ -43,22 +43,62 @@ public static class HistoryReader
         return found;
     }
 
-    public static IEnumerable<HistoryRecord> Read(IRecordingStorage storage, IReadOnlyList<HistoryPart> parts, List<HistoryIssue> issues, CancellationToken cancellationToken = default)
+    /// <summary>Lists problems with an upper bound per kind, so a file with millions of damaged lines produces a short report, not millions of entries.</summary>
+    private sealed class IssueLog(List<HistoryIssue> target, int maximumPerKind)
     {
-        for (var index = 0; index < parts.Count; index++)
+        private readonly Dictionary<HistoryIssueKind, int> counts = [];
+        public void Add(HistoryIssue issue)
         {
-            var part = parts[index];
-            var isLast = index == parts.Count - 1;
-            Stream? raw; string? openedPath;
-            try { (raw, openedPath) = Open(storage, part); }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                issues.Add(new(HistoryIssueKind.PartUnavailable, $"Part {part.Number} could not be opened ({ex.Message}).", part.Number));
-                continue;
-            }
-            using var owned = raw;
-            foreach (var record in ReadPart(owned, openedPath!, part.Number, isLast, issues, cancellationToken)) yield return record;
+            counts.TryGetValue(issue.Kind, out var count);
+            counts[issue.Kind] = ++count;
+            if (count <= maximumPerKind) target.Add(issue);
         }
+        /// <summary>Adds one summary line for every kind that had more problems than were listed.</summary>
+        public void Flush()
+        {
+            foreach (var (kind, count) in counts)
+                if (count > maximumPerKind) target.Add(new(kind, $"{(count - maximumPerKind).ToString("N0", CultureInfo.InvariantCulture)} further problems of this kind ({kind}) were found and are not listed."));
+            counts.Clear();
+        }
+    }
+
+    private sealed class PartState { public long BytesRead; public bool LimitReached; }
+
+    /// <summary>A part whose first readable line is not its header. Not an unsupported format: the part is damaged, and the other parts may be fine.</summary>
+    private sealed class MissingHeaderException : Exception;
+
+    public static IEnumerable<HistoryRecord> Read(IRecordingStorage storage, IReadOnlyList<HistoryPart> parts, List<HistoryIssue> issues, CancellationToken cancellationToken = default, HistoryLimits? limits = null)
+    {
+        limits ??= new();
+        var log = new IssueLog(issues, limits.MaximumListedIssuesPerKind);
+        long total = 0;
+        try
+        {
+            for (var index = 0; index < parts.Count; index++)
+            {
+                var part = parts[index];
+                var isLast = index == parts.Count - 1;
+                Stream? raw; string? openedPath;
+                try { (raw, openedPath) = Open(storage, part); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    log.Add(new(HistoryIssueKind.PartUnavailable, $"Part {part.Number} could not be opened ({ex.Message}).", part.Number));
+                    continue;
+                }
+                using var owned = raw;
+                var budget = Math.Min(limits.MaximumPartBytes, limits.MaximumTotalBytes - total);
+                if (budget <= 0)
+                {
+                    log.Add(new(HistoryIssueKind.LimitReached, $"Reading stopped before part {part.Number}: this recording needs more than {limits.MaximumTotalBytes >> 20:N0} MiB of reading, which is the limit. The rest was not analyzed.", part.Number));
+                    yield break;
+                }
+                var state = new PartState();
+                foreach (var record in ReadPart(owned, openedPath!, part.Number, isLast, log, limits, budget, state, cancellationToken)) yield return record;
+                total += state.BytesRead;
+                if (state.LimitReached) yield break;
+            }
+        }
+        finally { log.Flush(); }
     }
 
     /// <summary>The plain file is preferred (a compressed copy that exists next to it may be a moment old); if it disappears while opening, the compressed one is used.</summary>
@@ -73,58 +113,85 @@ public static class HistoryReader
         return (storage.OpenRead(path), path);
     }
 
-    private static IEnumerable<HistoryRecord> ReadPart(Stream raw, string path, int number, bool isLast, List<HistoryIssue> issues, CancellationToken cancellationToken)
+    private static IEnumerable<HistoryRecord> ReadPart(Stream raw, string path, int number, bool isLast, IssueLog issues, HistoryLimits limits, long budget, PartState state, CancellationToken cancellationToken)
     {
         var codec = new RecordingFormat.Codec();
         SessionInfo? session = null;
-        var seenHeader = false; var seenFooter = false;
+        var seenHeader = false; var seenFooter = false; var headerReported = false;
         var lineNumber = 0; var badLine = 0; var counter = 0;
         using var stream = RecordingFormat.Decompress(raw, path);
-        using var reader = new StreamReader(stream, Encoding.UTF8);
-        while (true)
+        var reader = new BoundedLineReader(stream, limits.MaximumLineBytes, budget, cancellationToken);
+        try
         {
-            string? line;
-            try { line = reader.ReadLine(); }
-            catch (InvalidDataException) { issues.Add(new(HistoryIssueKind.DamagedCompressedData, $"Part {number} contains damaged compressed data; what was readable before the damage is used.", number)); yield break; }
-            if (line is null) break;
-            lineNumber++;
-            if ((++counter & 255) == 0) cancellationToken.ThrowIfCancellationRequested();
-            if (line.Length == 0) continue;
-            // A bad line that is followed by anything else was not the end of the file: that is damage, not a cut-off write.
-            if (badLine != 0) { issues.Add(new(HistoryIssueKind.DamagedLine, $"Line {badLine} of part {number} could not be read and was skipped.", number)); badLine = 0; }
-            JsonDocument document;
-            try { document = JsonDocument.Parse(line); }
-            catch (JsonException) { badLine = lineNumber; continue; }
-            HistoryRecord? record = null;
-            using (document)
+            while (true)
             {
-                try { record = Decode(document.RootElement, number, codec, ref session, ref seenHeader, ref seenFooter); }
-                catch (RecordingFormatException) { throw; }
-                catch (Exception ex) when (ex is JsonException or InvalidDataException or KeyNotFoundException or InvalidOperationException or FormatException or ArgumentException)
+                string? line; bool tooLong; bool more;
+                try { more = reader.TryReadLine(out line, out tooLong); }
+                catch (InvalidDataException) { issues.Add(new(HistoryIssueKind.DamagedCompressedData, $"Part {number} contains damaged compressed data; what was readable before the damage is used.", number)); yield break; }
+                catch (IOException ex) { issues.Add(new(HistoryIssueKind.PartUnavailable, $"Part {number} could not be read to its end ({ex.Message}); what was read before is used.", number)); yield break; }
+                catch (HistoryLimitException ex)
                 {
-                    issues.Add(new(HistoryIssueKind.DamagedLine, $"Line {lineNumber} of part {number} could not be decoded ({ex.Message}) and was skipped.", number));
+                    issues.Add(new(HistoryIssueKind.LimitReached, $"Reading of part {number} stopped: {ex.Message}, which is the limit. The rest of this recording was not analyzed.", number));
+                    state.LimitReached = true;
+                    yield break;
                 }
+                if (!more) break;
+                lineNumber++;
+                if ((++counter & 255) == 0) cancellationToken.ThrowIfCancellationRequested();
+                if (!tooLong && line!.Length == 0) continue;
+                // A bad line that is followed by anything else was not the end of the file: that is damage, not a cut-off write.
+                if (badLine != 0) { issues.Add(new(HistoryIssueKind.DamagedLine, $"Line {badLine} of part {number} could not be read and was skipped.", number)); badLine = 0; }
+                if (tooLong) { issues.Add(new(HistoryIssueKind.DamagedLine, $"Line {lineNumber} of part {number} is longer than {limits.MaximumLineBytes:N0} bytes, which no recording line is, and was skipped.", number)); continue; }
+                JsonDocument document;
+                try { document = JsonDocument.Parse(line!); }
+                catch (JsonException) { badLine = lineNumber; continue; }
+                HistoryRecord? record = null;
+                using (document)
+                {
+                    try { record = Decode(document.RootElement, number, codec, ref session, ref seenHeader, ref seenFooter); }
+                    catch (RecordingFormatException) { throw; }
+                    catch (MissingHeaderException)
+                    {
+                        issues.Add(new(HistoryIssueKind.DamagedHeader, $"Part {number} has no readable header (its first line is damaged); this part was skipped and the other parts are used.", number));
+                        headerReported = true;
+                        yield break;
+                    }
+                    catch (Exception ex) when (ex is not (OperationCanceledException or OutOfMemoryException))
+                    {
+                        issues.Add(new(HistoryIssueKind.DamagedLine, $"Line {lineNumber} of part {number} could not be decoded ({ex.Message}) and was skipped.", number));
+                    }
+                }
+                if (record is not null) yield return record;
             }
-            if (record is not null) yield return record;
+            if (path.EndsWith(".gz", StringComparison.OrdinalIgnoreCase) && !seenFooter && seenHeader)
+            {
+                // A compressed part is only ever made from a closed part, which ends with a footer: one that ends early was damaged afterwards.
+                issues.Add(new(HistoryIssueKind.DamagedCompressedData, $"Part {number} is compressed but ends early; what was readable before the damage is used.", number));
+            }
+            else if (badLine != 0)
+            {
+                if (!seenFooter || isLast) issues.Add(new(HistoryIssueKind.TruncatedTail, $"Part {number} ends with an incomplete line; it was cut off when the recording was interrupted. Everything before it is intact.", number));
+                else issues.Add(new(HistoryIssueKind.DamagedLine, $"The last line of part {number} could not be read and was skipped.", number));
+            }
+            if (!seenHeader && !headerReported)
+                issues.Add(new(HistoryIssueKind.DamagedHeader, $"Part {number} has no header; it is not an EUC Lens recording part or it is damaged, and it was skipped.", number));
         }
-        if (path.EndsWith(".gz", StringComparison.OrdinalIgnoreCase) && !seenFooter && seenHeader)
-        {
-            // A compressed part is only ever made from a closed part, which ends with a footer: one that ends early was damaged afterwards.
-            issues.Add(new(HistoryIssueKind.DamagedCompressedData, $"Part {number} is compressed but ends early; what was readable before the damage is used.", number));
-        }
-        else if (badLine != 0)
-        {
-            if (!seenFooter || isLast) issues.Add(new(HistoryIssueKind.TruncatedTail, $"Part {number} ends with an incomplete line; it was cut off when the recording was interrupted. Everything before it is intact.", number));
-            else issues.Add(new(HistoryIssueKind.DamagedLine, $"The last line of part {number} could not be read and was skipped.", number));
-        }
-        if (!seenHeader) throw new RecordingFormatException($"Part {number} of this recording has no header; it is not an EUC Lens recording or it is damaged.");
+        finally { state.BytesRead = reader.BytesRead; }
     }
+
+    /// <summary>Only names (or numbers) of values the enum really has: a number outside the enum is a damaged line, not a value.</summary>
+    private static T DefinedEnum<T>(string? text) where T : struct, Enum =>
+        Enum.TryParse<T>(text, ignoreCase: false, out var value) && Enum.IsDefined(value) ? value : throw new InvalidDataException($"'{text}' is not a valid {typeof(T).Name}.");
+
+    /// <summary>A gap of more than a year, or a number that is not finite, cannot be a measurement gap.</summary>
+    private static TimeSpan GapOf(double seconds) =>
+        double.IsFinite(seconds) && Math.Abs(seconds) <= 366 * 86400d ? TimeSpan.FromSeconds(seconds) : throw new InvalidDataException("A gap length is out of range.");
 
     private static HistoryRecord? Decode(JsonElement root, int number, RecordingFormat.Codec codec, ref SessionInfo? session, ref bool seenHeader, ref bool seenFooter)
     {
         if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("t", out var type)) throw new InvalidDataException("A line has no type.");
         var kind = type.GetString();
-        if (!seenHeader && kind != "header") throw new RecordingFormatException("This file does not start with an EUC Lens recording header.");
+        if (!seenHeader && kind != "header") throw new MissingHeaderException();
         switch (kind)
         {
             case "header":
@@ -146,12 +213,12 @@ public static class HistoryReader
                 var body = root.GetProperty("d").Deserialize<RecordingFormat.SampleBody>(codec.Options) ?? throw new InvalidDataException("Empty sample.");
                 return new SampleRecord(number, body.ToSnapshot(at.ToUniversalTime(), session ?? throw new InvalidDataException("A sample precedes its session line.")));
             case "event":
-                return new EventRecord(number, root.GetProperty("at").GetDateTimeOffset().ToUniversalTime(), Enum.Parse<FindingTransition>(root.GetProperty("kind").GetString()!),
-                    root.GetProperty("rule").GetString() ?? "", Enum.Parse<Severity>(root.GetProperty("severity").GetString()!), root.TryGetProperty("title", out var title) ? title.GetString() ?? "" : "");
+                return new EventRecord(number, root.GetProperty("at").GetDateTimeOffset().ToUniversalTime(), DefinedEnum<FindingTransition>(root.GetProperty("kind").GetString()),
+                    root.GetProperty("rule").GetString() ?? "", DefinedEnum<Severity>(root.GetProperty("severity").GetString()), root.TryGetProperty("title", out var title) ? title.GetString() ?? "" : "");
             case "mark":
                 return new MarkRecord(number, root.GetProperty("at").GetDateTimeOffset().ToUniversalTime(), root.GetProperty("kind").GetString() ?? "",
                     root.TryGetProperty("detail", out var detail) ? detail.GetString() ?? "" : "",
-                    root.TryGetProperty("gapSeconds", out var gap) ? TimeSpan.FromSeconds(gap.GetDouble()) : null,
+                    root.TryGetProperty("gapSeconds", out var gap) ? GapOf(gap.GetDouble()) : null,
                     root.TryGetProperty("id", out var markId) && Guid.TryParse(markId.GetString(), out var incident) ? incident : null,
                     root.TryGetProperty("seq", out var seq) ? seq.GetInt32() : null);
             case "footer":

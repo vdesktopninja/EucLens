@@ -14,8 +14,8 @@ public static class HistoryLoader
     private const int MaximumRetainedIncidents = 400;
 
     public static Task<LoadedHistory> LoadAsync(IRecordingStorage storage, string directory, string shortId, string? activeShortId = null,
-        IProgress<HistoryLoadProgress>? progress = null, CancellationToken cancellationToken = default, int maximumSamples = MaximumSamples) =>
-        Task.Run(() => Load(storage, directory, shortId, activeShortId, progress, cancellationToken, maximumSamples), cancellationToken);
+        IProgress<HistoryLoadProgress>? progress = null, CancellationToken cancellationToken = default, int maximumSamples = MaximumSamples, HistoryLimits? limits = null) =>
+        Task.Run(() => Load(storage, directory, shortId, activeShortId, progress, cancellationToken, maximumSamples, limits), cancellationToken);
 
     public static string ProtocolName(RemoteProtocol protocol) => protocol switch
     {
@@ -23,8 +23,9 @@ public static class HistoryLoader
     };
 
     public static LoadedHistory Load(IRecordingStorage storage, string directory, string shortId, string? activeShortId = null,
-        IProgress<HistoryLoadProgress>? progress = null, CancellationToken cancellationToken = default, int maximumSamples = MaximumSamples)
+        IProgress<HistoryLoadProgress>? progress = null, CancellationToken cancellationToken = default, int maximumSamples = MaximumSamples, HistoryLimits? limits = null)
     {
+        limits ??= new();
         var issues = new List<HistoryIssue>();
         var parts = HistoryReader.ResolveParts(storage, directory, shortId, issues);
         if (parts.Count == 0) throw new RecordingFormatException($"No files of recording {shortId} were found in {directory}.");
@@ -43,13 +44,21 @@ public static class HistoryLoader
         SessionInfo? lastSession = null; var sessionChanged = false;
         DateTimeOffset? started = null; string source = "", appVersion = ""; Guid? recordingId = null;
         FooterRecord? finalFooter = null; long footerLost = 0;
-        var order = 0; var sorted = true; var partsRead = 0; var lastPart = 0; var capped = false;
+        var order = 0; var sorted = true; var partsRead = 0; var lastPart = 0; var capped = false; var sampleCapped = false; string limitReason = "";
 
         void Add(HistoryEventKind kind, DateTimeOffset at, string title, string detail = "", Severity? severity = null, string? rule = null, Guid? incident = null, int? sequence = null, TimeSpan? gap = null) =>
             events.Add(new(kind, at, title, detail, severity, rule, incident, sequence, gap, order++));
 
-        foreach (var record in HistoryReader.Read(storage, parts, issues, cancellationToken))
+        foreach (var record in HistoryReader.Read(storage, parts, issues, cancellationToken, limits))
         {
+            // Stopping at a limit is reported (a problem line, the Partial state); the entries read so far are kept and nothing is called complete.
+            if (record is EventRecord or MarkRecord or SampleRecord && (events.Count >= limits.MaximumEvents || incidents.Count >= limits.MaximumIncidents))
+            {
+                capped = true;
+                limitReason = events.Count >= limits.MaximumEvents ? $"the recording holds more than the {limits.MaximumEvents:N0} timeline entries EUC Lens analyzes" : $"the recording holds more than the {limits.MaximumIncidents:N0} marked incidents EUC Lens analyzes";
+                issues.Add(new(HistoryIssueKind.LimitReached, $"Loading stopped: {limitReason}. Everything after {HistoryLoader.Describe(ticks.Count > 0 ? ticks[^1] : (started ?? DateTimeOffset.UnixEpoch).UtcTicks)} was not analyzed.", record.Part));
+                goto done;
+            }
             if (record.Part != lastPart) { lastPart = record.Part; partsRead++; progress?.Report(new(ticks.Count, partsRead, parts.Count)); }
             switch (record)
             {
@@ -79,7 +88,7 @@ public static class HistoryLoader
                 case SampleRecord sample:
                     if (ticks.Count >= maximumSamples)
                     {
-                        capped = true;
+                        capped = true; sampleCapped = true; limitReason = $"the recording holds more than the {maximumSamples:N0} samples EUC Lens analyzes";
                         issues.Add(new(HistoryIssueKind.SampleCapReached, $"Only the first {maximumSamples:N0} samples were loaded; the recording continues after {HistoryLoader.Describe(ticks[^1])}.", record.Part));
                         goto done;
                     }
@@ -107,6 +116,8 @@ public static class HistoryLoader
         }
         done:
         cancellationToken.ThrowIfCancellationRequested();
+        // A limit of the reader (bytes read) is reported as an issue by the reader itself.
+        if (!capped && issues.FirstOrDefault(i => i.Kind == HistoryIssueKind.LimitReached) is { } readerLimit) { capped = true; limitReason = readerLimit.Message; }
         if (started is null) throw new RecordingFormatException("This recording has no header; it is not an EUC Lens recording or it is damaged.");
 
         var tickArray = ticks.ToArray();
@@ -146,8 +157,8 @@ public static class HistoryLoader
         var warnings = ordered.Count(e => e.Kind is HistoryEventKind.FindingDetected or HistoryEventKind.FindingEscalated && e.Severity == Severity.Warning);
         var criticals = ordered.Count(e => e.Kind is HistoryEventKind.FindingDetected or HistoryEventKind.FindingEscalated && e.Severity == Severity.Critical);
         var info = new HistoryInfo(shortId, recordingId, started.Value, ended, finalFooter is not null, source, appVersion, protocols, tickArray.Length, warnings, criticals, incidents.Count, footerLost,
-            parts.Count, state, capped ? "Not analyzed to the end: the sample limit was reached" : finalFooter is not null ? EndReasonText(finalFooter.Reason) : state == RecordingCompleteness.InProgress ? "Recording in progress" : "Interrupted (no end of recording was written)",
-            coverage, gaps.Count, TimeSpan.FromTicks(gaps.Sum(g => g.Length.Ticks)), directory, capped ? maximumSamples : 0);
+            parts.Count, state, capped ? (sampleCapped ? "Not analyzed to the end: the sample limit was reached" : "Not analyzed to the end: a reading limit was reached") : finalFooter is not null ? EndReasonText(finalFooter.Reason) : state == RecordingCompleteness.InProgress ? "Recording in progress" : "Interrupted (no end of recording was written)",
+            coverage, gaps.Count, TimeSpan.FromTicks(gaps.Sum(g => g.Length.Ticks)), directory, sampleCapped ? maximumSamples : 0, capped ? limitReason : "");
         return new(info, tickArray, channelData, ordered, incidents, gaps, issues, gapThreshold);
     }
 
@@ -225,8 +236,13 @@ public static class HistoryLoader
         {
             if (ticks[i] - ticks[i - 1] <= threshold.Ticks) continue;
             var start = new DateTimeOffset(new DateTime(ticks[i - 1], DateTimeKind.Utc)); var end = new DateTimeOffset(new DateTime(ticks[i], DateTimeKind.Utc));
-            var cause = events.FirstOrDefault(e => e.At >= start - TimeSpan.FromSeconds(1) && e.At <= end + TimeSpan.FromSeconds(1)
-                && e.Kind is HistoryEventKind.MonitoringPaused or HistoryEventKind.DataLoss or HistoryEventKind.RemoteDisconnected or HistoryEventKind.SessionLocked);
+            // The entries are in time order: only those within a second of the gap are looked at.
+            HistoryEvent? cause = null;
+            var from = start - TimeSpan.FromSeconds(1); var until = end + TimeSpan.FromSeconds(1);
+            int low = 0, high = events.Count;
+            while (low < high) { var mid = (low + high) / 2; if (events[mid].At < from) low = mid + 1; else high = mid; }
+            for (var j = low; j < events.Count && events[j].At <= until; j++)
+                if (events[j].Kind is HistoryEventKind.MonitoringPaused or HistoryEventKind.DataLoss or HistoryEventKind.RemoteDisconnected or HistoryEventKind.SessionLocked) { cause = events[j]; break; }
             gaps.Add(new(start, end, cause?.Kind switch
             {
                 HistoryEventKind.MonitoringPaused => "Monitoring was paused",

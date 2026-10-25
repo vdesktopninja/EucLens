@@ -89,7 +89,7 @@ public sealed class BackgroundViewModel : ObservableObject
             LastIncidentFailed = !result.Saved;
             LastIncidentText = result is { Saved: true, Marker: { } marker }
                 ? $"Last incident: no. {marker.Sequence} at {marker.At.ToLocalTime():HH:mm:ss} (saved to the recording)."
-                : $"Incident not saved: {result.Message}";
+                : result.Outcome == IncidentOutcome.Unknown ? $"Incident outcome unknown: {result.Message}" : $"Incident not saved: {result.Message}";
             Raise(nameof(IncidentHint)); Raise(nameof(CanMarkIncident));
             IncidentCompleted?.Invoke(result);
         });

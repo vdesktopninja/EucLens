@@ -95,6 +95,13 @@ Events (list, filter) │ Selected incident: description + category, recorded st
   validation artifact (the numbers for the earlier, non-virtualized list were +203.9 MiB managed heap, a 2.8 s slowest frame and 5,005 containers).
 * Event icons are vector paths with a text label (never colour alone).
 
+## 6b. Limits and damaged files
+
+A recording file is never trusted for how much it may cost: lines are read through a bounded reader (1 MiB per line), at most 1 GiB is read from a part and 4 GiB from a
+recording, at most 100,000 timeline entries and 5,000 incidents are kept, and problems are listed 50 per kind with one summary line carrying the true count. A limit ends
+the read; the page then shows **Partial analysis** and says which limit it was. Parts with a damaged header are skipped and reported; an unsupported schema is rejected. See
+`HARDENING_0.4.4.md` for the full list of fixes and what was deferred.
+
 ## 7. Lifecycle, threading and memory
 
 * One `CancellationTokenSource` per open; opening another recording or leaving the page cancels it. The load runs under `Task.Run`; only the finished

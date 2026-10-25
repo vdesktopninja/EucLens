@@ -8,5 +8,8 @@
     <!-- Only the desktop executable is a shipping publish target; libraries still build and tests still run. -->
     <IsPublishable>false</IsPublishable>
     <DebugType>embedded</DebugType>
+    <!-- The one place the application version is set. Assemblies carry it and AppVersion reads it; recordings record it. -->
+    <Version>0.4.4</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 </Project>

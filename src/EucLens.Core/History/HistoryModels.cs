@@ -31,6 +31,10 @@ public enum HistoryIssueKind
     MissingPart,
     PartUnavailable,
     SampleCapReached,
+    /// <summary>A part has no readable header: it was skipped, the other parts are used.</summary>
+    DamagedHeader,
+    /// <summary>A reading limit (bytes, events or incidents) was reached: only the beginning of the recording was analyzed.</summary>
+    LimitReached,
     /// <summary>The system clock moved backwards while recording; samples are shown in time order.</summary>
     ClockChange,
     UnreadableAnnotations
@@ -54,7 +58,7 @@ public sealed record HistoryGap(DateTimeOffset Start, DateTimeOffset End, string
 /// <summary>What the file said about the recording itself.</summary>
 public sealed record HistoryInfo(string ShortId, Guid? RecordingId, DateTimeOffset StartedUtc, DateTimeOffset EndedUtc, bool HasEnded, string Source,
     string AppVersion, IReadOnlyList<string> Protocols, long Samples, int Warnings, int Criticals, int Incidents, long LostSamples, int Parts,
-    RecordingCompleteness State, string EndReason, double DataCoverage, int Gaps, TimeSpan GapTime, string Directory, int SampleLimit = 0)
+    RecordingCompleteness State, string EndReason, double DataCoverage, int Gaps, TimeSpan GapTime, string Directory, int SampleLimit = 0, string LimitReason = "")
 {
     /// <summary>True when loading stopped at the sample limit: everything shown covers only the beginning of the recording.</summary>
     public bool IsPartial => State == RecordingCompleteness.Partial;
@@ -96,3 +100,16 @@ public sealed record ObservedChange(string ChannelId, string Title, string Unit,
 /// <summary>Plain-language, deterministic description of the recording around one instant.</summary>
 public sealed record IncidentAnalysis(DateTimeOffset At, DateTimeOffset From, DateTimeOffset To, IReadOnlyList<ObservedChange> Changes, IReadOnlyList<HistoryEvent> RecordedFindings,
     IReadOnlyList<string> Missing, IReadOnlyList<string> Stable, IReadOnlyList<HistoryGap> Gaps, string Summary);
+
+/// <summary>
+/// What loading a recording may consume, whatever the file says. A recording that needs more is analyzed up to the limit and reported as partial; it is
+/// never presented as complete. The sample limit is a separate argument of the loader (<see cref="HistoryLoader.MaximumSamples"/>).
+/// </summary>
+/// <param name="MaximumLineBytes">One line of a part. A real line (a sample with every counter) is a few kilobytes; longer lines are skipped and reported.</param>
+/// <param name="MaximumPartBytes">Decompressed bytes read from one part. This also bounds what a compressed file may expand to.</param>
+/// <param name="MaximumTotalBytes">Decompressed bytes read from all parts of one recording.</param>
+/// <param name="MaximumEvents">Timeline entries kept (the 5,005 of the validation fixture are far below it).</param>
+/// <param name="MaximumIncidents">User-marked incidents kept.</param>
+/// <param name="MaximumListedIssuesPerKind">Problems listed per kind; more are counted in one summary line.</param>
+public sealed record HistoryLimits(int MaximumLineBytes = 1 << 20, long MaximumPartBytes = 1L << 30, long MaximumTotalBytes = 4L << 30,
+    int MaximumEvents = 100_000, int MaximumIncidents = 5_000, int MaximumListedIssuesPerKind = 50);

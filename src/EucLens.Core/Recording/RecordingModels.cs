@@ -14,16 +14,24 @@ public sealed record RecordingMark(RecordingMarkKind Kind, DateTimeOffset At, st
 /// <summary>A performance issue the user marked while a recording was running.</summary>
 public sealed record IncidentMarker(Guid Id, DateTimeOffset At, int Sequence);
 
-public enum IncidentOutcome { Saved, NoRecording, NotPersistent, StorageFailed }
+/// <summary>
+/// <see cref="Saved"/>: on disk. <see cref="StorageFailed"/>: definitely not in the recording and never will be. <see cref="Unknown"/>: the writer had started on the
+/// marker when the disk failed or did not answer in time, so it may still end up in the file; nothing is retried.
+/// </summary>
+public enum IncidentOutcome { Saved, NoRecording, NotPersistent, StorageFailed, Unknown }
 
-/// <summary><see cref="Marker"/> is set only for <see cref="IncidentOutcome.Saved"/>: nothing is reported as saved that was not written.</summary>
+/// <summary><see cref="Saved"/> is true only for <see cref="IncidentOutcome.Saved"/>: nothing is reported as saved that was not written. <see cref="Marker"/> is set for Saved and Unknown (the identity the marker would have).</summary>
 public sealed record IncidentResult(IncidentOutcome Outcome, IncidentMarker? Marker, string Message)
 {
     public bool Saved => Outcome == IncidentOutcome.Saved;
 }
 
 /// <summary>Whether a mark reached the file (flushed to the operating system and to disk), and why not otherwise.</summary>
-public sealed record MarkWriteResult(bool Saved, string? Failure);
+public sealed record MarkWriteResult(bool Saved, string? Failure)
+{
+    /// <summary>True when the mark was not confirmed but may still be written (a timeout or an error after the line reached the file stream). False means it is definitely not in the recording.</summary>
+    public bool OutcomeUnknown { get; init; }
+}
 
 public sealed record RecordingStartInfo(Guid Id, DateTimeOffset StartedAt, bool IsDemo, string AppVersion);
 

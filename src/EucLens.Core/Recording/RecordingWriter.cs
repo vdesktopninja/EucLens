@@ -19,6 +19,8 @@ public sealed record RecordingOptions
     public bool CompressClosedParts { get; init; } = true;
     public TimeSpan RetryInterval { get; init; } = TimeSpan.FromSeconds(5);
     public TimeSpan GiveUpAfter { get; init; } = TimeSpan.FromSeconds(60);
+    /// <summary>How long a caller waits for a durable mark: first for room in the queue, then for the disk to confirm.</summary>
+    public TimeSpan DurableMarkTimeout { get; init; } = TimeSpan.FromSeconds(10);
 }
 
 /// <summary>
@@ -33,7 +35,12 @@ public sealed class RecordingWriter : IRecordingSink, IAsyncDisposable
     private abstract record Item;
     private sealed record SampleItem(SessionSnapshot Sample) : Item;
     private sealed record MarkItem(RecordingMark Mark) : Item;
-    private sealed record DurableMarkItem(RecordingMark Mark, TaskCompletionSource<MarkWriteResult> Done) : Item;
+    private sealed record DurableMarkItem(RecordingMark Mark, TaskCompletionSource<MarkWriteResult> Done) : Item
+    {
+        private int claim; // 0 queued, 1 taken by the writer, 2 withdrawn by the caller: exactly one of the last two wins
+        public bool TryClaim() => Interlocked.CompareExchange(ref claim, 1, 0) == 0;
+        public bool TryWithdraw() => Interlocked.CompareExchange(ref claim, 2, 0) == 0;
+    }
     private sealed record FlushItem(TaskCompletionSource Done) : Item;
     private sealed record EndItem(RecordingEndReason Reason, TaskCompletionSource Done) : Item;
 
@@ -63,12 +70,12 @@ public sealed class RecordingWriter : IRecordingSink, IAsyncDisposable
     private RecordingSinkState state = RecordingSinkState.Idle;
     private RecordingFault? lastFault;
 
-    public RecordingWriter(Func<RecordingOptions> optionsProvider, IRecordingStorage? storage = null, TimeProvider? clock = null, string appVersion = "0.4.3")
+    public RecordingWriter(Func<RecordingOptions> optionsProvider, IRecordingStorage? storage = null, TimeProvider? clock = null, string? appVersion = null)
     {
         this.optionsProvider = optionsProvider;
         this.storage = storage ?? new PhysicalRecordingStorage();
         this.clock = clock ?? TimeProvider.System;
-        this.appVersion = appVersion;
+        this.appVersion = appVersion ?? AppVersion.Current;
     }
 
     public event Action<RecordingFault>? Faulted;
@@ -109,32 +116,53 @@ public sealed class RecordingWriter : IRecordingSink, IAsyncDisposable
         }
     }
 
-    /// <summary>How long a caller waits for a durable mark: the queue to have room and the disk to confirm.</summary>
-    private static readonly TimeSpan DurableMarkTimeout = TimeSpan.FromSeconds(10);
-
     public Task<MarkWriteResult> MarkDurableAsync(RecordingMark mark, CancellationToken cancellationToken = default)
     {
-        Channel<Item>? c;
-        lock (gate) { if (state == RecordingSinkState.Idle) return Task.FromResult(new MarkWriteResult(false, "No recording is active.")); c = channel; }
+        Channel<Item>? c; TimeSpan timeout;
+        lock (gate) { if (state == RecordingSinkState.Idle) return Task.FromResult(new MarkWriteResult(false, "No recording is active.")); c = channel; timeout = options.DurableMarkTimeout; }
         var done = new TaskCompletionSource<MarkWriteResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         var item = new DurableMarkItem(mark, done);
         // Queued before this method returns: callers that hold a lock around the call keep their order.
-        if (c!.Writer.TryWrite(item)) return AwaitDurableAsync(done.Task, cancellationToken);
-        return QueueThenAwaitAsync(c, item, cancellationToken);
+        if (c!.Writer.TryWrite(item)) return AwaitDurableAsync(item, timeout, cancellationToken);
+        return QueueThenAwaitAsync(c, item, timeout, cancellationToken);
     }
 
-    private static async Task<MarkWriteResult> QueueThenAwaitAsync(Channel<Item> c, DurableMarkItem item, CancellationToken cancellationToken)
+    private static async Task<MarkWriteResult> QueueThenAwaitAsync(Channel<Item> c, DurableMarkItem item, TimeSpan timeout, CancellationToken cancellationToken)
     {
-        try { await c.Writer.WriteAsync(item, cancellationToken).AsTask().WaitAsync(DurableMarkTimeout, cancellationToken).ConfigureAwait(false); }
+        using var waiting = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        waiting.CancelAfter(timeout);
+        try { await c.Writer.WriteAsync(item, waiting.Token).ConfigureAwait(false); }
         catch (ChannelClosedException) { return new(false, "The recording ended before the marker could be written."); }
-        catch (TimeoutException) { return new(false, "The disk is too slow: the write queue is full."); }
-        return await AwaitDurableAsync(item.Done.Task, cancellationToken).ConfigureAwait(false);
+        catch (OperationCanceledException)
+        {
+            // A write that was cancelled never enters the queue: the marker is not in the recording and never will be.
+            if (cancellationToken.IsCancellationRequested) throw;
+            return new(false, "The disk is too slow: the write queue is full. The marker was not saved and will not be written later.");
+        }
+        return await AwaitDurableAsync(item, timeout, cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task<MarkWriteResult> AwaitDurableAsync(Task<MarkWriteResult> written, CancellationToken cancellationToken)
+    /// <summary>
+    /// Waits for the writer. When the wait ends without an answer the marker is withdrawn: if the writer has not started on it, it will not be written (a definite
+    /// failure); if it has, the outcome is honestly unknown, because it may complete at any moment. The same marker is never written twice and never retried.
+    /// </summary>
+    private static async Task<MarkWriteResult> AwaitDurableAsync(DurableMarkItem item, TimeSpan timeout, CancellationToken cancellationToken)
     {
-        try { return await written.WaitAsync(DurableMarkTimeout, cancellationToken).ConfigureAwait(false); }
-        catch (TimeoutException) { return new(false, "The disk did not confirm the write in time."); }
+        try { return await item.Done.Task.WaitAsync(timeout, cancellationToken).ConfigureAwait(false); }
+        catch (TimeoutException) { return Withdraw(item, "The disk did not confirm the write in time."); }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            var result = Withdraw(item, "The marker was cancelled.");
+            if (result.OutcomeUnknown) return result;
+            throw;
+        }
+    }
+
+    private static MarkWriteResult Withdraw(DurableMarkItem item, string reason)
+    {
+        if (item.TryWithdraw()) return new(false, $"{reason} The marker was withdrawn before the writer started on it and will not be written.");
+        if (item.Done.Task.IsCompletedSuccessfully) return item.Done.Task.Result;   // the answer arrived while the wait was ending
+        return new(false, $"{reason} The writer had already started on the marker, so it may or may not end up in the recording. It is not retried.") { OutcomeUnknown = true };
     }
 
     public void Add(SessionSnapshot sample) => Enqueue(new SampleItem(sample), isSample: true);
@@ -216,14 +244,24 @@ public sealed class RecordingWriter : IRecordingSink, IAsyncDisposable
                 {
                     case SampleItem s: if (!await WriteSampleAsync(s.Sample).ConfigureAwait(false)) return; break;
                     case MarkItem m: await GuardedAsync(() => WriteMarkAsync(m.Mark, flush: true), countAsLostSample: false).ConfigureAwait(false); break;
-                    case DurableMarkItem d: await WriteDurableMarkAsync(d).ConfigureAwait(false); break;
+                    case DurableMarkItem d:
+                        if (d.TryClaim()) await WriteDurableMarkAsync(d).ConfigureAwait(false);
+                        else d.Done.TrySetResult(new(false, "The marker was withdrawn before it was written."));
+                        break;
                     case FlushItem f: await GuardedAsync(() => FlushFileAsync(force: true), false).ConfigureAwait(false); f.Done.TrySetResult(); break;
                     case EndItem e:
-                        await FinishAsync(e.Reason).ConfigureAwait(false);
+                        await FinishAsync(e.Reason, reportFailure: true).ConfigureAwait(false);
                         e.Done.TrySetResult();
                         return;
                 }
             }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The writer itself failed unexpectedly: nothing may keep waiting for it, and the user is told the recording stopped.
+            Raise(new RecordingFault(RecordingFaultKind.Io, $"The recording writer stopped unexpectedly: {ex.Message}", clock.GetUtcNow(), true));
+            AbandonFile();
+            try { Ended?.Invoke(RecordingEndReason.StorageError); } catch (Exception) { }
         }
         finally
         {
@@ -274,7 +312,10 @@ public sealed class RecordingWriter : IRecordingSink, IAsyncDisposable
         return true;
     }
 
-    /// <summary>A mark the caller waits for: success is reported only after the line is flushed to disk; every failure is reported as such.</summary>
+    /// <summary>
+    /// A mark the caller waits for: success is reported only after the line is flushed to disk. A failure is a definite "not saved" while nothing of the line reached the
+    /// stream; once the full line was handed to it, closing the failed file may still write it, so the outcome is reported as unknown.
+    /// </summary>
     private async Task WriteDurableMarkAsync(DurableMarkItem item)
     {
         if (faultStart is not null)
@@ -283,16 +324,17 @@ public sealed class RecordingWriter : IRecordingSink, IAsyncDisposable
             item.Done.TrySetResult(new(false, $"The recording folder is not writable right now ({reason ?? "storage unavailable"})."));
             return;
         }
+        var handedToStream = false;
         try
         {
-            await WriteMarkAsync(item.Mark, flush: true).ConfigureAwait(false);
+            await WriteMarkAsync(item.Mark, flush: true, onBuffered: () => handedToStream = true).ConfigureAwait(false);
             if (file is FileStream fs) fs.Flush(flushToDisk: true);
             item.Done.TrySetResult(new(true, null));
         }
         catch (Exception ex) when (IsStorageError(ex))
         {
             OnWriteFailure(ex);
-            item.Done.TrySetResult(new(false, ex.Message));
+            item.Done.TrySetResult(new(false, ex.Message) { OutcomeUnknown = handedToStream });
         }
     }
 
@@ -335,7 +377,7 @@ public sealed class RecordingWriter : IRecordingSink, IAsyncDisposable
     private async Task FatalAsync(RecordingEndReason reason, RecordingFaultKind kind, string message)
     {
         var fault = new RecordingFault(kind, message, clock.GetUtcNow(), true);
-        try { await FinishAsync(reason).ConfigureAwait(false); } catch (Exception ex) when (IsStorageError(ex)) { /* best effort: the part stays readable up to its last line */ }
+        await FinishAsync(reason, reportFailure: false).ConfigureAwait(false);   // best effort: the part stays readable up to its last line
         Raise(fault);
         try { Ended?.Invoke(reason); } catch (Exception) { }
         lock (gate) state = RecordingSinkState.Idle;
@@ -349,7 +391,14 @@ public sealed class RecordingWriter : IRecordingSink, IAsyncDisposable
         var count = Interlocked.Exchange(ref lostSinceMark, 0);
         faultStart = null;
         lock (gate) state = RecordingSinkState.Active;
-        await WriteMarkAsync(new RecordingMark(RecordingMarkKind.DataLoss, now, $"{count} sample(s) could not be written and are lost.", gap), flush: true).ConfigureAwait(false);
+        try { await WriteMarkAsync(new RecordingMark(RecordingMarkKind.DataLoss, now, $"{count} sample(s) could not be written and are lost.", gap), flush: true).ConfigureAwait(false); }
+        catch (Exception ex) when (IsStorageError(ex))
+        {
+            // The announcement of the loss did not reach the file: the loss is still owed and the writer is not healthy.
+            Interlocked.Add(ref lostSinceMark, count);
+            OnWriteFailure(ex);
+            throw;
+        }
     }
 
     // ---- file operations ----
@@ -422,7 +471,7 @@ public sealed class RecordingWriter : IRecordingSink, IAsyncDisposable
         await FlushFileAsync(force: false).ConfigureAwait(false);
     }
 
-    private async Task WriteMarkAsync(RecordingMark mark, bool flush)
+    private async Task WriteMarkAsync(RecordingMark mark, bool flush, Action? onBuffered = null)
     {
         await WriteAsync(RecordingFormat.Line(w =>
         {
@@ -434,6 +483,7 @@ public sealed class RecordingWriter : IRecordingSink, IAsyncDisposable
             if (mark.Sequence is { } sequence) w.WriteNumber("seq", sequence);
             w.WriteEndObject();
         })).ConfigureAwait(false);
+        onBuffered?.Invoke();
         if (mark.Kind == RecordingMarkKind.UserIncident) Interlocked.Increment(ref incidents);
         if (flush) await FlushFileAsync(force: true).ConfigureAwait(false);
     }
@@ -473,37 +523,76 @@ public sealed class RecordingWriter : IRecordingSink, IAsyncDisposable
         lastFlush = clock.GetUtcNow();
     }
 
-    private async Task FinishAsync(RecordingEndReason reason)
+    /// <summary>
+    /// Writes the footer, closes and indexes the last part. A failure at any step is reported as a fault (when <paramref name="reportFailure"/>), never as a successful
+    /// finalization: the part stays as it is (readable up to its last complete line, without a footer), the handle is released and the waiting callers are completed.
+    /// </summary>
+    private async Task FinishAsync(RecordingEndReason reason, bool reportFailure)
     {
+        Exception? failure = null;
         if (file is not null)
         {
-            await WriteFooterAsync(reason.ToString(), complete: true).ConfigureAwait(false);
-            await CloseFileAsync().ConfigureAwait(false);
-            WriteMeta(complete: true, reason);
-            if (options.CompressClosedParts && currentPath is { } last) compressions.Add(Task.Run(() => Compress(last)));
+            try
+            {
+                await WriteFooterAsync(reason.ToString(), complete: true).ConfigureAwait(false);
+                await CloseFileAsync().ConfigureAwait(false);
+                WriteMeta(complete: true, reason);
+                if (options.CompressClosedParts && currentPath is { } last) compressions.Add(Task.Run(() => Compress(last)));
+            }
+            catch (Exception ex) when (IsStorageError(ex)) { failure = ex; }
+            finally { AbandonFile(); }
         }
         try { await Task.WhenAll(compressions).ConfigureAwait(false); } catch (Exception) { /* a part that failed to compress stays plain */ }
         compressions.Clear();
-        lock (gate) state = RecordingSinkState.Idle;
+        // After a fatal storage error the caller announces the end first and then sets the state, as it always did.
+        if (failure is null || reportFailure) lock (gate) state = RecordingSinkState.Idle;
+        if (failure is not null && reportFailure)
+            Raise(new RecordingFault(Classify(failure), $"The recording could not be finalized ({failure.Message}). It was not closed properly; what was written is kept and can be opened as an interrupted recording.", clock.GetUtcNow(), true));
     }
 
-    /// <summary>Gzip a closed part. The plain file is only removed after the compressed copy is complete.</summary>
+    /// <summary>Releases the current file handle whatever state it is in.</summary>
+    private void AbandonFile()
+    {
+        if (file is null) return;
+        try { file.Dispose(); } catch (Exception) { /* the handle is already broken */ }
+        file = null;
+    }
+
+    /// <summary>
+    /// Gzip a closed part. The compressed copy is written to a temporary file, flushed to disk and read back completely (it must expand to exactly the plain
+    /// bytes) before it is renamed into place, and only then is the plain file removed. A failure at any step leaves the plain part, with its confirmed
+    /// incident lines, untouched; a crash between the rename and the delete leaves both, and readers prefer the plain one.
+    /// </summary>
     private void Compress(string path)
     {
         var temporary = path + ".gz.partial";
         try
         {
+            long expected;
             using (var input = storage.OpenRead(path))
             using (var output = storage.Create(temporary))
-            using (var gzip = new GZipStream(output, CompressionLevel.Fastest))
-                input.CopyTo(gzip);
+            {
+                expected = input.CanSeek ? input.Length : -1;
+                using (var gzip = new GZipStream(output, CompressionLevel.Fastest, leaveOpen: true)) input.CopyTo(gzip);
+                output.Flush();
+                if (output is FileStream fs) fs.Flush(flushToDisk: true);
+            }
+            VerifyCompressed(temporary, expected);
             storage.Rename(temporary, path + ".gz");
             storage.Delete(path);
         }
-        catch (Exception ex) when (IsStorageError(ex))
+        catch (Exception ex) when (IsStorageError(ex) || ex is InvalidDataException)
         {
             try { storage.Delete(temporary); } catch (Exception) { }
         }
+    }
+
+    private void VerifyCompressed(string compressedPath, long expectedBytes)
+    {
+        using var stream = new GZipStream(storage.OpenRead(compressedPath), CompressionMode.Decompress);
+        var buffer = new byte[64 * 1024]; long total = 0; int read;
+        while ((read = stream.Read(buffer, 0, buffer.Length)) > 0) total += read;
+        if (expectedBytes >= 0 && total != expectedBytes) throw new InvalidDataException($"The compressed copy holds {total} bytes, the part {expectedBytes}.");
     }
 
     private void WriteMeta(bool complete, RecordingEndReason? reason)

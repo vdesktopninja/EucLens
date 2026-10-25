@@ -103,7 +103,23 @@ public sealed class HistoryIncidentViewModel : ObservableObject
     public ObservableCollection<HistoryEvidenceRow> Evidence { get; } = [];
     public bool HasChanges => Changes.Count > 0;
     public bool IsEvidenceExpanded { get => evidenceExpanded; set => Set(ref evidenceExpanded, value); }
-    internal void MarkSaved() { dirty = false; SaveCommand.Refresh(); }
+    /// <summary>True while the text or category differs from what was saved.</summary>
+    public bool IsDirty => dirty;
+    /// <summary>The page was left or another incident selected with unsaved edits: they are put back when the incident is selected again.</summary>
+    internal void ApplyDraft(Choice<IncidentCategory> draftCategory, string draftDescription)
+    {
+        category = draftCategory; description = draftDescription; dirty = true;
+        Raise(nameof(Category)); Raise(nameof(Description)); Raise(nameof(DescriptionCount)); SaveCommand.Refresh();
+    }
+    /// <summary>A save finished. The editor becomes clean only if it still shows exactly what was saved; anything typed meanwhile stays, unsaved and untouched.</summary>
+    internal bool CompleteSave(IncidentCategory savedCategory, string savedText)
+    {
+        bool unchanged;
+        try { unchanged = category.Value == savedCategory && RecordingAnnotationStore.Normalize(description) == savedText; }
+        catch (ArgumentException) { unchanged = false; }
+        if (unchanged) { description = savedText; dirty = false; Raise(nameof(Description)); Raise(nameof(DescriptionCount)); SaveCommand.Refresh(); }
+        return unchanged;
+    }
     internal void RaiseLists() { Raise(nameof(HasChanges)); }
 }
 
@@ -138,6 +154,10 @@ public sealed class SessionHistoryViewModel : ObservableObject
     private RecordingItem? selectedRecording;
     private HistoryEventItem? selectedEvent;
     private HistoryIncidentViewModel? selectedIncident;
+    // Unsaved annotation edits survive selecting another incident and leaving the page, for as long as the same recording is the one that is open.
+    private readonly Dictionary<Guid, (Choice<IncidentCategory> Category, string Description)> drafts = [];
+    private string draftsOwner = "";
+    private readonly SemaphoreSlim saveGate = new(1, 1);
     private string customFrom = "", customTo = "", rangeText = "", rangeMessage = "", hoverText = "";
     private DateTimeOffset? hoverAt;
     private bool suppressSelection;
@@ -313,6 +333,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
     /// <summary>Cancels loading, aggregation and analysis and drops the loaded recording; the selection is remembered so the page can open it again.</summary>
     public void Release()
     {
+        KeepDraft(selectedIncident);
         openVersion++;
         Cancel(ref loadCts); Cancel(ref refreshCts); Cancel(ref analysisCts);
         history = null; annotations = RecordingAnnotations.Empty;
@@ -340,15 +361,18 @@ public sealed class SessionHistoryViewModel : ObservableObject
         suppressSelection = true; SelectedRecording = Recordings.FirstOrDefault(r => r.Summary.ShortId == summary.ShortId); suppressSelection = false;
         var version = openVersion;
         var cts = new CancellationTokenSource(); loadCts = cts;
+        // Read once, before the first await: leaving the page disposes the source, and its Token can no longer be read after that.
+        var token = cts.Token;
+        if (draftsOwner != summary.ShortId) { drafts.Clear(); draftsOwner = summary.ShortId; }
         Error = ""; IsLoading = true; Message = $"Loading {summary.Display}…"; LoadProgress = "";
         var progress = new Progress<HistoryLoadProgress>(p => { if (version == openVersion) LoadProgress = $"{p.Samples:N0} samples · part {p.PartsRead} of {p.Parts}"; });
         try
         {
             var activeId = recorder.IsRecording && recorder.SinkStatus?.RecordingId is { } id ? RecordingFormat.ShortId(id) : null;
-            var loaded = await HistoryLoader.LoadAsync(storage, summary.Directory, summary.ShortId, activeId, progress, cts.Token, SampleLimit);
+            var loaded = await HistoryLoader.LoadAsync(storage, summary.Directory, summary.ShortId, activeId, progress, token, SampleLimit);
             var issues = loaded.Issues.ToList();
-            var notes = await Task.Run(() => RecordingAnnotationStore.Load(storage, summary.Directory, RecordingFormat.Stamp(loaded.Info.StartedUtc), summary.ShortId, issues), cts.Token);
-            if (version != openVersion || cts.IsCancellationRequested) return;
+            var notes = await Task.Run(() => RecordingAnnotationStore.Load(storage, summary.Directory, RecordingFormat.Stamp(loaded.Info.StartedUtc), summary.ShortId, issues), token);
+            if (version != openVersion || token.IsCancellationRequested) return;
             Show(loaded, notes, issues);
         }
         catch (OperationCanceledException) { /* another recording was opened or the page was left */ }
@@ -357,6 +381,12 @@ public sealed class SessionHistoryViewModel : ObservableObject
         {
             logger?.LogWarning(ex, "A recording could not be read.");
             if (version == openVersion) { Error = $"The recording could not be read: {ex.Message}"; Message = "This recording cannot be opened."; }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Whatever else a damaged or hostile file provokes: the page shows an error instead of an unobserved failure and an endless "Loading…".
+            logger?.LogWarning(ex, "A recording could not be opened.");
+            if (version == openVersion) { Error = $"The recording could not be opened: {ex.Message}"; Message = "This recording cannot be opened."; }
         }
         finally { if (version == openVersion) { IsLoading = false; LoadProgress = ""; } }
     }
@@ -402,7 +432,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
         {
             RecordingCompleteness.Complete => $"Complete: the recording ended properly ({info.EndReason.ToLowerInvariant()}).",
             RecordingCompleteness.InProgress => "Recording in progress: this recording is still being written. What is on disk now is shown; reopen it to see more.",
-            RecordingCompleteness.Partial => $"Partial analysis: this recording holds more than the {info.SampleLimit:N0} samples EUC Lens analyzes, so only its beginning is shown. Everything on this page (charts, statistics, incidents, counts) covers only that beginning, not the whole session.",
+            RecordingCompleteness.Partial => $"Partial analysis: {(info.SampleLimit > 0 ? $"this recording holds more than the {info.SampleLimit:N0} samples EUC Lens analyzes" : info.LimitReason)}, so only its beginning is shown. Everything on this page (charts, statistics, incidents, counts) covers only that beginning, not the whole session.",
             _ => "Interrupted: no end of recording was written (a crash, a power loss or a forced exit). The data up to the last complete line is shown; the real end time is not known."
         };
         PartialNote = info.IsPartial
@@ -566,8 +596,16 @@ public sealed class SessionHistoryViewModel : ObservableObject
     {
         if (history is null) return;
         if (e.Kind == HistoryEventKind.UserIncident && history.Incidents.FirstOrDefault(i => i.Id == e.IncidentId) is { } incident) { SelectIncident(incident); return; }
+        KeepDraft(selectedIncident);
         SelectedIncident = null;
         CenterOn(e.At);
+    }
+
+    /// <summary>Remembers unsaved annotation edits of an incident that is about to be replaced; a clean editor leaves nothing behind.</summary>
+    private void KeepDraft(HistoryIncidentViewModel? vm)
+    {
+        if (vm is null) return;
+        if (vm.IsDirty) drafts[vm.Incident.Id] = (vm.Category, vm.Description); else drafts.Remove(vm.Incident.Id);
     }
 
     private void CenterOn(DateTimeOffset at) => SetRange(at - Context, at + Context);
@@ -578,13 +616,16 @@ public sealed class SessionHistoryViewModel : ObservableObject
         if (history is null) return;
         Cancel(ref analysisCts);
         var cts = new CancellationTokenSource(); analysisCts = cts;
+        KeepDraft(selectedIncident);
         var vm = new HistoryIncidentViewModel(incident, HistoryTime.Format(incident.At, zone, withDate: true, milliseconds: true), annotations.For(incident.Id), SaveAnnotationAsync);
+        if (drafts.TryGetValue(incident.Id, out var draft)) vm.ApplyDraft(draft.Category, draft.Description);
         var titles = history.Events.Where(e => e.RuleId is not null).GroupBy(e => e.RuleId!).ToDictionary(g => g.Key, g => g.Last().Title);
         vm.RecordedState = DescribeState(incident, titles);
         foreach (var row in BuildEvidence(incident)) vm.Evidence.Add(row);
         SelectedIncident = vm;
         var item = allEvents.FirstOrDefault(i => i.Event.IncidentId == incident.Id);
-        if (item is not null && Events.Contains(item)) { suppressSelection = true; selectedEvent = item; suppressSelection = false; Raise(nameof(SelectedEvent)); }
+        // The incident's row may be hidden by the filter: the list then shows no selection rather than a stale one.
+        suppressSelection = true; selectedEvent = item is not null && Events.Contains(item) ? item : null; suppressSelection = false; Raise(nameof(SelectedEvent));
         CenterOn(incident.At);
         var h = history; var window = Context;
         analysisTask = AnalyzeAsync(h, incident, window, vm, cts.Token);
@@ -646,17 +687,28 @@ public sealed class SessionHistoryViewModel : ObservableObject
         if (history is not { } h || opened is null) return;
         try
         {
+            // What is saved is what the editor showed when Save was pressed; typing continues while the file is written.
+            var savedCategory = vm.Category.Value;
             var text = RecordingAnnotationStore.Normalize(vm.Description);
-            var note = vm.Category.Value == IncidentCategory.Unspecified && text.Length == 0 ? null : new IncidentAnnotation(vm.Category.Value, text, DateTimeOffset.UtcNow);
+            var note = savedCategory == IncidentCategory.Unspecified && text.Length == 0 ? null : new IncidentAnnotation(savedCategory, text, DateTimeOffset.UtcNow);
             var stamp = RecordingFormat.Stamp(h.Info.StartedUtc);
-            var updated = await Task.Run(() => RecordingAnnotationStore.Update(storage, h.Info.Directory, stamp, h.Info.ShortId, h.Info.RecordingId, vm.Incident.Id, note));
-            annotations = updated;
-            vm.Description = text; vm.MarkSaved();
-            vm.SaveMessage = note is null ? "Annotation removed." : $"Saved beside the recording ({RecordingAnnotationStore.DisplayName(note.Category)}).";
+            RecordingAnnotations updated;
+            await saveGate.WaitAsync().ConfigureAwait(true);
+            try { updated = await Task.Run(() => RecordingAnnotationStore.Update(storage, h.Info.Directory, stamp, h.Info.ShortId, h.Info.RecordingId, vm.Incident.Id, note)); }
+            finally { saveGate.Release(); }
+            if (ReferenceEquals(h, history)) annotations = updated;   // another recording may have been opened meanwhile
             var item = allEvents.FirstOrDefault(i => i.Event.IncidentId == vm.Incident.Id);
             if (item is not null) item.Annotation = note is null ? "" : AnnotationText(note);
+            var clean = vm.CompleteSave(savedCategory, text);
+            if (clean) drafts.Remove(vm.Incident.Id);
+            vm.SaveMessage = !clean ? "Saved, but you changed the text meanwhile: the newer changes are not saved yet."
+                : note is null ? "Annotation removed." : $"Saved beside the recording ({RecordingAnnotationStore.DisplayName(note.Category)}).";
         }
         catch (ArgumentException ex) { vm.SaveMessage = ex.Message; }
+        catch (RecordingFormatException)
+        {
+            vm.SaveMessage = "These annotations were written by a newer version of EUC Lens (or the file is not an annotation file). They were left unchanged and cannot be edited with this version.";
+        }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             logger?.LogWarning(ex, "An incident annotation could not be saved.");

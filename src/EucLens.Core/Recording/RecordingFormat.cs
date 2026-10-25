@@ -79,11 +79,30 @@ public static partial class RecordingFormat
         public int Add(string value)
         {
             if (ids.TryGetValue(value, out var id)) return id;
+            // The table has the size a reader accepts; beyond it every new value shares one entry instead of making the file unreadable.
+            if (byId.Count >= MaximumEntries - 1) value = OverflowText;
+            if (ids.TryGetValue(value, out id)) return id;
             id = byId.Count; byId.Add(value); ids[value] = id; pending.Add((id, value));
             return id;
         }
         public string Get(int id) => id >= 0 && id < byId.Count ? byId[id] : throw new InvalidDataException($"Unknown string table entry {id}.");
-        public void Set(int id, string value) { while (byId.Count <= id) byId.Add(""); byId[id] = value; }
+        /// <summary>The most strings one part may define. The writer needs a few dozen; a file that asks for more is damaged or hostile.</summary>
+        public const int MaximumEntries = 100_000;
+        private const string OverflowText = "(further distinct values are not recorded)";
+        /// <summary>The writer numbers entries one after another. A larger jump than this is not a lost line but a damaged or hostile id.</summary>
+        public const int MaximumGap = 1_024;
+
+        /// <summary>
+        /// Defines a string table entry read from a file. The id is not trusted: a negative id, one beyond <see cref="MaximumEntries"/> or one far past the end of the
+        /// table is rejected before anything is allocated, so a single line can never make the table grow without bound.
+        /// </summary>
+        public void Set(int id, string value)
+        {
+            if (id < 0 || id >= MaximumEntries || id - byId.Count > MaximumGap)
+                throw new InvalidDataException($"String table entry {id} is out of range (the table holds {byId.Count} entries).");
+            while (byId.Count <= id) byId.Add("");
+            byId[id] = value;
+        }
         public void Reset() { ids.Clear(); byId.Clear(); pending.Clear(); }
         public IReadOnlyList<(int Id, string Value)> TakePending() { var copy = pending.ToArray(); pending.Clear(); return copy; }
         public IEnumerable<(int Id, string Value)> All() => byId.Select((v, i) => (i, v));
