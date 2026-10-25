@@ -72,7 +72,7 @@ public static class RecordingCatalog
                 return new(shortId, started, done2.Ended, done2.Ended - started, bytes, samples, warnings, criticals, lost, true, done2.Reason, source, parts, directory, incidents);
             return new(shortId, started, last, (last ?? started) - started, bytes, samples, warnings, criticals, lost, false, "Interrupted", source, parts, directory, incidents);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidDataException) { return null; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidDataException or KeyNotFoundException or InvalidOperationException or FormatException) { return null; }
     }
 
     private sealed record Meta(DateTimeOffset Started, DateTimeOffset Ended, bool Complete, string Reason, string Source, long Samples, int Warnings, int Criticals, long Lost, int Parts, int Incidents);

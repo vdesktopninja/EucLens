@@ -43,7 +43,7 @@ public static class HistoryLoader
         SessionInfo? lastSession = null; var sessionChanged = false;
         DateTimeOffset? started = null; string source = "", appVersion = ""; Guid? recordingId = null;
         FooterRecord? finalFooter = null; long footerLost = 0;
-        var order = 0; var sorted = true; var partsRead = 0; var lastPart = 0;
+        var order = 0; var sorted = true; var partsRead = 0; var lastPart = 0; var capped = false;
 
         void Add(HistoryEventKind kind, DateTimeOffset at, string title, string detail = "", Severity? severity = null, string? rule = null, Guid? incident = null, int? sequence = null, TimeSpan? gap = null) =>
             events.Add(new(kind, at, title, detail, severity, rule, incident, sequence, gap, order++));
@@ -79,6 +79,7 @@ public static class HistoryLoader
                 case SampleRecord sample:
                     if (ticks.Count >= maximumSamples)
                     {
+                        capped = true;
                         issues.Add(new(HistoryIssueKind.SampleCapReached, $"Only the first {maximumSamples:N0} samples were loaded; the recording continues after {HistoryLoader.Describe(ticks[^1])}.", record.Part));
                         goto done;
                     }
@@ -140,13 +141,13 @@ public static class HistoryLoader
 
         var lastTime = tickArray.Length > 0 ? new DateTimeOffset(new DateTime(tickArray[^1], DateTimeKind.Utc)) : started.Value;
         if (ordered.Length > 0 && ordered[^1].At > lastTime && finalFooter is null) lastTime = ordered[^1].At;
-        var ended = finalFooter?.EndedUtc ?? lastTime;
-        var state = finalFooter is not null ? RecordingCompleteness.Complete : activeShortId == shortId ? RecordingCompleteness.InProgress : RecordingCompleteness.Interrupted;
+        var ended = capped ? lastTime : finalFooter?.EndedUtc ?? lastTime;
+        var state = capped ? RecordingCompleteness.Partial : finalFooter is not null ? RecordingCompleteness.Complete : activeShortId == shortId ? RecordingCompleteness.InProgress : RecordingCompleteness.Interrupted;
         var warnings = ordered.Count(e => e.Kind is HistoryEventKind.FindingDetected or HistoryEventKind.FindingEscalated && e.Severity == Severity.Warning);
         var criticals = ordered.Count(e => e.Kind is HistoryEventKind.FindingDetected or HistoryEventKind.FindingEscalated && e.Severity == Severity.Critical);
         var info = new HistoryInfo(shortId, recordingId, started.Value, ended, finalFooter is not null, source, appVersion, protocols, tickArray.Length, warnings, criticals, incidents.Count, footerLost,
-            parts.Count, state, finalFooter is not null ? EndReasonText(finalFooter.Reason) : state == RecordingCompleteness.InProgress ? "Recording in progress" : "Interrupted (no end of recording was written)",
-            coverage, gaps.Count, TimeSpan.FromTicks(gaps.Sum(g => g.Length.Ticks)), directory);
+            parts.Count, state, capped ? "Not analyzed to the end: the sample limit was reached" : finalFooter is not null ? EndReasonText(finalFooter.Reason) : state == RecordingCompleteness.InProgress ? "Recording in progress" : "Interrupted (no end of recording was written)",
+            coverage, gaps.Count, TimeSpan.FromTicks(gaps.Sum(g => g.Length.Ticks)), directory, capped ? maximumSamples : 0);
         return new(info, tickArray, channelData, ordered, incidents, gaps, issues, gapThreshold);
     }
 

@@ -53,7 +53,7 @@ public partial class App : Application
             // Recordings of the smoke test are kept next to the other evidence so CI uploads them.
             if (smoke) await store.SaveAsync(BackgroundSettings.Defaults with { RecordingDirectory = Path.Combine(AppContext.BaseDirectory, "visual-evidence", "recordings") });
             BackgroundViewModel? background = null;
-            var writer = new RecordingWriter(() => RecordingOptionsFor(background?.Current ?? BackgroundSettings.Defaults));
+            var writer = new RecordingWriter(() => RecordingOptionsFor(background?.Current ?? BackgroundSettings.Defaults), smoke ? new SmokeFaultStorage() : null);
             var recorder = new SessionRecorder(writer);
             monitoring = new MonitoringService(new MonitoringCoordinator(), recorder);
             background = new BackgroundViewModel(monitoring, recorder, desktopServices, store);

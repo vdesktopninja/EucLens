@@ -146,9 +146,14 @@ internal sealed class TrayIconService : IDisposable
     public void ShowHint() => ShowBalloon("EUC Lens is still running",
         "Monitoring" + (monitoring.Status.IsRecording ? " and the recording continue" : " continues") + " in the notification area. Right-click the icon to pause, stop recording or exit.", WinForms.ToolTipIcon.Info);
 
+    /// <summary>The text and icon of the latest balloon, so the validation can check what the user was told.</summary>
+    internal string? LastBalloonText { get; private set; }
+    internal WinForms.ToolTipIcon LastBalloonIcon { get; private set; }
+
     private void ShowBalloon(string title, string text, WinForms.ToolTipIcon kind, int milliseconds = 8000)
     {
         if (disposed) return;
+        LastBalloonText = text; LastBalloonIcon = kind;
         icon.BalloonTipTitle = title; icon.BalloonTipText = text; icon.BalloonTipIcon = kind;
         icon.ShowBalloonTip(milliseconds);
     }

@@ -340,6 +340,37 @@ public sealed class SessionHistoryViewModelTests
     }
 
     [Fact]
+    public async Task ARecordingBeyondTheSampleLimitIsLabelledPartialEverywhereAndNeverComplete()
+    {
+        var rec = await HistoryFixture.RecordAsync(600, compress: false, step: async (i, c) => { if (i is 100 or 500) await c.MarkIncidentAsync(); });
+        var rig = CreateRig(rec.Storage);
+        rig.History.SampleLimit = 200;
+        await rig.History.OpenAsync(Summary(rec.Storage, rec.ShortId)); await rig.History.Settled;
+        var h = rig.History;
+
+        Assert.True(h.IsPartial);
+        Assert.Equal("Partial analysis", h.StateLabel);
+        Assert.Equal("Warning", h.StateIcon);
+        Assert.Contains("only its beginning is shown", h.StateNote, StringComparison.Ordinal);
+        Assert.Contains("Nothing below describes the whole session", h.PartialNote, StringComparison.Ordinal);
+        Assert.Contains($"of {600.ToString("N0", CultureInfo.CurrentCulture)} recorded", h.PartialNote, StringComparison.Ordinal);
+        Assert.Contains(h.Facts, f => f.Label == "Duration analyzed" && f.Detail == "Beginning of the recording only");
+        Assert.Contains(h.Facts, f => f.Label == "Last sample analyzed");
+        Assert.DoesNotContain(h.Facts, f => f.Label is "End" or "Duration");
+        Assert.Contains(h.Facts, f => f.Label == "Recording state" && f.Value == "Partial analysis" && f.Detail == "Not the whole recording");
+        Assert.DoesNotContain(h.Facts, f => f.Value == "Complete");
+        Assert.Contains(h.IssueLines, l => l.StartsWith("Problem:", StringComparison.Ordinal) && l.Contains("Only the first 200", StringComparison.Ordinal));
+        Assert.Equal(200, h.Loaded!.SampleCount);
+        Assert.Single(h.Loaded.Incidents);                                      // the second incident lies beyond the analyzed part and is not claimed
+        Assert.Contains(h.Facts, f => f.Label == "Marked incidents" && f.Value == "1");
+        Assert.True(h.SessionEnd - h.SessionStart < TimeSpan.FromSeconds(200));
+        // A complete recording shows no notice.
+        rig.History.SampleLimit = HistoryLoader.MaximumSamples;
+        await rig.History.OpenAsync(Summary(rec.Storage, rec.ShortId)); await rig.History.Settled;
+        Assert.False(h.IsPartial); Assert.Equal("", h.PartialNote); Assert.Equal("Complete", h.StateLabel);
+    }
+
+    [Fact]
     public async Task AnInterruptedRecordingIsNeverCalledComplete()
     {
         var rec = await HistoryFixture.RecordAsync(200, compress: false, finish: false);

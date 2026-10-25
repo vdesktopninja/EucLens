@@ -42,7 +42,8 @@ public sealed record HistoryIssue(HistoryIssueKind Kind, string Message, int? Pa
     public bool IsProblem => Kind != HistoryIssueKind.TruncatedTail;
 }
 
-public enum RecordingCompleteness { Complete, Interrupted, InProgress }
+/// <summary><see cref="Partial"/>: the recording is longer than the sample limit, so only its beginning was analyzed; it is never presented as the whole session.</summary>
+public enum RecordingCompleteness { Complete, Interrupted, InProgress, Partial }
 
 /// <summary>A stretch without samples, from the last sample before it to the first after it.</summary>
 public sealed record HistoryGap(DateTimeOffset Start, DateTimeOffset End, string Reason)
@@ -53,8 +54,10 @@ public sealed record HistoryGap(DateTimeOffset Start, DateTimeOffset End, string
 /// <summary>What the file said about the recording itself.</summary>
 public sealed record HistoryInfo(string ShortId, Guid? RecordingId, DateTimeOffset StartedUtc, DateTimeOffset EndedUtc, bool HasEnded, string Source,
     string AppVersion, IReadOnlyList<string> Protocols, long Samples, int Warnings, int Criticals, int Incidents, long LostSamples, int Parts,
-    RecordingCompleteness State, string EndReason, double DataCoverage, int Gaps, TimeSpan GapTime, string Directory)
+    RecordingCompleteness State, string EndReason, double DataCoverage, int Gaps, TimeSpan GapTime, string Directory, int SampleLimit = 0)
 {
+    /// <summary>True when loading stopped at the sample limit: everything shown covers only the beginning of the recording.</summary>
+    public bool IsPartial => State == RecordingCompleteness.Partial;
     public TimeSpan Duration => EndedUtc - StartedUtc;
     public bool IsDemo => Source == "Demo";
 }

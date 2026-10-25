@@ -84,6 +84,7 @@ internal static class BackgroundValidation
         await Section(c, failures, "tray artifacts", () => CaptureTrayArtifacts(c));
         await Section(c, failures, "minimize, restore and hidden recording", () => CheckMinimizeRestoreAndHiddenRecording(c));
         await Section(c, failures, "close to tray", () => CheckCloseToTray(c));
+        await Section(c, failures, "incident marker on a failing disk", () => CheckIncidentOnFailingDisk(c));
         await Section(c, failures, "single instance", () => CheckSingleInstance(c));
         await Section(c, failures, "visible versus hidden soak", () => Soak(c));
         if (failures.Count > 0) throw new InvalidOperationException($"Background validation failed in {failures.Count} section(s): {string.Join("; ", failures)}");
@@ -382,6 +383,55 @@ internal static class BackgroundValidation
         await c.Recorder.StopAsync();
         await SaveSettings(c, b => { b.CloseToTray = false; });
         Log(c, "PASS: close to tray hid the window, monitoring and recording continued, the window was restored; Exit (tested at the end of this run) is the only way out");
+    }
+
+    // ---------- incident marker through the tray action, with the disk failing ----------
+
+    private static async Task CheckIncidentOnFailingDisk(BackgroundSmokeContext c)
+    {
+        SmokeFaultStorage.FailWrites = false;
+        c.Vm.StartRecordingCommand.Execute(null);
+        await WaitFor(() => c.Recorder.IsRecording && c.Recorder.SampleCount >= 3, "samples before the first marker");
+        c.Window.Hide();                                                 // the real tray action, window hidden
+        try
+        {
+            await c.Tray.MarkIncidentAsync();
+            var first = c.Monitoring.LastIncident ?? throw new InvalidOperationException("The first marker was not saved.");
+            Require(c.Tray.LastBalloonText is { } ok && ok.Contains("marked at", StringComparison.Ordinal) && c.Tray.LastBalloonIcon == WinForms.ToolTipIcon.Info, "The confirmation of a saved marker is wrong: " + c.Tray.LastBalloonText);
+
+            // The disk now refuses every write. The tray action must say so and must not confirm anything.
+            SmokeFaultStorage.FailWrites = true;
+            var failedFrom = c.Recorder.SinkStatus?.SamplesLost ?? 0;
+            await c.Tray.MarkIncidentAsync();
+            Require(Equals(c.Monitoring.LastIncident, first), "A marker is reported as saved although the disk refused it.");
+            Require(c.Tray.LastBalloonText is { } bad && bad.Contains("could not be saved", StringComparison.Ordinal) && !bad.Contains("marked at", StringComparison.Ordinal) && c.Tray.LastBalloonIcon == WinForms.ToolTipIcon.Warning,
+                "The notification after a failed write is not an honest failure: " + c.Tray.LastBalloonText);
+            await WaitFor(() => c.Vm.Background.LastIncidentFailed && c.Vm.Background.LastIncidentText.StartsWith("Incident not saved", StringComparison.Ordinal), "the failure on the Recorder page");
+            Require(!c.Vm.Status.Contains("saved at", StringComparison.Ordinal), "The status bar claims a saved marker after a failed write: " + c.Vm.Status);
+            Require(c.Recorder.SinkStatus?.State == RecordingSinkState.Faulted, "The recording does not report its storage fault.");
+            await WaitFor(() => (c.Recorder.SinkStatus?.SamplesLost ?? 0) > failedFrom, "samples to be counted as lost while the disk fails");
+
+            // The disk recovers: the writer reopens by itself, records the loss, and the next marker is saved and confirmed.
+            SmokeFaultStorage.FailWrites = false;
+            await WaitFor(() => c.Recorder.SinkStatus?.State == RecordingSinkState.Active, "the writer to reopen after the disk recovered", 40_000);
+            await c.Tray.MarkIncidentAsync();
+            var third = c.Monitoring.LastIncident ?? throw new InvalidOperationException("No marker after recovery.");
+            Require(third.Id != first.Id && third.Sequence > first.Sequence + 1, "The marker after recovery has the wrong identity.");
+            Require(c.Tray.LastBalloonText is { } again && again.Contains("marked at", StringComparison.Ordinal), "The confirmation after recovery is wrong: " + c.Tray.LastBalloonText);
+            await c.Recorder.StopAsync();
+
+            var folder = c.Vm.Background.Current.EffectiveDirectory;
+            var summary = RecordingCatalog.Scan(new PhysicalRecordingStorage(), folder).First();
+            var history = HistoryLoader.Load(new PhysicalRecordingStorage(), folder, summary.ShortId);
+            Require(history.Incidents.Select(i => i.Id).SequenceEqual([first.Id, third.Id]), $"The recording holds {history.Incidents.Count} incident(s); only the two that were confirmed may be in it.");
+            Require(history.Events.Any(e => e.Kind == HistoryEventKind.DataLoss) && history.Info.LostSamples > 0, "The data loss during the failure is not recorded and counted.");
+            Log(c, $"PASS: through the real tray action with the window hidden: a marker is confirmed only after it is on disk; with the disk refusing writes the user is told \"could not be saved\" (warning), nothing is confirmed, the Recorder page and the storage status show the failure and {history.Info.LostSamples} lost samples are counted; after recovery the writer reopened, recorded a data-loss mark and the next marker was saved; the recording holds exactly the two confirmed incidents");
+        }
+        finally
+        {
+            SmokeFaultStorage.FailWrites = false;
+            c.Window.Show();
+        }
     }
 
     // ---------- single instance ----------

@@ -121,7 +121,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
     private readonly IDesktopServices desktop;
     private readonly ISessionRecorder recorder;
     private readonly IRecordingStorage storage;
-    private readonly TimeZoneInfo zone;
+    private TimeZoneInfo zone;
     private readonly ILogger? logger;
 
     private LoadedHistory? history;
@@ -205,6 +205,13 @@ public sealed class SessionHistoryViewModel : ObservableObject
     public bool ShowPlaceholder => !HasHistory && !HasError && !IsLoading;
     public LoadedHistory? Loaded => history;
     public TimeZoneInfo Zone => zone;
+    /// <summary>Validation seam: shows a recording in another time zone (for example one that crosses a clock change). Applies to the next recording opened.</summary>
+    internal void UseTimeZone(TimeZoneInfo value) { zone = value; Raise(nameof(Zone)); Raise(nameof(ZoneNote)); }
+    /// <summary>The most samples loaded; the limit is explained on the page when it is reached. Lowered only by the validation.</summary>
+    internal int SampleLimit { get; set; } = HistoryLoader.MaximumSamples;
+    /// <summary>True when only the beginning of the recording was analyzed.</summary>
+    public bool IsPartial => history?.Info.IsPartial == true;
+    public string PartialNote { get; private set; } = "";
     public string ZoneNote => $"Times are shown in {zone.DisplayName.Split(')').Last().Trim()} (UTC{HistoryTime.FormatOffset(zone.GetUtcOffset(DateTimeOffset.UtcNow))}); recordings store UTC.";
 
     // ---------- overview ----------
@@ -338,7 +345,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
         try
         {
             var activeId = recorder.IsRecording && recorder.SinkStatus?.RecordingId is { } id ? RecordingFormat.ShortId(id) : null;
-            var loaded = await HistoryLoader.LoadAsync(storage, summary.Directory, summary.ShortId, activeId, progress, cts.Token);
+            var loaded = await HistoryLoader.LoadAsync(storage, summary.Directory, summary.ShortId, activeId, progress, cts.Token, SampleLimit);
             var issues = loaded.Issues.ToList();
             var notes = await Task.Run(() => RecordingAnnotationStore.Load(storage, summary.Directory, RecordingFormat.Stamp(loaded.Info.StartedUtc), summary.ShortId, issues), cts.Token);
             if (version != openVersion || cts.IsCancellationRequested) return;
@@ -381,7 +388,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
 
     private static string StateWords(RecordingCompleteness state) => state switch
     {
-        RecordingCompleteness.Complete => "Complete", RecordingCompleteness.InProgress => "Recording in progress", _ => "Interrupted"
+        RecordingCompleteness.Complete => "Complete", RecordingCompleteness.InProgress => "Recording in progress", RecordingCompleteness.Partial => "Partial analysis", _ => "Interrupted"
     };
 
     private void BuildFacts(LoadedHistory loaded, List<HistoryIssue> issues)
@@ -395,11 +402,16 @@ public sealed class SessionHistoryViewModel : ObservableObject
         {
             RecordingCompleteness.Complete => $"Complete: the recording ended properly ({info.EndReason.ToLowerInvariant()}).",
             RecordingCompleteness.InProgress => "Recording in progress: this recording is still being written. What is on disk now is shown; reopen it to see more.",
+            RecordingCompleteness.Partial => $"Partial analysis: this recording holds more than the {info.SampleLimit:N0} samples EUC Lens analyzes, so only its beginning is shown. Everything on this page (charts, statistics, incidents, counts) covers only that beginning, not the whole session.",
             _ => "Interrupted: no end of recording was written (a crash, a power loss or a forced exit). The data up to the last complete line is shown; the real end time is not known."
         };
+        PartialNote = info.IsPartial
+            ? $"Partial analysis: only the first {info.Samples:N0} samples ({HistoryTime.FormatSpan(info.Duration)}) are shown{(opened is { Samples: > 0 } o ? $" of {o.Samples:N0} recorded" : "")}. Events and incidents after {T(info.EndedUtc)} are not listed. Nothing below describes the whole session."
+            : "";
+        Raise(nameof(PartialNote)); Raise(nameof(IsPartial));
         Facts.Add(new("Start", T(info.StartedUtc), ""));
-        Facts.Add(new(info.HasEnded ? "End" : "Last data", T(info.EndedUtc), info.HasEnded ? "" : "Not a recorded end"));
-        Facts.Add(new("Duration", HistoryTime.FormatSpan(info.Duration), ""));
+        Facts.Add(new(info.HasEnded ? "End" : info.IsPartial ? "Last sample analyzed" : "Last data", T(info.EndedUtc), info.HasEnded ? "" : info.IsPartial ? "Not the end of the recording" : "Not a recorded end"));
+        Facts.Add(new(info.IsPartial ? "Duration analyzed" : "Duration", HistoryTime.FormatSpan(info.Duration), info.IsPartial ? "Beginning of the recording only" : ""));
         Facts.Add(new("Data source", info.IsDemo ? "Demo data" : "Real session", info.AppVersion.Length > 0 ? $"EUC Lens {info.AppVersion}" : ""));
         Facts.Add(new("Protocol", info.Protocols.Count == 0 ? "Not recorded" : string.Join(", ", info.Protocols), ""));
         Facts.Add(new("Samples", info.Samples.ToString("N0", CultureInfo.CurrentCulture), $"{info.Parts} recording part(s)"));
@@ -409,7 +421,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
         Facts.Add(new("Lost samples", info.LostSamples.ToString("N0", CultureInfo.CurrentCulture), info.LostSamples > 0 ? "Counted, never silently dropped" : "None recorded"));
         Facts.Add(new("Data coverage", info.DataCoverage.ToString("P1", CultureInfo.CurrentCulture),
             info.Gaps == 0 ? "No gaps between samples" : $"{info.Gaps} gap(s), {HistoryTime.FormatSpan(info.GapTime)} without samples"));
-        Facts.Add(new("Recording state", StateLabel, info.State == RecordingCompleteness.Complete ? info.EndReason : "Not complete"));
+        Facts.Add(new("Recording state", StateLabel, info.State == RecordingCompleteness.Complete ? info.EndReason : info.IsPartial ? "Not the whole recording" : "Not complete"));
         IssueLines.Clear();
         foreach (var issue in issues) IssueLines.Add((issue.IsProblem ? "Problem: " : "Note: ") + issue.Message);
         Raise(nameof(HasIssues)); Raise(nameof(StateLabel)); Raise(nameof(StateIcon)); Raise(nameof(StateNote));
@@ -754,7 +766,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
     {
         Raise(nameof(HasHistory)); Raise(nameof(ShowPlaceholder)); Raise(nameof(SessionStart)); Raise(nameof(SessionEnd)); Raise(nameof(Markers)); Raise(nameof(Gaps));
         Raise(nameof(UnavailableNote)); Raise(nameof(HasUnavailableNote)); Raise(nameof(EventsHeading)); Raise(nameof(HasIssues)); Raise(nameof(StateLabel)); Raise(nameof(StateIcon)); Raise(nameof(StateNote));
-        Raise(nameof(ZoneNote)); Raise(nameof(HasSelectedIncident));
+        Raise(nameof(ZoneNote)); Raise(nameof(HasSelectedIncident)); Raise(nameof(IsPartial));
         RaiseSteps();
     }
 }

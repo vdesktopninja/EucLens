@@ -181,6 +181,24 @@ public sealed class HistoryReaderTests
     }
 
     [Fact]
+    public async Task AFileThatLooksLikeARecordingButIsNotOneNeverStopsTheListFromWorking()
+    {
+        var good = await HistoryFixture.RecordAsync(50, compress: false);
+        var stamp = RecordingFormat.Stamp(HistoryFixture.T0.AddHours(1));
+        string Put(string id, string text) { var path = Path.Combine(Dir, $"EucLens-{stamp}-{id}-part001.jsonl"); good.Storage.Files[path] = Encoding.UTF8.GetBytes(text); good.Storage.Times[path] = good.Storage.Now; return id; }
+        Put("11111111", "{\"t\":\"header\"}\n");                                                       // a header without any of its fields
+        Put("22222222", "{\"t\":\"header\",\"schema\":\"euclens.recording/9\",\"startedUtc\":\"not a date\"}\n");
+        Put("33333333", "\0\0\0 binary \u0001 garbage");
+
+        var listed = RecordingCatalog.Scan(good.Storage, Dir);
+
+        Assert.Contains(listed, s => s.ShortId == good.ShortId && s.IsComplete);              // the real recording is still listed
+        Assert.DoesNotContain(listed, s => s.ShortId is "11111111" or "22222222" or "33333333" && s.IsComplete);
+        foreach (var id in new[] { "11111111", "22222222", "33333333" })
+            Assert.Throws<RecordingFormatException>(() => HistoryFixture.Load(good.Storage, id));
+    }
+
+    [Fact]
     public async Task DamageInTheMiddleOfAFileIsReportedAndSkippedNotSilentlyAccepted()
     {
         var rec = await HistoryFixture.RecordAsync(60, compress: false);
@@ -318,6 +336,14 @@ public sealed class HistoryReaderTests
         var issue = Assert.Single(history.Issues);
         Assert.Equal(HistoryIssueKind.SampleCapReached, issue.Kind);
         Assert.True(issue.IsProblem);
+        // Never presented as the whole session: not complete, not interrupted, but explicitly partial.
+        Assert.Equal(RecordingCompleteness.Partial, history.Info.State);
+        Assert.True(history.Info.IsPartial);
+        Assert.Equal(120, history.Info.SampleLimit);
+        Assert.False(history.Info.HasEnded);
+        Assert.Equal(history.LastSample, history.Info.EndedUtc);              // the end of what was analyzed, not the end of the recording
+        Assert.DoesNotContain(history.Events, e => e.Kind == HistoryEventKind.RecordingEnded);
+        Assert.Contains("sample limit", history.Info.EndReason, StringComparison.Ordinal);
     }
 
     [Fact]
