@@ -111,7 +111,15 @@ public sealed class HistoryHardeningTests
         // The recording's own lines, then 12 MiB that compress to a few kilobytes.
         var bomb = text.TrimEnd('\n').Replace("\n{\"t\":\"footer\"", "\n") + "\n" + new string('a', 12 << 20);
         rec.Storage.Files.Remove(path); rec.Storage.Times.Remove(path);
-        HistoryFixture.Replace(rec.Storage, path + ".gz", bomb, gzip: true);
+        // Use maximum compression for a predictable small fixture on Windows and macOS.
+        // Keep the strict <64 KiB precondition; only fixture creation changes.
+        using (var compressed = new MemoryStream())
+        {
+            using (var gzip = new System.IO.Compression.GZipStream(compressed, System.IO.Compression.CompressionLevel.SmallestSize, leaveOpen: true))
+                gzip.Write(System.Text.Encoding.UTF8.GetBytes(bomb));
+            rec.Storage.Files[path + ".gz"] = compressed.ToArray();
+            rec.Storage.Times[path + ".gz"] = rec.Storage.Now;
+        }
         Assert.True(rec.Storage.Files[path + ".gz"].Length < 64 * 1024, "the fixture is meant to be small when compressed");
 
         LoadedHistory? history = null;
