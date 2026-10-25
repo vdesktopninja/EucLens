@@ -28,6 +28,7 @@ internal static class BackgroundValidation
     private static readonly StringBuilder Report = new();
 
     private static void Require(bool condition, string failure) { if (!condition) throw new InvalidOperationException(failure); }
+    private static T Require1<T>(IReadOnlyList<T> items, string failure) => items.Count == 1 ? items[0] : throw new InvalidOperationException($"{failure} ({items.Count} found)");
     private static void Log(BackgroundSmokeContext c, string line)
     {
         Report.AppendLine(line);
@@ -169,7 +170,9 @@ internal static class BackgroundValidation
 
         Check("monitoring running", "monitoring", () => Problems(false));
         Require(Menu("Monitoring") == "Pause Monitoring" && Menu("Recording") == "Start Recording" && Enabled("Recording"), "Menu text does not match 'running, not recording'.");
+        Require(Menu("Mark Performance Issue").Contains("needs a recording", StringComparison.Ordinal) && !Enabled("Mark Performance Issue"), "Without a recording the incident item is not disabled with its explanation.");
         Check("recording started", "recording", () => c.Vm.StartRecordingCommand.Execute(null));
+        Require(Menu("Mark Performance Issue") == "Mark Performance Issue" && Enabled("Mark Performance Issue"), "While recording, the incident item is not enabled.");
         Require(c.Recorder.IsRecording, "The recording did not start.");
         Require(Menu("Recording") == "Stop Recording", "Menu does not offer 'Stop Recording' while recording.");
         Check("recording + active warning", "recording-warning", () => Problems(true));
@@ -178,7 +181,7 @@ internal static class BackgroundValidation
         Require(Menu("Monitoring") == "Resume Monitoring" && Menu("Recording") == "Stop Recording", "Menu does not offer 'Resume Monitoring' while paused.");
         Check("monitoring resumed", "recording", () => c.Monitoring.ResumeMonitoring());
         Check("recording stopped", "monitoring", () => c.Vm.StopRecordingCommand.Execute(null));
-        Require(!c.Recorder.IsRecording && Menu("Recording") == "Start Recording", "After stopping, the icon or menu still suggests recording.");
+        Require(!c.Recorder.IsRecording && Menu("Recording") == "Start Recording" && !Enabled("Mark Performance Issue"), "After stopping, the icon or menu still suggests recording.");
         Check("active warning, not recording", "warning", () => Problems(true));
         Check("warning cleared", "monitoring", () => Problems(false));
         Check("monitoring stopped", "idle", () => c.Monitoring.StopMonitoring());
@@ -298,6 +301,14 @@ internal static class BackgroundValidation
         Require(gained >= 4, $"Only {gained} samples were recorded in {hiddenAt.Elapsed.TotalSeconds:0.0} s while the window was hidden.");
         Require(tickGain <= hiddenAt.Elapsed.TotalSeconds + 3, $"{tickGain} collection ticks in {hiddenAt.Elapsed.TotalSeconds:0.0} s: a second sampler is running.");
         Require(c.Recorder.IsRecording && c.Tray.Appearance!.State is TrayState.Recording, "Recording or the recording tray state was lost while hidden.");
+        // One click in the tray menu, window still hidden: the marker is saved and recording carries on.
+        Require(!c.Window.IsVisible && c.Monitoring.CanMarkIncident, "The incident action is not available while the window is hidden.");
+        var samplesBeforeMark = c.Recorder.SampleCount;
+        await c.Tray.MarkIncidentAsync();
+        var marker = c.Monitoring.LastIncident ?? throw new InvalidOperationException("The tray action did not save an incident marker.");
+        Require(Math.Abs((marker.At - DateTimeOffset.UtcNow).TotalSeconds) < 10 && marker.Sequence == 1 && !c.Window.IsVisible, "The incident marker has the wrong time or the window was opened.");
+        await WaitFor(() => c.Recorder.SampleCount > samplesBeforeMark, "samples after the incident marker");
+        Require(c.Recorder.IsRecording && c.Monitoring.Coordinator.State == MonitoringState.Running, "Marking an incident interrupted monitoring or recording.");
         Require((c.Vm.RttChart.Points.Count > 0 ? c.Vm.RttChart.Points[^1].At : default) == shownWhileHidden, "Charts were fed while the window was hidden.");
 
         var restore = Stopwatch.StartNew();
@@ -343,6 +354,13 @@ internal static class BackgroundValidation
         await RecordingExport.ExportCsvAsync(csv, () => RecordingCatalog.ReadSamples(new PhysicalRecordingStorage(), summary));
         Require(File.ReadAllLines(csv).Length == summary.Samples + 1, "The CSV export of the saved recording has the wrong row count.");
         Log(c, $"PASS: the saved recording holds all {summary.Samples} samples without a gap longer than {longest.TotalSeconds:0.0} s ({summary.Parts.Count} part(s), {BackgroundViewModel.FormatBytes(summary.Bytes)}, {summary.LostSamples} lost) and exports as CSV");
+        // The incident marked from the hidden tray is in the file once, in its place among the samples, and the history reads it back.
+        Require(summary.Incidents == 1, $"The catalog counts {summary.Incidents} incidents, expected 1.");
+        var history = HistoryLoader.Load(new PhysicalRecordingStorage(), folder, summary.ShortId);
+        var read = Require1(history.Incidents, "The history did not find the incident marked while hidden.");
+        Require(read.Id == marker.Id && read.At == marker.At && history.Info.Samples == summary.Samples && history.Info.State == RecordingCompleteness.Complete, "The history differs from what was recorded.");
+        Require(read.Before is not null && read.After is not null && read.Before.Timestamp <= read.After.Timestamp, "The incident has no samples on both sides.");
+        Log(c, $"PASS: the incident marked from the hidden tray menu (no. {marker.Sequence} at {marker.At:HH:mm:ss}Z) is in the saved recording exactly once between samples {read.Before!.Timestamp:HH:mm:ss.fff} and {read.After!.Timestamp:HH:mm:ss.fff}; monitoring and recording continued; the history reader returns the same id and time");
     }
 
     // ---------- close to tray ----------

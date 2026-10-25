@@ -43,6 +43,7 @@ public static class RecordingCatalog
             long samples = known?.Samples ?? 0, lost = known?.Lost ?? 0;
             int warnings = known?.Warnings ?? 0, criticals = known?.Criticals ?? 0, incidents = known?.Incidents ?? 0, counted = 0;
             DateTimeOffset? first = known?.Started, last = known?.Ended; var source = known?.Source ?? "";
+            (string Reason, DateTimeOffset Ended)? finalFooter = null;
             for (var i = Math.Min(known?.Parts ?? 0, parts.Length - 1); i < parts.Length; i++)
             {
                 foreach (var (type, root) in RecordingFormat.ReadLines(storage, parts[i]))
@@ -58,12 +59,17 @@ public static class RecordingCatalog
                         case "footer":
                             lost = Math.Max(lost, root.GetProperty("lost").GetInt64());
                             if (root.TryGetProperty("incidents", out var footerIncidents)) incidents = Math.Max(incidents, (int)footerIncidents.GetInt64());
+                            // The final footer of a recording whose index file is missing or damaged still says that it ended properly.
+                            if (root.TryGetProperty("complete", out var complete) && complete.GetBoolean() && root.GetProperty("reason").GetString() is { } endReason && endReason != "Rotated")
+                                finalFooter = (endReason, root.GetProperty("endedUtc").GetDateTimeOffset());
                             break;
                     }
                 }
             }
             if (first is not { } started) return null;
             incidents = Math.Max(incidents, (known?.Incidents ?? 0) + counted);
+            if (finalFooter is { } done2)
+                return new(shortId, started, done2.Ended, done2.Ended - started, bytes, samples, warnings, criticals, lost, true, done2.Reason, source, parts, directory, incidents);
             return new(shortId, started, last, (last ?? started) - started, bytes, samples, warnings, criticals, lost, false, "Interrupted", source, parts, directory, incidents);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or InvalidDataException) { return null; }

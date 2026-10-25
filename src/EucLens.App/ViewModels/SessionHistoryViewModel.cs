@@ -164,6 +164,8 @@ public sealed class SessionHistoryViewModel : ObservableObject
         ExportIncidentsCommand = new(() => ExportAsync(incidentsOnly: true), () => HasHistory);
         ExportTimelineCommand = new(() => ExportAsync(incidentsOnly: false), () => HasHistory);
         OpenFolderCommand = new(() => { if (opened is not null) desktop.OpenPath(opened.Directory); });
+        // The list is rebuilt whenever it is refreshed; keep the recording that is open selected in it.
+        background.Recordings.CollectionChanged += (_, _) => ReselectOpened();
     }
 
     // ---------- recordings ----------
@@ -177,6 +179,13 @@ public sealed class SessionHistoryViewModel : ObservableObject
             if (!Set(ref selectedRecording, value) || value is null || suppressSelection) return;
             _ = OpenAsync(value.Summary);
         }
+    }
+    private void ReselectOpened()
+    {
+        if (opened is null) return;
+        var match = Recordings.FirstOrDefault(r => r.Summary.ShortId == opened.ShortId);
+        if (match is null || ReferenceEquals(match, selectedRecording)) return;
+        suppressSelection = true; SelectedRecording = match; suppressSelection = false;
     }
     public AsyncCommand RefreshRecordingsCommand => background.RefreshRecordingsCommand;
     public RelayCommand OpenFolderCommand { get; }

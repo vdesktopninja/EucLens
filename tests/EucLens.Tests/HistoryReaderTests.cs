@@ -159,6 +159,28 @@ public sealed class HistoryReaderTests
     }
 
     [Fact]
+    public async Task ARecordingWithoutItsIndexFileIsStillReadAndStillCompleteBecauseItsFooterSaysSo()
+    {
+        var rec = await HistoryFixture.RecordAsync(300, segment: 9_000, step: async (i, c) => { if (i == 150) await c.MarkIncidentAsync(); });
+        var meta = rec.Storage.Names(Dir).Single(n => n.EndsWith(".meta.json", StringComparison.Ordinal));
+        rec.Storage.Delete(Path.Combine(Dir, meta));
+
+        var summary = Assert.Single(RecordingCatalog.Scan(rec.Storage, Dir));
+        Assert.True(summary.IsComplete);
+        Assert.Equal("UserStopped", summary.EndReason);
+        Assert.Equal(300, summary.Samples);
+        Assert.Equal(1, summary.Incidents);
+        var history = HistoryFixture.Load(rec.Storage, rec.ShortId);
+        Assert.Equal(RecordingCompleteness.Complete, history.Info.State);
+        Assert.Equal(300, history.SampleCount);
+        Assert.Equal(summary.EndedUtc, history.Info.EndedUtc);
+
+        // A damaged index is treated the same way.
+        rec.Storage.Files[Path.Combine(Dir, meta)] = "{ not json"u8.ToArray(); rec.Storage.Times[Path.Combine(Dir, meta)] = rec.Storage.Now;
+        Assert.True(Assert.Single(RecordingCatalog.Scan(rec.Storage, Dir)).IsComplete);
+    }
+
+    [Fact]
     public async Task DamageInTheMiddleOfAFileIsReportedAndSkippedNotSilentlyAccepted()
     {
         var rec = await HistoryFixture.RecordAsync(60, compress: false);

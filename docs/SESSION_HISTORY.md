@@ -112,9 +112,43 @@ Events (list, filter) │ Selected incident: description + category, recorded st
 | LiveCharts retention | Unchanged ownership model; history charts are plain `ChartData` consumers. |
 | Misleading analysis | Only recorded findings and clearly labelled statistics; "no abnormality" is reported as such. |
 
-## 9. Validation
+## 9. Components
 
-Unit tests cover incident persistence, ordering, rotation, failures, the history reader (parts, gzip, interrupted, duplicates, 0.4.3 files, corruption),
-statistics, downsampling, annotations, cancellation, memory and repeated navigation, and one end-to-end path (start, mark, rotate, stop, reopen, find, inspect).
-The Windows smoke test opens saved recordings, switches between them, zooms and selects ranges and incidents, checks that every chart shares the time range, runs both themes
-and keyboard navigation, repeats open/close and checks retained memory, and saves screenshots.
+| Component | Where | Responsibility |
+|---|---|---|
+| `RecordingMark.UserIncident`, `IncidentMarker`, `IncidentResult` | Core | The structured marker and the honest outcome: Saved, NoRecording, NotPersistent, StorageFailed. |
+| `RecordingWriter.MarkDurableAsync` | Core | Queues the mark in sample order, writes, flushes and fsyncs, and completes the caller only then (or reports why not). |
+| `SessionRecorder.MarkIncidentAsync` | Core | UTC time from the injected `TimeProvider`, new id, sequence number; one lock keeps concurrent clicks in order. |
+| `MonitoringService.MarkIncidentAsync`, `CanMarkIncident` | Core | The one entry point for the tray menu and the Recorder page; raises `IncidentCompleted` for every outcome. |
+| `HistoryReader`, `HistoryLoader`, `LoadedHistory` | Core | One representation per part, damage reporting, event deduplication, compact columns, range queries. |
+| `HistoryStatistics`, `PeakPreservingDownsampler` | Core | Valid-only statistics; min/max buckets with gap points and forced boundaries at incidents. |
+| `IncidentAnalyzer` | Core | The deterministic description around an instant (see section 6). |
+| `RecordingAnnotationStore` | Core | The versioned annotation sidecar. |
+| `HistoryExport` | Core | The optional, separate timeline and incident CSV. |
+| `SessionHistoryViewModel` and items | App | Opening, range, selection, charts (`ChartData` per metric), cancellation, release. No WPF types. |
+| `HistoryTimelineStrip`, `HistoryChartOverlay` | App | Two small elements that draw on the history time axis; pointer and keyboard; no chart and no view model inside. |
+| `HistoryLayout` | App | The shared plot margins that make every chart and the overlay agree on every instant. |
+| `ChartData.TimeLabel` | App | The one additive hook in the chart classes: UTC ticks on the axis, local text per instant. |
+
+## 10. Validation
+
+**Unit tests** (all synthetic data, no Horizon Agent, no GPU): incident persistence, ids, ordering, rotation, failures and the no-false-success rule; the history reader on multi-part
+compressed recordings, duplicates, interruption, damage, missing parts, unsupported formats and files shaped like 0.4.3; statistics, N/A handling and raw units; downsampling (a one second
+spike survives an eight hour view, gaps stay gaps, bounded output); annotations; analysis wording; time zones across a clock change; cancellation; bounded memory with an eight hour fixture
+(28,800 samples, several compressed parts); repeated open and leave; the view model (range, zoom, incident selection, annotation, release, switching recordings); and one end-to-end path
+(start, mark, continue, rotate, stop, reopen, find, inspect).
+
+**Windows smoke test** (`HistoryValidation`, after the background validation, every section isolated and logged to `history-validation.txt`): recordings written through the real writer with
+rotation and compression; Analyze from the Session Recorder list; charts on one range with aligned plot areas that match the overlay's mapping; zoom, presets and custom range; real routed mouse
+events (hover, drag, Ctrl + wheel, click on an incident marker) with the harness supplying the pointer position; incident selection and annotation; keyboard navigation; both themes and every
+event shape; switching recordings; twelve open and leave cycles with a retention check (released views and LiveCharts objects must be collectable, managed heap must not keep growing);
+a six hour recording with measured load time and memory. The tray action is exercised in the background validation with the window hidden. Screenshots go to the evidence folder.
+
+## 11. Limits
+
+* The six hour recording in CI is an accelerated fixture written in seconds; it demonstrates loading, bounded memory and peak preservation, not a real six hour run.
+* Real mouse input is simulated by routed events, not by a physical pointer; high-DPI pointer accuracy needs the manual acceptance list.
+* Histories larger than 250,000 samples (about 69 hours at 1 Hz) are loaded up to that point and say so.
+* A failed incident marker is not retried by itself: the user is told and marks again.
+* The analysis compares an interval with the same recording; a short or constant recording gives "not enough data" or "nothing stood out", never a cause.
+* Tray menu and balloon text are standard Windows UI; the confirmation can be suppressed by Focus Assist, in which case the Session Recorder page still shows the last incident.
