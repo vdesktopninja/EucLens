@@ -577,6 +577,9 @@ internal static class HistoryValidation
         Require(DesktopValidation.Descendants<TextBlock>(detail).Any(t => t.Text == o.Explanation), "The deterministic explanation is not shown unchanged.");
         Require(!((Expander)named("Measurement evidence")).IsExpanded, "The dense evidence should start collapsed.");
 
+        var shownFrom = h.ViewStart; var shownTo = h.ViewEnd; var peak = o.Primary.WorstAt;
+        await Shot(c, (FrameworkElement)VisualTreeHelper.GetParent(Overlay(c)), Path.Combine(c.EvidenceDirectory, "history-findings-charts-light.png"));
+
         // "Show in charts" brings the emphasized chart into the viewport.
         var viewport = (FrameworkElement)PageViewport(view);
         f.ShowInChartsCommand.Execute(null);
@@ -616,7 +619,7 @@ internal static class HistoryValidation
         }
         panel.ClearValue(FrameworkElement.WidthProperty); await Idle(c);
         f.ShowFull(); await h.Settled; await Idle(c);
-        Log(c, $"PASS: findings: {f.Summary}; filters with counts; selecting '{row.Title}' moved all {Charts(c).Length} charts to {HistoryTime.Format(h.ViewStart, h.Zone)}–{HistoryTime.Format(h.ViewEnd, h.Zone)} with the evidence chart emphasized, the interval highlighted and the peak at {HistoryTime.Format(o.Primary.WorstAt, h.Zone)}; Show in charts scrolls to it; arrow keys leave the page where it is; Escape returns to the whole recording; no text leaves the panel at 520 and 760 DIPs");
+        Log(c, $"PASS: findings: {f.Summary}; filters with counts; selecting '{row.Title}' moved all {Charts(c).Length} charts to {HistoryTime.Format(shownFrom, h.Zone)}–{HistoryTime.Format(shownTo, h.Zone)} with the evidence chart emphasized, the interval highlighted and the peak at {HistoryTime.Format(peak, h.Zone)}; Show in charts scrolls to it; arrow keys leave the page where it is; Escape returns to the whole recording; no text leaves the panel at 520 and 760 DIPs");
     }
 
     private static async Task KeyboardNavigation(HistorySmokeContext c)

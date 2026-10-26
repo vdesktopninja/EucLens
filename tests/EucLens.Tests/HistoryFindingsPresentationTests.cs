@@ -413,7 +413,7 @@ public sealed class HistoryFindingsPresentationTests
         foreach (var group in f.QualityGroups) Assert.NotEmpty(group.Note);
         // the states are separate groups with their own headings
         Assert.True(groups.Count >= 4); Assert.Equal(groups.Count, f.QualityGroups.Select(g => g.Heading).Distinct().Count());
-        Assert.StartsWith("Data quality and what could not be evaluated: ", f.QualityHeader);
+        Assert.StartsWith("Data quality and what could not be evaluated (", f.QualityHeader); Assert.Contains($"({groups.Count} kinds of note)", f.QualityHeader);
     }
 
     [Fact]

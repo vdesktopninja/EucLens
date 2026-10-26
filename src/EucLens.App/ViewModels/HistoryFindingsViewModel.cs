@@ -555,8 +555,9 @@ public sealed class HistoryFindingsViewModel : ObservableObject
         return groups;
     }
 
+    /// <summary>Short enough to stay on one line at any width; the headings and counts are inside the section.</summary>
     private static string BuildQualityHeader(IReadOnlyList<QualityGroup> groups) =>
-        groups.Count == 0 ? "Data quality and what could not be evaluated" : "Data quality and what could not be evaluated: " + string.Join(" · ", groups.Select(g => $"{g.Lines.Count.ToString(CultureInfo.InvariantCulture)} {g.Heading.ToLowerInvariant()}"));
+        groups.Count == 0 ? "Data quality and what could not be evaluated" : $"Data quality and what could not be evaluated ({groups.Count.ToString(CultureInfo.InvariantCulture)} kinds of note)";
 
     private void RaiseAll()
     {

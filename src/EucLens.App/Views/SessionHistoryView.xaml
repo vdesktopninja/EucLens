@@ -1,4 +1,9 @@
 <UserControl x:Class="EucLens.App.Views.SessionHistoryView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:ui="clr-namespace:EucLens.App.Presentation" xmlns:vmtypes="clr-namespace:EucLens.App.ViewModels" xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF">
+ <UserControl.Resources>
+  <!-- A note that takes no space while it is empty. -->
+  <Style x:Key="HideWhenEmpty" TargetType="TextBlock" BasedOn="{StaticResource Meta}"><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed" /></Trigger></Style.Triggers></Style>
+  <Style x:Key="HideWhenEmptyReading" TargetType="TextBlock" BasedOn="{StaticResource ReadingMuted}"><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed" /></Trigger></Style.Triggers></Style>
+ </UserControl.Resources>
  <!-- Session History. DataContext: SessionHistoryPage. One recording at a time: overview, range controls, the whole session as a strip of events, charts that share one time axis,
       then the event list and the selected incident. Nothing here touches the live view or the sampling loop. -->
  <StackPanel>
@@ -51,13 +56,13 @@
     <Border BorderBrush="{DynamicResource AccentBrush}" BorderThickness="2,0,0,0" Padding="8,2,0,2" Margin="0,6,0,0" Visibility="{Binding HasSnapshotNote, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="Recording snapshot notice"><TextBlock Text="{Binding SnapshotNote}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" /></Border>
     <TextBlock Text="{Binding DataQuality}" Style="{StaticResource Meta}" Typography.NumeralAlignment="Tabular" Margin="0,4,0,0" Visibility="{Binding HasDataQuality, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="Data coverage summary" />
     <WrapPanel Margin="0,8,0,0" Visibility="{Binding HasObservations, Converter={StaticResource BoolToVisibility}}">
-     <TextBlock Text="Severity" Style="{StaticResource Meta}" VerticalAlignment="Center" Margin="0,0,8,4" />
-     <ListBox Style="{StaticResource Segmented}" ItemsSource="{Binding SeverityFilters}" SelectedItem="{Binding SelectedSeverity}" DisplayMemberPath="Label" Margin="0,0,16,0" AutomationProperties.Name="Severity filter" />
-     <TextBlock Text="Area" Style="{StaticResource Meta}" VerticalAlignment="Center" Margin="0,0,8,4" />
-     <ListBox Style="{StaticResource Segmented}" ItemsSource="{Binding DomainFilters}" SelectedItem="{Binding SelectedDomain}" DisplayMemberPath="Label" AutomationProperties.Name="Area filter" />
+     <StackPanel Margin="0,0,16,0"><TextBlock Text="Severity" Style="{StaticResource Meta}" />
+      <ListBox Style="{StaticResource Segmented}" ItemsSource="{Binding SeverityFilters}" SelectedItem="{Binding SelectedSeverity}" DisplayMemberPath="Label" AutomationProperties.Name="Severity filter" /></StackPanel>
+     <StackPanel><TextBlock Text="Area" Style="{StaticResource Meta}" />
+      <ListBox Style="{StaticResource Segmented}" ItemsSource="{Binding DomainFilters}" SelectedItem="{Binding SelectedDomain}" DisplayMemberPath="Label" AutomationProperties.Name="Area filter" /></StackPanel>
     </WrapPanel>
-    <TextBlock Text="{Binding FilterNote}" Style="{StaticResource Meta}" />
-    <TextBlock Text="{Binding EmptyNote}" Style="{StaticResource ReadingMuted}" Margin="0,6,0,0" TextWrapping="Wrap" />
+    <TextBlock Text="{Binding FilterNote}" Style="{StaticResource HideWhenEmpty}" />
+    <TextBlock Text="{Binding EmptyNote}" Style="{StaticResource HideWhenEmptyReading}" Margin="0,6,0,0" />
     <ListBox x:Name="FindingsList" ItemsSource="{Binding VisibleObservations}" SelectedItem="{Binding SelectedObservation}" Style="{StaticResource TableList}" ItemContainerStyle="{StaticResource TableRow}" Margin="0,6,0,0" MaxHeight="{x:Static ui:HistoryLayout.FindingsListMaxHeight}" Visibility="{Binding HasVisibleObservations, Converter={StaticResource BoolToVisibility}}" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" VirtualizingPanel.ScrollUnit="Item" ScrollViewer.CanContentScroll="True" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Findings: select one to show its interval in the charts">
      <ListBox.Template><ControlTemplate TargetType="ListBox"><Border Background="{TemplateBinding Background}"><ScrollViewer x:Name="FindingsScroll" Focusable="False" CanContentScroll="True" VerticalScrollBarVisibility="{TemplateBinding ScrollViewer.VerticalScrollBarVisibility}" HorizontalScrollBarVisibility="{TemplateBinding ScrollViewer.HorizontalScrollBarVisibility}" ui:WheelChaining.Enabled="True"><ItemsPresenter /></ScrollViewer></Border></ControlTemplate></ListBox.Template>
      <ListBox.ItemsPanel><ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate></ListBox.ItemsPanel>
@@ -147,8 +152,7 @@
     </StackPanel></Border>
 
     <!-- What could not be said, by kind: no anomaly, no usable measurement, not applicable, insufficient evidence, incomplete recording. -->
-    <Expander Margin="0,8,0,0" Visibility="{Binding HasQualityGroups, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="Data quality and evaluation details">
-     <Expander.Header><TextBlock Text="{Binding QualityHeader}" TextWrapping="Wrap" /></Expander.Header>
+    <Expander Header="{Binding QualityHeader}" Margin="0,8,0,0" Visibility="{Binding HasQualityGroups, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="Data quality and evaluation details">
      <ItemsControl ItemsSource="{Binding QualityGroups}" Focusable="False" Margin="0,4,0,0"><ItemsControl.ItemTemplate><DataTemplate>
       <StackPanel Margin="0,0,0,6" AutomationProperties.Name="{Binding HeadingWithCount}">
        <TextBlock Text="{Binding HeadingWithCount}" Style="{StaticResource SubLabel}" Margin="0,6,0,0" />
