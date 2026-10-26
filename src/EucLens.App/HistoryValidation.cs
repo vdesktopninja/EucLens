@@ -652,6 +652,7 @@ internal static class HistoryValidation
                 window.Width = width / scale; window.Height = height / scale;
                 await Idle(c); window.UpdateLayout(); await Idle(c); await Task.Delay(120);
                 var view = View(c); var viewport = (FrameworkElement)PageViewport(view);
+                ((ScrollViewer)viewport).ScrollToTop(); await Idle(c);                      // the first screen is measured from the top of the page, wherever an earlier section left it
                 var panel = DesktopValidation.Descendants<Border>(view).First(b => System.Windows.Automation.AutomationProperties.GetName(b) == "Performance findings");
                 var label = $"{(dark ? "dark" : "light")} {width}×{height} at {scale:P0}";
                 Require(panel.ActualWidth > 250 && viewport.ActualWidth > 250, $"{label}: the page has no usable width ({panel.ActualWidth:0}).");
@@ -715,14 +716,16 @@ internal static class HistoryValidation
                 Require(f.ExportMessage.StartsWith("Findings exported", StringComparison.Ordinal), "The export failed: " + f.ExportMessage);
                 await Idle(c);
                 var file = Directory.GetFiles(folder, "*" + extension).Single();
-                var text = await File.ReadAllTextAsync(file);
+                var bytes = await File.ReadAllBytesAsync(file);
+                var hasBom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
+                var text = new System.Text.UTF8Encoding(false, true).GetString(bytes, hasBom ? 3 : 0, bytes.Length - (hasBom ? 3 : 0));      // strict: the file must be valid UTF-8
                 if (extension == ".json")
                 {
                     using var doc = System.Text.Json.JsonDocument.Parse(text);
                     Require(doc.RootElement.GetProperty("schema").GetString() == FindingsExport_Schema && doc.RootElement.GetProperty("observations").GetArrayLength() == f.Observations.Count, "The JSON export does not match the analysis.");
                     Require(!text.Contains(h.Loaded.Info.Directory.Replace("\\", "\\\\", StringComparison.Ordinal), StringComparison.Ordinal) && !text.Contains(Environment.MachineName, StringComparison.OrdinalIgnoreCase), "The export names the folder or the machine.");
                 }
-                else Require(text.StartsWith("\uFEFFschema,recording_id", StringComparison.Ordinal) && text.Split("\r\n", StringSplitOptions.RemoveEmptyEntries).Length == 1 + f.Observations.Count + f.Correlations.Count, "The CSV export does not match the analysis.");
+                else Require(hasBom && text.StartsWith("schema,recording_id", StringComparison.Ordinal) && text.Split("\r\n", StringSplitOptions.RemoveEmptyEntries).Length == 1 + f.Observations.Count + f.Correlations.Count, "The CSV export does not match the analysis.");
                 Require(ReferenceEquals(f.SelectedObservation, selected) && h.ViewStart == start && h.ViewEnd == end, "Exporting changed the selection or the view.");
                 Require(view.FindingsListControl.Items.Count == items && view.FindingsListControl.IsVisible && ((Border)DesktopValidation.Descendants<FrameworkElement>(view).First(e => System.Windows.Automation.AutomationProperties.GetName(e) == "Selected finding evidence")).IsVisible,
                     "The findings panel is not intact after the export.");

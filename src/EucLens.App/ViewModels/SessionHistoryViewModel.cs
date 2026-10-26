@@ -481,6 +481,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
         var cts = new CancellationTokenSource(); findingsCts = cts;
         var token = cts.Token;
         Findings.Loading();
+        RaiseSteps();                                              // nothing to export while the analysis runs
         findingsTask = AnalyzeFindingsAsync(loaded, token);
     }
 

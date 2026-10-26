@@ -264,6 +264,19 @@ public static class FindingsExport
 
     // ---------- files ----------
 
+    /// <summary>
+    /// A findings file must never replace a recording: not one of its parts, its meta file or its annotations. The save dialog offers every name in a folder, so this is checked here,
+    /// by the name pattern of recordings and, for a file that exists, ignoring case (Windows names are case-insensitive).
+    /// </summary>
+    private static void RefuseRecordingFile(string fullPath)
+    {
+        var name = Path.GetFileName(fullPath);
+        var clash = RecordingFormat.IsRecordingFile(name) || RecordingFormat.IsRecordingFile(name.ToLowerInvariant().Replace(RecordingFormat.FilePrefix.ToLowerInvariant(), RecordingFormat.FilePrefix, StringComparison.Ordinal));
+        if (!clash && File.Exists(fullPath) && Path.GetDirectoryName(fullPath) is { } directory)
+            clash = Directory.EnumerateFiles(directory).Any(f => RecordingFormat.IsRecordingFile(Path.GetFileName(f)) && string.Equals(Path.GetFileName(f), name, StringComparison.OrdinalIgnoreCase));
+        if (clash) throw new IOException($"'{name}' is a name EUC Lens uses for recordings, and a recording is never overwritten. Choose another file name.");
+    }
+
     public static Task WriteCsvAsync(string path, AnomalyAnalysis analysis, HistoryInfo info, CancellationToken cancellationToken = default) =>
         WriteAsync(path, () => new UTF8Encoding(true).GetPreamble().Concat(Encoding.UTF8.GetBytes(Csv(analysis, info))).ToArray(), cancellationToken);
 
@@ -277,8 +290,9 @@ public static class FindingsExport
     private static Task WriteAsync(string path, Func<byte[]> content, CancellationToken cancellationToken) => Task.Run(async () =>
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var bytes = content();
         var full = Path.GetFullPath(path);
+        RefuseRecordingFile(full);
+        var bytes = content();
         var temporary = full + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {

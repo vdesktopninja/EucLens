@@ -375,6 +375,27 @@ public sealed class FindingsExportTests
         finally { Directory.Delete(dir, true); }
     }
 
+    [Theory]
+    [InlineData("EucLens-20261023-080000-abcd1234.meta.json")] [InlineData("EucLens-20261023-080000-abcd1234-part001.jsonl")] [InlineData("EucLens-20261023-080000-abcd1234-part002.jsonl.gz")]
+    [InlineData("EucLens-20261023-080000-abcd1234.annotations.json")] [InlineData("EUCLENS-20261023-080000-ABCD1234.META.JSON")]
+    public async Task AFindingsExportNeverOverwritesARecording(string name)
+    {
+        var dir = TempDirectory();
+        try
+        {
+            var (a, i) = Hostile();
+            var path = Path.Combine(dir, name);
+            await File.WriteAllTextAsync(path, "recording content");
+            await Assert.ThrowsAsync<IOException>(() => FindingsExport.WriteJsonAsync(path, a, i));
+            await Assert.ThrowsAsync<IOException>(() => FindingsExport.WriteCsvAsync(path, a, i));
+            Assert.Equal("recording content", await File.ReadAllTextAsync(path));
+            Assert.Equal([name], Directory.GetFiles(dir).Select(Path.GetFileName));                // no temporary file, no second file
+            var missing = Path.Combine(dir, "EucLens-20261023-080000-ffff0000.meta.json");           // not even a new file under a recording's name
+            await Assert.ThrowsAsync<IOException>(() => FindingsExport.WriteJsonAsync(missing, a, i)); Assert.False(File.Exists(missing));
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
     // ---------- the timeline export keeps its schema and is now protected against hidden formulas too ----------
 
     [Fact]
