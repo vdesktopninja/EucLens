@@ -76,30 +76,33 @@ public sealed class BackgroundViewModelTests
     }
 
     [Fact]
-    public async Task AHiddenWindowStillCollectsEvaluatesAndRecordsButDoesNotRefreshThePresentation()
-    {
-        await using var rig = await Rig.CreateAsync(persistent: false);
-        rig.Run();
-        await WaitUntil(() => rig.Vm.NetworkReadout != "Unavailable");
-        rig.Vm.StartRecordingCommand.Execute(null);
-        rig.Vm.SetPresenting(false);                       // the window is hidden to the tray
-        var shownBefore = rig.Vm.UpdatedAt;
-        var chartBefore = rig.Vm.RttChart.Points[^1].At;
-        var cardsBefore = rig.Vm.OverviewCards.ToArray();
-        var countBefore = rig.Recorder.SampleCount;
-        var ticksBefore = rig.Coordinator.Ticks;
-        await WaitUntil(() => rig.Recorder.SampleCount >= countBefore + 10);
-        Assert.True(rig.Coordinator.Ticks >= ticksBefore + 10);                                  // collection continues
-        Assert.True(rig.Recorder.IsRecording);                                                   // so does recording
-        Assert.Equal(shownBefore, rig.Vm.UpdatedAt);                                             // nothing is rendered
-        Assert.Equal(chartBefore, rig.Vm.RttChart.Points[^1].At);                                // charts are not fed either
-        Assert.Equal(cardsBefore, rig.Vm.OverviewCards.ToArray());
-        Assert.Equal(rig.Monitoring.LastSampleAt, rig.Recorder.Samples[^1].Timestamp);           // the latest sample is known to the services
+    public Task AHiddenWindowStillCollectsEvaluatesAndRecordsButDoesNotRefreshThePresentation() =>
+        // Match the application's single UI thread: collection continues on the thread pool,
+        // but Apply/Present and hide/restore must not race with the test's assertions.
+        SingleThreadContext.RunAsync(async () =>
+        {
+            await using var rig = await Rig.CreateAsync(persistent: false);
+            rig.Run();
+            await WaitUntil(() => rig.Vm.NetworkReadout != "Unavailable");
+            rig.Vm.StartRecordingCommand.Execute(null);
+            rig.Vm.SetPresenting(false);                       // the window is hidden to the tray
+            var shownBefore = rig.Vm.UpdatedAt;
+            var chartBefore = rig.Vm.RttChart.Points[^1].At;
+            var cardsBefore = rig.Vm.OverviewCards.ToArray();
+            var countBefore = rig.Recorder.SampleCount;
+            var ticksBefore = rig.Coordinator.Ticks;
+            await WaitUntil(() => rig.Recorder.SampleCount >= countBefore + 10);
+            Assert.True(rig.Coordinator.Ticks >= ticksBefore + 10);                                  // collection continues
+            Assert.True(rig.Recorder.IsRecording);                                                   // so does recording
+            Assert.Equal(shownBefore, rig.Vm.UpdatedAt);                                             // nothing is rendered
+            Assert.Equal(chartBefore, rig.Vm.RttChart.Points[^1].At);                                // charts are not fed either
+            Assert.Equal(cardsBefore, rig.Vm.OverviewCards.ToArray());
+            Assert.Equal(rig.Monitoring.LastSampleAt, rig.Recorder.Samples[^1].Timestamp);           // the latest sample is known to the services
 
-        rig.Vm.SetPresenting(true);                        // restored: the current state is presented at once
-        Assert.True(rig.Vm.RttChart.Points[^1].At > chartBefore);
-        Assert.Contains(rig.Vm.RttChart.Points, p => p.Value is null); // the hidden interval is a gap, not a line across it
-    }
+            rig.Vm.SetPresenting(true);                        // restored: the current state is presented at once
+            Assert.True(rig.Vm.RttChart.Points[^1].At > chartBefore);
+            Assert.Contains(rig.Vm.RttChart.Points, p => p.Value is null); // the hidden interval is a gap, not a line across it
+        });
 
     [Fact]
     public Task RepeatedHideAndRestoreNeverStartsASecondSamplerOrDuplicatesSamples() =>
