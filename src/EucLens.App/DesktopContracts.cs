@@ -5,6 +5,8 @@ namespace EucLens.App;
 public interface IDesktopServices
 {
     string? SelectExportPath(bool json);
+    /// <summary>The save dialog of an export that is not the session recording: its own title and file name. Implementations without one fall back to the recording export dialog.</summary>
+    string? SelectExportPath(bool json, string title, string fileStem) => SelectExportPath(json);
     bool ConfirmNewRecording();
     void ApplyTheme(bool dark);
     Task SavePreferencesAsync(Preferences preferences);

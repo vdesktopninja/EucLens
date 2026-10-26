@@ -44,14 +44,14 @@
    <!-- Performance findings. DataContext of the inner panel: the findings view model. Findings are measured conditions, not causes; selecting one moves every chart to its
         real interval (the page never scrolls on its own while arrow keys move through the list). -->
    <Border Style="{StaticResource Panel}" AutomationProperties.Name="Performance findings"><StackPanel x:Name="FindingsPanel" DataContext="{Binding Monitor.History.Findings}">
-    <Grid>
-     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-     <StackPanel>
-      <TextBlock Text="Performance findings" FontWeight="SemiBold" FontSize="{StaticResource ReadingFontSize}" />
-      <TextBlock Text="{Binding Summary}" Style="{StaticResource Reading}" Typography.NumeralAlignment="Tabular" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Findings summary" />
-     </StackPanel>
-     <Button Grid.Column="1" Content="Show full recording" Command="{Binding ShowFullRecordingCommand}" VerticalAlignment="Top" Margin="12,0,0,0" AutomationProperties.Name="Show full recording" ToolTip="Clear the selected finding and show the whole recording (Escape in the findings list)" />
-    </Grid>
+    <TextBlock Text="Performance findings" FontWeight="SemiBold" FontSize="{StaticResource ReadingFontSize}" />
+    <TextBlock Text="{Binding Summary}" Style="{StaticResource Reading}" Typography.NumeralAlignment="Tabular" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Findings summary" />
+    <WrapPanel Margin="0,6,0,2">
+     <Button Content="Show full recording" Command="{Binding ShowFullRecordingCommand}" Margin="0,0,8,4" AutomationProperties.Name="Show full recording" ToolTip="Clear the selected finding and show the whole recording (Escape in the findings list)" />
+     <Button Content="Export findings (CSV)" Command="{Binding DataContext.Monitor.History.ExportFindingsCsvCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" Margin="0,0,8,4" AutomationProperties.Name="Export findings as CSV" ToolTip="Optional file: every observation and correlation with its evidence, UTC times and recorded units. Text cells are protected against spreadsheet formulas." />
+     <Button Content="Export findings (JSON)" Command="{Binding DataContext.Monitor.History.ExportFindingsJsonCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" Margin="0,0,8,4" AutomationProperties.Name="Export findings as JSON" ToolTip="Optional file: the complete analysis in a versioned structure (euclens.findings/1)." />
+    </WrapPanel>
+    <TextBlock Text="{Binding ExportMessage}" Style="{StaticResource HideWhenEmpty}" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Findings export result" />
     <TextBlock Text="{Binding Status}" Style="{StaticResource Meta}" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Findings status" />
     <Border BorderBrush="{DynamicResource AccentBrush}" BorderThickness="2,0,0,0" Padding="8,2,0,2" Margin="0,6,0,0" Visibility="{Binding HasSnapshotNote, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="Recording snapshot notice"><TextBlock Text="{Binding SnapshotNote}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" /></Border>
     <TextBlock Text="{Binding DataQuality}" Style="{StaticResource Meta}" Typography.NumeralAlignment="Tabular" Margin="0,4,0,0" Visibility="{Binding HasDataQuality, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="Data coverage summary" />

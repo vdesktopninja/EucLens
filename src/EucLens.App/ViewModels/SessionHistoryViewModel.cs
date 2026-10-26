@@ -180,7 +180,8 @@ public sealed class SessionHistoryViewModel : ObservableObject
     private Task refreshTask = Task.CompletedTask;
     private Task analysisTask = Task.CompletedTask;
     private Task findingsTask = Task.CompletedTask;
-    private CancellationTokenSource? findingsCts;
+    private CancellationTokenSource? findingsCts, exportCts;
+    private bool exportingFindings;
 
     public SessionHistoryViewModel(BackgroundViewModel background, IDesktopServices desktop, ISessionRecorder recorder, IRecordingStorage? storage = null, TimeZoneInfo? zone = null, ILogger? logger = null)
     {
@@ -201,6 +202,8 @@ public sealed class SessionHistoryViewModel : ObservableObject
         CloseCommand = new(Release);
         ExportIncidentsCommand = new(() => ExportAsync(incidentsOnly: true), () => HasHistory);
         ExportTimelineCommand = new(() => ExportAsync(incidentsOnly: false), () => HasHistory);
+        ExportFindingsCsvCommand = new(() => ExportFindingsAsync(json: false), CanExportFindings);
+        ExportFindingsJsonCommand = new(() => ExportFindingsAsync(json: true), CanExportFindings);
         OpenFolderCommand = new(() => { if (opened is not null) desktop.OpenPath(opened.Directory); });
         // The list is rebuilt whenever it is refreshed; keep the recording that is open selected in it.
         var uiContext = SynchronizationContext.Current;
@@ -367,6 +370,9 @@ public sealed class SessionHistoryViewModel : ObservableObject
     public DateTimeOffset? HoverAt => hoverAt;
     public AsyncCommand ExportIncidentsCommand { get; }
     public AsyncCommand ExportTimelineCommand { get; }
+    public AsyncCommand ExportFindingsCsvCommand { get; }
+    public AsyncCommand ExportFindingsJsonCommand { get; }
+    private bool CanExportFindings() => history is not null && Findings.HasAnalysis && !exportingFindings;
 
     /// <summary>For tests and shutdown: the work of the latest refresh and analysis.</summary>
     internal Task Settled => Task.WhenAll(refreshTask, analysisTask, findingsTask);
@@ -388,7 +394,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
     {
         KeepDraft(selectedIncident);
         openVersion++;
-        Cancel(ref loadCts); Cancel(ref refreshCts); Cancel(ref analysisCts); Cancel(ref findingsCts);
+        Cancel(ref loadCts); Cancel(ref refreshCts); Cancel(ref analysisCts); Cancel(ref findingsCts); Cancel(ref exportCts);
         Findings.Clear();
         history = null; annotations = RecordingAnnotations.Empty;
         foreach (var row in Charts) row.Data.Clear();
@@ -483,7 +489,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
         try
         {
             var result = await AnomalyDetectionEngine.AnalyzeAsync(loaded, cancellationToken: token);
-            if (!token.IsCancellationRequested && ReferenceEquals(loaded, history)) Findings.Show(result, loaded.Info);
+            if (!token.IsCancellationRequested && ReferenceEquals(loaded, history)) { Findings.Show(result, loaded.Info); RaiseSteps(); }
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
@@ -838,7 +844,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
     {
         PreviousIncidentCommand.Refresh(); NextIncidentCommand.Refresh();
         ZoomInCommand.Refresh(); ZoomOutCommand.Refresh(); ResetZoomCommand.Refresh(); ApplyCustomRangeCommand.Refresh();
-        ExportIncidentsCommand.Refresh(); ExportTimelineCommand.Refresh();
+        ExportIncidentsCommand.Refresh(); ExportTimelineCommand.Refresh(); ExportFindingsCsvCommand.Refresh(); ExportFindingsJsonCommand.Refresh();
     }
 
     // ---------- charts ----------
@@ -915,6 +921,41 @@ public sealed class SessionHistoryViewModel : ObservableObject
             Message = $"{(incidentsOnly ? "Incidents" : "Timeline")} exported to {path}. The session CSV and JSON exports are unchanged.";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Message = $"The export failed: {ex.Message}"; }
+    }
+
+    /// <summary>
+    /// Exports the findings of the open recording (CSV or JSON, see <see cref="FindingsExport"/>) to a file the user chose. The file is built and written off the UI thread, replaced
+    /// atomically, and cancelled with the page; a failure says why and leaves no partial file. Nothing about the selection, the charts or the recording changes.
+    /// </summary>
+    private async Task ExportFindingsAsync(bool json)
+    {
+        if (history is not { } h || Findings.CurrentAnalysis is not { } analysis) return;
+        var info = h.Info;
+        var path = desktop.SelectExportPath(json, "Export findings", $"EucLens-findings-{info.ShortId}-{DateTime.Now:yyyyMMdd-HHmmss}");
+        if (path is null) return;
+        Cancel(ref exportCts);
+        var cts = new CancellationTokenSource(); exportCts = cts;
+        var token = cts.Token;
+        exportingFindings = true; RaiseSteps();
+        Findings.ExportMessage = "Exporting findings…";
+        var label = json ? "JSON" : "CSV";
+        try
+        {
+            await (json ? FindingsExport.WriteJsonAsync(path, analysis, info, token) : FindingsExport.WriteCsvAsync(path, analysis, info, token));
+            if (ReferenceEquals(h, history)) Findings.ExportMessage = $"Findings exported ({label}) to {path}. The recording was not changed." + (analysis.ReducedConfidence ? " The analysis has reduced confidence; the file says so." : "");
+        }
+        catch (OperationCanceledException) { if (ReferenceEquals(h, history)) Findings.ExportMessage = "The export was cancelled. No file was changed."; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+        {
+            logger?.LogWarning(ex, "The findings could not be exported.");
+            if (ReferenceEquals(h, history)) Findings.ExportMessage = $"The findings could not be exported: {ex.Message} No partial file was left.";
+        }
+        finally
+        {
+            exportingFindings = false;
+            if (ReferenceEquals(exportCts, cts)) Cancel(ref exportCts);
+            RaiseSteps();
+        }
     }
 
     private void RaiseAll()

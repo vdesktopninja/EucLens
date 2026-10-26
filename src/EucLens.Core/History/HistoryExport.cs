@@ -32,7 +32,7 @@ public static class HistoryExport
     internal static string Cell(string value)
     {
         if (value.Length == 0) return "";
-        if (value[0] is '=' or '+' or '-' or '@' or '\t' or '\r') value = "'" + value;
+        value = CsvField.Guard(value);          // also catches a formula hidden behind leading whitespace, a line feed or invisible characters
         return value.IndexOfAny([',', '"', '\r', '\n']) >= 0 ? "\"" + value.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"" : value;
     }
 }

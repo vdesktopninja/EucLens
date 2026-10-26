@@ -11,6 +11,19 @@ public sealed class DesktopServices : IDesktopServices
     /// <summary>Smoke tests run unattended; a modal confirmation would block them.</summary>
     public bool AutoConfirmNewRecording { get; init; }
     public static string DataDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EucLens");
+    /// <summary>Set by the smoke test so unattended runs never wait for a save dialog; receives (json, file stem) and returns the path, or null to cancel.</summary>
+    public Func<bool, string, string?>? ExportPathProvider { get; set; }
+    public string? SelectExportPath(bool json, string title, string fileStem)
+    {
+        if (ExportPathProvider is { } provider) return provider(json, fileStem);
+        var dialog = new SaveFileDialog
+        {
+            Title = title, FileName = fileStem,
+            Filter = json ? "JSON (*.json)|*.json" : "CSV (*.csv)|*.csv",
+            DefaultExt = json ? ".json" : ".csv", AddExtension = true, OverwritePrompt = true
+        };
+        return dialog.ShowDialog(Application.Current.MainWindow) == true ? dialog.FileName : null;
+    }
     public string? SelectExportPath(bool json)
     {
         var dialog = new SaveFileDialog

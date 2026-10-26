@@ -2,6 +2,7 @@ using EucLens.App;
 using EucLens.App.ViewModels;
 using EucLens.Core;
 using EucLens.Providers;
+using System.Text.Json;
 using Xunit;
 
 namespace EucLens.Tests;
@@ -17,7 +18,9 @@ public sealed class HistoryFindingsPresentationTests
 
     private sealed class Desktop : IDesktopServices
     {
-        public string? SelectExportPath(bool json) => null;
+        public string? ExportPath { get; set; }
+        public int Asked { get; private set; }
+        public string? SelectExportPath(bool json) { Asked++; return ExportPath; }
         public bool ConfirmNewRecording() => true;
         public void ApplyTheme(bool dark) { }
         public Task SavePreferencesAsync(Preferences preferences) => Task.CompletedTask;
@@ -26,9 +29,9 @@ public sealed class HistoryFindingsPresentationTests
         public bool OpenPath(string path, bool selectFile = false) => true;
     }
 
-    private static SessionHistoryViewModel CreateHistory(MemoryStorage storage, TimeZoneInfo? zone = null)
+    private static SessionHistoryViewModel CreateHistory(MemoryStorage storage, TimeZoneInfo? zone = null, Desktop? desktop = null)
     {
-        var desktop = new Desktop(); var recorder = new SessionRecorder();
+        desktop ??= new Desktop(); var recorder = new SessionRecorder();
         var background = new BackgroundViewModel(new MonitoringService(new MonitoringCoordinator(), recorder), recorder, desktop, storage: storage);
         return new(background, desktop, recorder, storage, zone ?? TimeZoneInfo.Utc);
     }
@@ -494,6 +497,80 @@ public sealed class HistoryFindingsPresentationTests
         Assert.All(analysis.Observations.Where(o => o.Primary.ChannelId == "packetLoss"), o => Assert.Contains("uplink", o.Explanation));
         var only = await HistoryFixture.RecordAsync(300, i => S(i, unknownProtocol: true));
         Assert.Equal(["Unknown protocol"], AnomalyInput.From(HistoryFixture.Load(only.Storage, only.ShortId)).Protocols);
+    }
+
+    // ---------- export ----------
+
+    private static string TempFolder() { var f = Path.Combine(Path.GetTempPath(), "euclens-m3-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(f); return f; }
+
+    private static string Fingerprint(MemoryStorage storage) => string.Join("|", storage.Names(Dir).Order(StringComparer.Ordinal).Select(n =>
+    {
+        using var stream = storage.OpenRead(Path.Combine(Dir, n)); using var ms = new MemoryStream(); stream.CopyTo(ms);
+        return n + ":" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(ms.ToArray()));
+    }));
+
+    [Fact]
+    public async Task ExportingTheFindingsWritesBothFilesWithoutChangingTheSelectionTheViewOrTheRecording()
+    {
+        var folder = TempFolder();
+        try
+        {
+            var rec = await HistoryFixture.RecordAsync(1800, Busy);
+            var desktop = new Desktop(); var h = CreateHistory(rec.Storage, desktop: desktop);
+            await h.OpenAsync(Summary(rec.Storage, rec.ShortId)); await h.Settled;
+            var f = h.Findings;
+            Assert.True(h.ExportFindingsCsvCommand.CanExecute(null) && h.ExportFindingsJsonCommand.CanExecute(null));
+            f.SelectedObservation = Row(h, "conn.rtt.high"); await h.Settled;
+            var (selected, start, end, emphasized) = (f.SelectedObservation, h.ViewStart, h.ViewEnd, h.Charts.Where(c => c.IsPrimary).Select(c => c.Id).ToArray());
+            var before = Fingerprint(rec.Storage);
+
+            desktop.ExportPath = Path.Combine(folder, "findings.csv");
+            await h.ExportFindingsCsvCommand.ExecuteAsync();
+            desktop.ExportPath = Path.Combine(folder, "findings.json");
+            await h.ExportFindingsJsonCommand.ExecuteAsync();
+
+            Assert.Contains("Findings exported (JSON)", f.ExportMessage); Assert.Contains("The recording was not changed", f.ExportMessage);
+            Assert.Equal(FindingsExport.Json(f.CurrentAnalysis!, h.Loaded!.Info), await File.ReadAllTextAsync(Path.Combine(folder, "findings.json")));
+            Assert.Equal(FindingsExport.Csv(f.CurrentAnalysis!, h.Loaded.Info), (await File.ReadAllTextAsync(Path.Combine(folder, "findings.csv"))).TrimStart('﻿'));
+            Assert.Same(selected, f.SelectedObservation); Assert.Equal(start, h.ViewStart); Assert.Equal(end, h.ViewEnd);
+            Assert.Equal(emphasized, h.Charts.Where(c => c.IsPrimary).Select(c => c.Id));
+            Assert.Equal(before, Fingerprint(rec.Storage));                                      // the recording's files are exactly as they were
+            Assert.Equal(["findings.csv", "findings.json"], Directory.GetFiles(folder).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+            Assert.True(h.ExportFindingsCsvCommand.CanExecute(null));
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+
+    [Fact]
+    public async Task ACancelledDialogAFailedWriteAndLeavingThePageAreAllHandledWithoutAPartialFile()
+    {
+        var folder = TempFolder();
+        try
+        {
+            var rec = await HistoryFixture.RecordAsync(1800, Busy);
+            var desktop = new Desktop(); var h = CreateHistory(rec.Storage, desktop: desktop);
+            Assert.False(h.ExportFindingsCsvCommand.CanExecute(null));                           // nothing analyzed yet
+            await h.OpenAsync(Summary(rec.Storage, rec.ShortId)); await h.Settled;
+            desktop.ExportPath = null;                                                           // the user closes the save dialog
+            await h.ExportFindingsJsonCommand.ExecuteAsync();
+            Assert.Equal("", h.Findings.ExportMessage); Assert.Empty(Directory.GetFiles(folder));
+
+            desktop.ExportPath = Path.Combine(folder, "no-such-folder", "f.json");               // the disk or the folder refuses
+            await h.ExportFindingsJsonCommand.ExecuteAsync();
+            Assert.Contains("could not be exported", h.Findings.ExportMessage); Assert.Contains("No partial file was left", h.Findings.ExportMessage);
+            Assert.True(h.ExportFindingsJsonCommand.CanExecute(null));                           // and the user can try again
+
+            desktop.ExportPath = Path.Combine(folder, "left.json");
+            var export = h.ExportFindingsJsonCommand.ExecuteAsync();
+            h.OnPageHidden();                                                                    // the page is left while the file is being written
+            await export;
+            var files = Directory.GetFiles(folder).Select(Path.GetFileName).ToArray();
+            Assert.True(files.Length == 0 || files.SequenceEqual(["left.json"]), string.Join(",", files));   // whole file or none, never a temporary or partial one
+            if (files.Length == 1) using (JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(folder, "left.json")))) { }
+            Assert.False(h.ExportFindingsCsvCommand.CanExecute(null));                           // the page released its analysis
+            Assert.Null(h.Findings.CurrentAnalysis);
+        }
+        finally { Directory.Delete(folder, true); }
     }
 
     // ---------- lifetime ----------

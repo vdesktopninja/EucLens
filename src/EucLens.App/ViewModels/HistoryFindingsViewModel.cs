@@ -280,6 +280,12 @@ public sealed class HistoryFindingsViewModel : ObservableObject
         all.Count == 0 ? (analyzed ? "No observation: no rule that could be evaluated detected a condition. That is not proof the session was healthy; see data quality below." : "")
         : VisibleObservations.Count == 0 ? "No finding matches these filters." : "";
     private bool analyzed;
+    private string exportMessage = "";
+    /// <summary>The analysis behind the list, kept so it can be exported; released with everything else.</summary>
+    internal AnomalyAnalysis? CurrentAnalysis { get; private set; }
+    public bool HasAnalysis => CurrentAnalysis is not null;
+    /// <summary>The outcome of the last export of the findings (saved where, cancelled, failed and why); empty until one is attempted.</summary>
+    public string ExportMessage { get => exportMessage; internal set => Set(ref exportMessage, value); }
 
     // ---------- filters ----------
 
@@ -438,7 +444,7 @@ public sealed class HistoryFindingsViewModel : ObservableObject
     public void Clear()
     {
         selectedObservation = null; selectedCorrelation = null; selectedContext = null; highlightStart = highlightEnd = peakAt = null;
-        all = []; analyzed = false; applying = true; VisibleObservations.ReplaceAll([]); applying = false;
+        all = []; analyzed = false; CurrentAnalysis = null; exportMessage = ""; Raise(nameof(ExportMessage)); Raise(nameof(HasAnalysis)); applying = true; VisibleObservations.ReplaceAll([]); applying = false;
         PerformanceCorrelations = []; ContextCorrelations = []; QualityGroups = []; Limitations = [];
         severity = SeverityFilters[0]; domain = DomainFilters[0];
         RefreshCounts();
@@ -470,7 +476,7 @@ public sealed class HistoryFindingsViewModel : ObservableObject
         PerformanceCorrelations = correlations.Where(c => c.IsPerformance).ToArray();
         ContextCorrelations = correlations.Where(c => !c.IsPerformance).ToArray();
         Limitations = analysis.Limitations.ToArray();
-        analyzed = true;
+        analyzed = true; CurrentAnalysis = analysis; Raise(nameof(HasAnalysis));
         RefreshCounts();
         selectedObservation = null; selectedCorrelation = null; selectedContext = null; highlightStart = highlightEnd = peakAt = null;
         applying = true; VisibleObservations.ReplaceAll(all.Where(Passes)); applying = false;
