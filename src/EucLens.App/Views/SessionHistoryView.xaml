@@ -31,6 +31,49 @@
     <TextBlock Text="{Binding Monitor.History.ZoneNote}" Style="{StaticResource Meta}" Margin="0,6,0,0" />
    </StackPanel></Border>
 
+   
+   <Border Style="{StaticResource Panel}" AutomationProperties.Name="Intelligent findings"><StackPanel>
+    <TextBlock Text="Intelligent findings" FontWeight="SemiBold" FontSize="{StaticResource ReadingFontSize}" />
+    <TextBlock Text="Local, evidence-based observations; not proven root causes." Style="{StaticResource Meta}" />
+    <TextBlock Text="{Binding Monitor.History.Findings.Status}" Style="{StaticResource Reading}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+    <TextBlock Text="Measured anomalies — select to inspect the chart interval" Style="{StaticResource SubLabel}" Margin="0,6,0,0" />
+    <ListBox ItemsSource="{Binding Monitor.History.Findings.Observations}" SelectedItem="{Binding Monitor.History.Findings.SelectedObservation}" MaxHeight="220" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" AutomationProperties.Name="Measured anomalies">
+     <ListBox.ItemTemplate><DataTemplate><StackPanel Margin="2,4" AutomationProperties.Name="{Binding AutomationName}">
+      <TextBlock Text="{Binding Group}" FontWeight="SemiBold" Visibility="{Binding ShowGroup, Converter={StaticResource BoolToVisibility}}" />
+      <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+      <TextBlock Text="{Binding Time}" Style="{StaticResource Meta}" />
+      <TextBlock Text="{Binding Severity}" Style="{StaticResource Meta}" />
+      <TextBlock Text="{Binding Status}" Style="{StaticResource Meta}" />
+     </StackPanel></DataTemplate></ListBox.ItemTemplate>
+    </ListBox>
+    <StackPanel Visibility="{Binding Monitor.History.Findings.HasSelectedObservation, Converter={StaticResource BoolToVisibility}}">
+     <TextBlock Text="{Binding Monitor.History.Findings.SelectedObservation.Explanation}" Style="{StaticResource Reading}" TextWrapping="Wrap" />
+     <TextBlock Text="{Binding Monitor.History.Findings.SelectedObservation.Coverage}" Style="{StaticResource Meta}" />
+     <TextBlock Text="{Binding Monitor.History.Findings.SelectedObservation.Threshold}" Style="{StaticResource Meta}" TextWrapping="Wrap" />
+     <ItemsControl ItemsSource="{Binding Monitor.History.Findings.SelectedObservation.Evidence}"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Style="{StaticResource Meta}" TextWrapping="Wrap" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+     <ItemsControl ItemsSource="{Binding Monitor.History.Findings.SelectedObservation.Limitations}"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Style="{StaticResource Meta}" TextWrapping="Wrap" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+    </StackPanel>
+    <TextBlock Text="Timing correlations" Style="{StaticResource SubLabel}" Margin="0,8,0,0" />
+    <ListBox ItemsSource="{Binding Monitor.History.Findings.Correlations}" SelectedItem="{Binding Monitor.History.Findings.SelectedCorrelation}" MaxHeight="160" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" AutomationProperties.Name="Timing correlations">
+     <ListBox.ItemTemplate><DataTemplate><StackPanel Margin="2,4" AutomationProperties.Name="{Binding AutomationName}">
+      <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+      <TextBlock Text="{Binding Time}" Style="{StaticResource Meta}" />
+      <TextBlock Text="{Binding Timing}" Style="{StaticResource Meta}" TextWrapping="Wrap" />
+     </StackPanel></DataTemplate></ListBox.ItemTemplate>
+    </ListBox>
+    <StackPanel Visibility="{Binding Monitor.History.Findings.HasSelectedCorrelation, Converter={StaticResource BoolToVisibility}}">
+     <TextBlock Text="{Binding Monitor.History.Findings.SelectedCorrelation.Explanation}" Style="{StaticResource Reading}" TextWrapping="Wrap" />
+     <ItemsControl ItemsSource="{Binding Monitor.History.Findings.SelectedCorrelation.Links}"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Style="{StaticResource Meta}" TextWrapping="Wrap" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+     <ItemsControl ItemsSource="{Binding Monitor.History.Findings.SelectedCorrelation.Limitations}"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Style="{StaticResource Meta}" TextWrapping="Wrap" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+    </StackPanel>
+    <Expander Header="Coverage and insufficient measurements" Margin="0,8,0,0" AutomationProperties.Name="Diagnostic coverage">
+     <StackPanel>
+      <ItemsControl ItemsSource="{Binding Monitor.History.Findings.Limitations}"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Style="{StaticResource Meta}" TextWrapping="Wrap" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+      <ItemsControl ItemsSource="{Binding Monitor.History.Findings.InsufficientData}"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Style="{StaticResource Meta}" TextWrapping="Wrap" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+      <ItemsControl ItemsSource="{Binding Monitor.History.Findings.Coverage}"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Style="{StaticResource Meta}" TextWrapping="Wrap" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+     </StackPanel>
+    </Expander>
+   </StackPanel></Border>
    <Border Style="{StaticResource Panel}" AutomationProperties.Name="Time range"><StackPanel>
     <WrapPanel>
      <StackPanel Margin="0,0,12,6"><TextBlock Text="Range" Style="{StaticResource Meta}" /><ComboBox Width="170" ItemsSource="{Binding Monitor.History.RangePresets}" SelectedItem="{Binding Monitor.History.SelectedPreset}" DisplayMemberPath="Label" AutomationProperties.Name="Range preset" /></StackPanel>
