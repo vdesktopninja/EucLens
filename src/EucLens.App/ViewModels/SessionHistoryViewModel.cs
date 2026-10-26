@@ -227,7 +227,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
     public string LoadProgress { get => loadProgress; private set => Set(ref loadProgress, value); }
     public bool ShowPlaceholder => !HasHistory && !HasError && !IsLoading;
     public LoadedHistory? Loaded => history;
-    public HistoryFindingsViewModel Findings { get; };
+    public HistoryFindingsViewModel Findings { get; }
     private void NavigateToFinding(DateTimeOffset start, DateTimeOffset end, DateTimeOffset? peak)
     {
         if (history is null) return;
