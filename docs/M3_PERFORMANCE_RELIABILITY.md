@@ -173,13 +173,14 @@ UTF-8 without a byte-order mark, indented, UTC ISO 8601 times, invariant numbers
 
 ## 5. Tests added in M3
 
-621 → 724 (+103 test cases, 0 skipped).
+621 → 724 (104 test cases added, one replaced: +103, 0 skipped).
 
-* `FindingsExportTests` (69 cases): formula payload theory, quoting, controls and surrogates, length, header and row shape, measurements and UTC, chained correlation in both formats, JSON structure and strings, unavailable values, unreliable baseline, incomplete recordings, privacy, determinism across cultures, atomic files, cancellation and failure, recording names, the timeline export.
+* `FindingsExportTests` (74 cases): formula payload theory, quoting, controls and surrogates, length, header and row shape, measurements and UTC, chained correlation in both formats, JSON structure and strings, unavailable values, unreliable baseline, incomplete recordings, privacy, determinism across cultures, atomic files, cancellation and failure, recording names, the timeline export.
 * `HistoryFindingsPresentationTests` (+2): export through the commands (selection, view and recording unchanged), cancelled dialog, failing path, leaving the page during an export.
-* `MemoryRetentionTests` (10): probe on the analyzer (40,795 and 250,000 samples), the probe's sensitivity (three leaks, a temporary allocation, masked and noisy series), the weak-reference check, analysis objects, the findings model.
-* `SessionHistoryLifetimeTests` (6): scenarios A–D and queued UI callbacks.
-* `AnomalyBenchmarkTests` (13): the four workloads, nine adversarial recordings, cancellation.
+* `MemoryRetentionTests` (9): probe on the analyzer (40,795 and 250,000 samples), the probe's sensitivity (three leaks, a temporary allocation, masked and noisy series), the weak-reference check, analysis objects, the findings model.
+* `SessionHistoryLifetimeTests` (5): scenarios A–D and queued UI callbacks.
+* `AnomalyBenchmarkTests` (14): the four workloads, nine adversarial recordings, cancellation.
+* `AnomalyPerformanceTests`: the weak heap test was removed (replaced by `MemoryRetentionTests`); the rest is unchanged.
 * Windows smoke (`HistoryValidation`): findings layout matrix (four display sizes, both themes), findings export through the real buttons, findings lifetime (12 real visits).
 
 ## 6. Windows WPF validation
