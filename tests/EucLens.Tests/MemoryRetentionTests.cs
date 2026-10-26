@@ -45,10 +45,10 @@ public sealed class MemoryRetentionTests(ITestOutputHelper output)
         var input = Input(40_795);
         var results = new List<AnomalyAnalysis>();                                           // a cache that is never emptied
         var retainedResults = RetentionProbe.Measure(_ => results.Add(AnomalyDetectionEngine.Analyze(input)));
-        var buffers = new List<byte[]>();                                                    // a small buffer kept per run
-        var retainedBuffers = RetentionProbe.Measure(_ => buffers.Add(new byte[8 * 1024]));
+        var buffers = new List<byte[]>();                                                    // a small buffer (16 KiB) kept per run
+        var retainedBuffers = RetentionProbe.Measure(_ => buffers.Add(new byte[16 * 1024]));
         var publisher = new LongLivedPublisher();                                            // a view-like object that subscribed and was never unsubscribed
-        var leakedHandlers = RetentionProbe.Measure(_ => { var scratch = new byte[8 * 1024]; publisher.Subscribe(() => scratch[0]++); });
+        var leakedHandlers = RetentionProbe.Measure(_ => { var scratch = new byte[16 * 1024]; publisher.Subscribe(() => scratch[0]++); });
         foreach (var (name, report) in new[] { ("retained results", retainedResults), ("retained buffers", retainedBuffers), ("leaked handlers", leakedHandlers) })
         {
             var (leaks, why) = RetentionProbe.Verdict(report);

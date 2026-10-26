@@ -641,16 +641,25 @@ internal static class HistoryValidation
         await WaitFor(() => f.Observations.Count > 0 && f.Summary.Length > 0, "the findings analysis");
         f.SelectedObservation = f.VisibleObservations[0]; await h.Settled; await Idle(c);
         var window = c.Window; var (width0, height0, state0) = (window.Width, window.Height, window.WindowState);
+        // As the layout matrix of the other pages does it: the real client stays attached (charts stay loaded) inside a Canvas, which measures it at the requested size whatever
+        // the native window can show on the runner.
+        var client = (FrameworkElement)window.Content;
+        var chromeWidth = window.ActualWidth - client.ActualWidth; var chromeHeight = window.ActualHeight - client.ActualHeight;
+        var (clientWidth0, clientHeight0) = (client.Width, client.Height);
+        var host = new Canvas { DataContext = c.Vm };
+        window.Content = null; host.Children.Add(client); window.Content = host;
         var results = new List<string>();
         try
         {
-            window.WindowState = WindowState.Normal;
             foreach (var dark in new[] { false, true })
             foreach (var (width, height, scale) in new[] { (1920, 1080, 1d), (1920, 1080, 1.25d), (1366, 768, 1d), (2560, 1440, 1.5d) })
             {
                 c.Vm.IsDark = dark;
                 window.Width = width / scale; window.Height = height / scale;
-                await Idle(c); window.UpdateLayout(); await Idle(c); await Task.Delay(120);
+                var requested = new Size(width / scale - chromeWidth, height / scale - chromeHeight);
+                client.Width = requested.Width; client.Height = requested.Height;
+                await Idle(c); window.UpdateLayout(); await Idle(c); await DesktopValidation.WaitForChartMeasureAsync(window); await Task.Delay(120);
+                Require(Math.Abs(client.ActualWidth - requested.Width) <= 1 && Math.Abs(client.ActualHeight - requested.Height) <= 1, $"The client is {client.ActualWidth:0}×{client.ActualHeight:0}, not the requested {requested.Width:0}×{requested.Height:0}.");
                 var view = View(c); var viewport = (FrameworkElement)PageViewport(view);
                 ((ScrollViewer)viewport).ScrollToTop(); await Idle(c);                      // the first screen is measured from the top of the page, wherever an earlier section left it
                 var panel = DesktopValidation.Descendants<Border>(view).First(b => System.Windows.Automation.AutomationProperties.GetName(b) == "Performance findings");
@@ -671,12 +680,14 @@ internal static class HistoryValidation
                 var severity = (ListBox)DesktopValidation.Descendants<ListBox>(view).First(l => System.Windows.Automation.AutomationProperties.GetName(l) == "Severity filter");
                 Require(DesktopValidation.Descendants<ListBoxItem>(severity).Count() == 4 && severity.ActualWidth <= panel.ActualWidth + 1, $"{label}: the severity filter does not fit.");
                 Require(h.Charts.Count > 0 && DesktopValidation.Descendants<ListBox>(view).Any(l => l.ActualHeight <= HistoryLayout.FindingsListMaxHeight + 1 && System.Windows.Automation.AutomationProperties.GetName(l).StartsWith("Findings", StringComparison.Ordinal)), $"{label}: the findings list is not bounded.");
-                results.Add($"{label}: panel {panel.ActualWidth:0}×{panel.ActualHeight:0} DIPs in a viewport of {viewport.ActualWidth:0}×{viewport.ActualHeight:0}; {blocks.Length} texts inside; 3 buttons within the panel");
+                Require(viewport.ActualWidth <= requested.Width - 184 + 1 && viewport.ActualWidth >= requested.Width - 184 - 60, $"{label}: the page viewport ({viewport.ActualWidth:0}) does not follow the requested client width {requested.Width:0} (navigation 184).");
+                results.Add($"{label}: client {client.ActualWidth:0}×{client.ActualHeight:0}, page viewport {viewport.ActualWidth:0}×{viewport.ActualHeight:0}, findings panel {panel.ActualWidth:0}×{panel.ActualHeight:0} DIPs; {blocks.Length} texts inside; 3 buttons within the panel");
                 if (!dark && (width, scale) is (1366, 1d) or (2560, 1.5d)) await Shot(c, panel, Path.Combine(c.EvidenceDirectory, $"history-findings-matrix-{width}x{height}-{scale * 100:0}pct-{(dark ? "dark" : "light")}.png"));
             }
         }
         finally
         {
+            host.Children.Remove(client); client.Width = clientWidth0; client.Height = clientHeight0; window.Content = client;
             window.Width = width0; window.Height = height0; window.WindowState = state0; c.Vm.IsDark = true;
             await Idle(c);
         }
