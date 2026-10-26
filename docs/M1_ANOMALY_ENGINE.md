@@ -118,6 +118,8 @@ Missing values are never zero: NaN, null, failed and unavailable metrics are all
 
 Only `ConfirmedObservation`s take part. Two observations are **linked** when they are on the same segment and their intervals overlap or lie within `CorrelationTolerance` = 5 s of each other, with at least `MinimumOverlapSamples` = 2 timeline samples in the overlap. Linked observations are clustered (union-find), one correlation per cluster, with a deterministic id derived from the pattern and its sorted component ids. The correlation lists its components, so evidence links back to observations and from there to samples.
 
+**Overlap contract.** A correlation reports a common interval (`CommonOverlapStart`/`CommonOverlapEnd`) **only when every component was present in it** (latest start ≤ earliest end; `Timing = CommonOverlap`). Otherwise both are null: two components that do not overlap but lie within the tolerance are `WithinTolerance`; three or more components linked pair by pair (A overlaps B, B overlaps C, A and C do not overlap) are `Chained`. `Links` always lists the linked pairs with their own overlap interval, or the gap between them when they only lie within the tolerance, and the explanation and limitations name the pairs and say that no instant is common to all components. `Start`/`End` are the span of the cluster, not an overlap. Ids depend only on the pattern and the component ids.
+
 | Pattern | Components | Notes |
 |---|---|---|
 | `RttAndPacketLoss` | an RTT observation (high or deviation) + a loss observation (sustained or burst) | wording: "RTT and packet loss degraded during overlapping intervals"; does not conclude endpoint, network, host or gateway |
@@ -174,7 +176,7 @@ Benchmarks: see §12.
 
 ### Tests
 
-117 tests were added (463 existing + 117 = 580, all passing locally in Release). Files: `AnomalyRuleTests` (rules, positive and negative), `AnomalyDataIntegrityTests` (time windows, gaps, disconnects, units, ordering, DST, protocols, limits, cancellation, culture), `AnomalyCorrelationTests`, `AnomalyBaselineTests`, `AnomalyHistoryIntegrationTests` (recordings written by the real writer and read by the real loader, including the 21,300-sample six-hour size and a partial history), `AnomalyPerformanceTests`.
+The first delivery added 117 tests (463 existing + 117 = 580, all passing locally in Release). Files: `AnomalyRuleTests` (rules, positive and negative), `AnomalyDataIntegrityTests` (time windows, gaps, disconnects, units, ordering, DST, protocols, limits, cancellation, culture), `AnomalyCorrelationTests`, `AnomalyBaselineTests`, `AnomalyHistoryIntegrationTests` (recordings written by the real writer and read by the real loader, including the 21,300-sample six-hour size and a partial history), `AnomalyPerformanceTests`.
 
 Mapping of the required scenarios:
 
@@ -266,7 +268,7 @@ Real 21,300-sample recording through writer and loader: 13 ms, 0.48 MiB. 25,000 
 * **Thresholds are defaults from the live engine and engineering judgement**, not calibrated against a fleet. They are configurable (`AnomalyOptions`, `AnomalyRule`) and each rule has a version. Calibration belongs to manual Horizon acceptance (M4).
 * **Baseline is per recording**, not per user or per pool; a short recording has no adaptive rules.
 * **Tolerance-based correlation is a timing heuristic.** Two unrelated problems that happen to coincide within 5 s are correlated, and the text says so ("correlated timing").
-* **Chaining.** Correlation clusters can chain (A overlaps B, B overlaps C); the correlation reports the cluster's overall interval and all components.
+* **Chaining.** Correlation clusters can chain (A overlaps B, B overlaps C). They are reported as `Chained` with the linked pairs and without a common interval; a chain can still join episodes that are minutes apart if a long episode of the other kind bridges them.
 * **Merge tolerance and spike/sustained boundaries** are fixed per rule; a condition that flaps faster than the tolerance is one observation, slower is several.
 * **One session, one baseline.** A recording that spans a protocol or session change is split into segments for observations, but a metric's baseline is computed over the whole recording.
 * **The trimmed median is deliberately slightly low** for higher-is-worse metrics, which makes deviation detection marginally more sensitive; the practical floors compensate.

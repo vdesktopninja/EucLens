@@ -67,6 +67,7 @@ internal static class CorrelationAnalyzer
         var nodes = inB is null ? a : a.Concat(b).ToList();
         var parent = Enumerable.Range(0, nodes.Count).ToArray();
         var linked = new bool[nodes.Count];
+        var edges = new List<(int First, int Second)>();
         int Find(int x) { while (parent[x] != x) x = parent[x] = parent[parent[x]]; return x; }
         var aCount = a.Count;
         for (var i = 0; i < aCount; i++)
@@ -77,29 +78,43 @@ internal static class CorrelationAnalyzer
                 var other = nodes[j]; var self = nodes[i];
                 if (inB is null && other.Primary.ChannelId == self.Primary.ChannelId) continue;
                 if (!Near(c, self, other)) continue;
-                parent[Find(i)] = Find(j); linked[i] = linked[j] = true;
+                parent[Find(i)] = Find(j); linked[i] = linked[j] = true; edges.Add((i, j));
             }
         }
         foreach (var group in Enumerable.Range(0, nodes.Count).Where(i => linked[i]).GroupBy(Find).OrderBy(g => g.Min()))
         {
             var parts = group.Select(i => nodes[i]).OrderBy(o => o.Start).ThenBy(o => o.RuleId, StringComparer.Ordinal).ThenBy(o => o.Id, StringComparer.Ordinal).ToList();
-            yield return Build(c, pattern, parts);
+            var members = group.ToHashSet();
+            var links = edges.Where(e => members.Contains(e.First)).Select(e => (nodes[e.First], nodes[e.Second])).ToList();
+            yield return Build(c, pattern, parts, links);
         }
     }
 
-    private static AnomalyCorrelation Build(Context c, CorrelationPattern pattern, List<AnomalyObservation> parts)
+    /// <summary>The linked pair as a link record: the true overlap of the two intervals when there is one, otherwise the gap between them.</summary>
+    private static CorrelationLink LinkOf(AnomalyObservation x, AnomalyObservation y, IReadOnlyList<AnomalyObservation> order)
+    {
+        var (first, second) = order.ToList().IndexOf(x) <= order.ToList().IndexOf(y) ? (x, y) : (y, x);
+        var s = first.Start > second.Start ? first.Start : second.Start; var e = first.End < second.End ? first.End : second.End;
+        return s <= e ? new(first.Id, second.Id, s, e, TimeSpan.Zero) : new(first.Id, second.Id, null, null, s - e);
+    }
+
+    private static AnomalyCorrelation Build(Context c, CorrelationPattern pattern, List<AnomalyObservation> parts, List<(AnomalyObservation, AnomalyObservation)> pairs)
     {
         var start = parts.Min(p => p.Start); var end = parts.Max(p => p.End);
-        var overlapStart = parts.Max(p => p.Start); var overlapEnd = parts.Min(p => p.End);
-        var touching = overlapEnd < overlapStart;
-        if (touching) (overlapStart, overlapEnd) = (overlapEnd, overlapStart);
+        // Only an interval in which every component was present is reported as common to them; chains of pairwise overlaps usually have none.
+        var commonStart = parts.Max(p => p.Start); var commonEnd = parts.Min(p => p.End);
+        var common = commonStart <= commonEnd;
+        var timing = common ? CorrelationTiming.CommonOverlap : parts.Count == 2 ? CorrelationTiming.WithinTolerance : CorrelationTiming.Chained;
+        var links = pairs.Select(p => LinkOf(p.Item1, p.Item2, parts)).OrderBy(l => parts.FindIndex(p => p.Id == l.FirstId)).ThenBy(l => parts.FindIndex(p => p.Id == l.SecondId)).ToList();
         var severity = parts.Max(p => p.Severity);
         var channels = parts.Select(p => p.Primary.ChannelId).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
         var limitations = new List<string>
         {
             "A correlation describes timing only; it does not show that one measurement caused another.",
-            $"Intervals within {AnomalyNarrative.Number(c.Options.CorrelationTolerance.TotalSeconds)} s of each other are treated as overlapping, on one continuous stretch of data."
+            $"Components are linked when their intervals overlap or lie within {AnomalyNarrative.Number(c.Options.CorrelationTolerance.TotalSeconds)} s of each other, on one continuous stretch of data."
         };
+        if (timing == CorrelationTiming.Chained) limitations.Add("No instant is common to all components: they are linked pair by pair, so the correlation interval is not an interval in which all of them were present.");
+        if (timing == CorrelationTiming.WithinTolerance) limitations.Add("The two components do not overlap; they lie within the correlation tolerance of each other.");
         if (parts.Any(p => p.Ending == ObservationEnd.CoverageEnded)) limitations.Add("At least one component ended because measurements ended or were missing; recovery is not confirmed.");
         if (parts.Any(p => p.Severity == Severity.Info)) limitations.Add("At least one component is an informational observation.");
         var title = pattern switch
@@ -109,8 +124,8 @@ internal static class CorrelationAnalyzer
             CorrelationPattern.FpsAndGuestCpu => "Low frame rate and sustained guest CPU utilization together",
             _ => "Several guest resource measurements degraded together"
         };
-        var explanation = AnomalyNarrative.Correlation(pattern, parts, overlapStart, overlapEnd, touching);
-        return new(Id(c, pattern, parts), pattern, severity, title, start, end, overlapStart, overlapEnd, parts.Select(p => p.Id).ToList(), channels, explanation, limitations);
+        var explanation = AnomalyNarrative.Correlation(pattern, parts, timing, common ? commonStart : null, common ? commonEnd : null, links);
+        return new(Id(c, pattern, parts), pattern, severity, title, start, end, timing, common ? commonStart : null, common ? commonEnd : null, links, parts.Select(p => p.Id).ToList(), channels, explanation, limitations);
     }
 
     private static string Id(Context c, CorrelationPattern pattern, IEnumerable<AnomalyObservation> parts)
@@ -143,7 +158,7 @@ internal static class CorrelationAnalyzer
             var explanation = $"{AnomalyNarrative.Describe(o)} lies next to missing data or a session change: {string.Join("; ", distinct)}{(near.Distinct().Count() > 5 ? "; …" : "")}. " +
                 "The recording does not show what happened during the gap, and observations on either side of it are not treated as one continuous event.";
             yield return new(Id(c, CorrelationPattern.AvailabilityOverlap, parts), CorrelationPattern.AvailabilityOverlap, Severity.Info, "Observation next to missing data or a session change",
-                o.Start, o.End, o.Start, o.End, [o.Id], [o.Primary.ChannelId], explanation,
+                o.Start, o.End, CorrelationTiming.SingleObservation, null, null, [], [o.Id], [o.Primary.ChannelId], explanation,
                 ["Availability information describes the recording, not the cause of the interruption.", "The observation's own limitations also apply."]);
         }
     }

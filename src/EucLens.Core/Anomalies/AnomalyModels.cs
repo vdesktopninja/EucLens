@@ -58,14 +58,31 @@ public sealed record AnomalyObservation(
 public enum CorrelationPattern { RttAndPacketLoss, GraphicsAndConnection, FpsAndGuestCpu, MultipleGuestResources, AvailabilityOverlap }
 
 /// <summary>
-/// Observations whose intervals overlap (within a stated tolerance) on one continuous stretch of data. It describes timing only; it does not say what caused what.
+/// How the components of a correlation relate in time. <see cref="CommonOverlap"/>: one interval in which every component was present. <see cref="WithinTolerance"/>: two
+/// components that do not overlap but lie within the correlation tolerance of each other. <see cref="Chained"/>: three or more components, each linked to another by overlap or
+/// tolerance, with no instant at which all of them were present. <see cref="SingleObservation"/>: one observation placed next to missing data.
+/// </summary>
+public enum CorrelationTiming { CommonOverlap, WithinTolerance, Chained, SingleObservation }
+
+/// <summary>
+/// Why two components are linked: the interval in which both were present (null when they do not overlap) and, in that case, the gap between them.
+/// </summary>
+public sealed record CorrelationLink(string FirstId, string SecondId, DateTimeOffset? OverlapStart, DateTimeOffset? OverlapEnd, TimeSpan Gap);
+
+/// <summary>
+/// Observations that are linked in time (they overlap, or lie within a stated tolerance of each other) on one continuous stretch of data. It describes timing only; it does not say
+/// what caused what. <see cref="CommonOverlapStart"/>/<see cref="CommonOverlapEnd"/> are set only when every component was present during that interval; chained or tolerance-linked
+/// components have none, and <see cref="Links"/> says which pairs are linked and how.
 /// </summary>
 /// <param name="ComponentIds">The observations it is built from, in a stable order.</param>
+/// <param name="Links">The linked pairs that form the correlation, in a stable order.</param>
 public sealed record AnomalyCorrelation(
-    string Id, CorrelationPattern Pattern, Severity Severity, string Title, DateTimeOffset Start, DateTimeOffset End, DateTimeOffset OverlapStart, DateTimeOffset OverlapEnd,
+    string Id, CorrelationPattern Pattern, Severity Severity, string Title, DateTimeOffset Start, DateTimeOffset End, CorrelationTiming Timing,
+    DateTimeOffset? CommonOverlapStart, DateTimeOffset? CommonOverlapEnd, IReadOnlyList<CorrelationLink> Links,
     IReadOnlyList<string> ComponentIds, IReadOnlyList<string> Channels, string Explanation, IReadOnlyList<string> Limitations)
 {
-    public TimeSpan Overlap => OverlapEnd - OverlapStart;
+    /// <summary>Length of the interval common to all components; null when there is none.</summary>
+    public TimeSpan? CommonOverlap => CommonOverlapStart is { } s && CommonOverlapEnd is { } e ? e - s : null;
 }
 
 /// <summary>

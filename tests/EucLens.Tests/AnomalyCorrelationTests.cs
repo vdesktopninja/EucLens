@@ -18,7 +18,8 @@ public sealed class AnomalyCorrelationTests
         Assert.Equal(2, c.ComponentIds.Count);
         Assert.All(c.ComponentIds, id => Assert.Contains(a.Observations, o => o.Id == id));
         Assert.Equal(Synthetic.T0.AddSeconds(300), c.Start); Assert.Equal(Synthetic.T0.AddSeconds(359), c.End);
-        Assert.Equal(Synthetic.T0.AddSeconds(310), c.OverlapStart); Assert.Equal(Synthetic.T0.AddSeconds(349), c.OverlapEnd);
+        Assert.Equal(CorrelationTiming.CommonOverlap, c.Timing); Assert.Equal(Synthetic.T0.AddSeconds(310), c.CommonOverlapStart); Assert.Equal(Synthetic.T0.AddSeconds(349), c.CommonOverlapEnd);
+        Assert.Equal(TimeSpan.FromSeconds(39), c.CommonOverlap);
         Assert.Equal(Severity.Warning, c.Severity); Assert.Equal(["packetLoss", "rtt"], c.Channels);
         Assert.Contains("RTT and packet loss degraded during overlapping intervals", c.Explanation);
         Assert.Contains("does not establish whether the endpoint, the network, the host or a gateway is involved", c.Explanation);
@@ -47,6 +48,114 @@ public sealed class AnomalyCorrelationTests
         Assert.Single(Of(near, CorrelationPattern.RttAndPacketLoss));
         var far = new Synthetic(1200).Set("rtt", 300, 360, 185).Set("packetLoss", 380, 420, 3).Analyze();
         Assert.Empty(Of(far, CorrelationPattern.RttAndPacketLoss));
+    }
+
+    // ---------- the overlap contract: common to all components only when it truly is ----------
+
+    [Fact]
+    public void ChainedObservationsAreOneCorrelationWithoutACommonInterval()
+    {
+        // RTT episode A (100-159) overlaps the loss episode B (150-259); B overlaps the RTT episode C (240-299); A and C are 80 s apart
+        var a = new Synthetic(1200).Set("rtt", 100, 160, 200).Set("packetLoss", 150, 260, 3).Set("rtt", 240, 300, 200).Analyze();
+        var c = Assert.Single(Of(a, CorrelationPattern.RttAndPacketLoss));
+        Assert.Equal(3, c.ComponentIds.Count);
+        Assert.Equal(CorrelationTiming.Chained, c.Timing);
+        Assert.Null(c.CommonOverlapStart); Assert.Null(c.CommonOverlapEnd); Assert.Null(c.CommonOverlap);
+        Assert.Equal(Synthetic.T0.AddSeconds(100), c.Start); Assert.Equal(Synthetic.T0.AddSeconds(299), c.End);       // the span of the cluster, not an overlap
+        Assert.Equal(2, c.Links.Count);
+        Assert.All(c.Links, l => { Assert.NotNull(l.OverlapStart); Assert.Equal(TimeSpan.Zero, l.Gap); Assert.True(l.OverlapStart <= l.OverlapEnd); });
+        Assert.Contains(c.Links, l => l.OverlapStart == Synthetic.T0.AddSeconds(150) && l.OverlapEnd == Synthetic.T0.AddSeconds(159));
+        Assert.Contains(c.Links, l => l.OverlapStart == Synthetic.T0.AddSeconds(240) && l.OverlapEnd == Synthetic.T0.AddSeconds(259));
+        Assert.Contains("No instant is common to all 3 components", c.Explanation);
+        Assert.DoesNotContain("all components were present", c.Explanation);
+        Assert.DoesNotContain("overlapping intervals", c.Explanation);
+        Assert.Contains(c.Limitations, l => l.Contains("No instant is common to all components"));
+        AssertNoCausalClaim(c.Explanation);
+        // the two RTT episodes really are separate observations that do not overlap each other
+        var rtt = a.Observations.Where(o => o.RuleId == "conn.rtt.high").OrderBy(o => o.Start).ToList();
+        Assert.True(rtt[0].End < rtt[1].Start);
+    }
+
+    [Fact]
+    public void TwoObservationsThatOnlyLieWithinTheToleranceAreLinkedWithoutAnOverlap()
+    {
+        var a = new Synthetic(1200).Set("rtt", 300, 360, 185).Set("packetLoss", 362, 400, 3).Analyze();      // 3 s between the end of the RTT episode and the start of the loss
+        var c = Assert.Single(Of(a, CorrelationPattern.RttAndPacketLoss));
+        Assert.Equal(CorrelationTiming.WithinTolerance, c.Timing);
+        Assert.Null(c.CommonOverlapStart); Assert.Null(c.CommonOverlapEnd); Assert.Null(c.CommonOverlap);
+        var link = Assert.Single(c.Links);
+        Assert.Null(link.OverlapStart); Assert.Null(link.OverlapEnd); Assert.Equal(TimeSpan.FromSeconds(3), link.Gap);
+        Assert.Contains("do not overlap but lie 3 s apart", c.Explanation);
+        Assert.DoesNotContain("overlapping intervals", c.Explanation); Assert.DoesNotContain("all components were present", c.Explanation);
+        Assert.Contains(c.Limitations, l => l.Contains("do not overlap"));
+        AssertNoCausalClaim(c.Explanation);
+    }
+
+    [Fact]
+    public void ACommonIntervalIsReportedOnlyWhenEveryComponentWasPresentInIt()
+    {
+        // FPS 300-379, RTT 310-389, loss 320-369: all three overlap in 320-369
+        var a = new Synthetic(1200).Set("fps", 300, 380, 6).Set("rtt", 310, 390, 210).Set("packetLoss", 320, 370, 3).Analyze();
+        var c = Assert.Single(Of(a, CorrelationPattern.GraphicsAndConnection));
+        Assert.Equal(3, c.ComponentIds.Count); Assert.Equal(CorrelationTiming.CommonOverlap, c.Timing);
+        Assert.Equal(Synthetic.T0.AddSeconds(320), c.CommonOverlapStart); Assert.Equal(Synthetic.T0.AddSeconds(369), c.CommonOverlapEnd);
+        Assert.Contains("all components were present", c.Explanation); Assert.Contains("14:05:20 and 14:06:09 UTC", c.Explanation);
+        foreach (var id in c.ComponentIds)
+        {
+            var o = a.Observations.Single(x => x.Id == id);
+            Assert.True(o.Start <= c.CommonOverlapStart && c.CommonOverlapEnd <= o.End);
+        }
+        AssertNoCausalClaim(c.Explanation);
+    }
+
+    [Fact]
+    public void TheCommonIntervalInvariantHoldsForEveryCorrelationOfManyArrangements()
+    {
+        // Arrangements of an RTT episode, two loss episodes and a second RTT episode at several offsets: whatever the cluster looks like, a reported
+        // common interval lies inside every component and no common interval is reported when the components have no instant in common.
+        var checkedCorrelations = 0; var chained = 0; var common = 0;
+        foreach (var gap1 in new[] { 0, 10, 30, 60 })
+            foreach (var shift in new[] { -40, 0, 30, 80, 120 })
+            {
+                var s = new Synthetic(1200).Set("rtt", 100, 160, 200).Set("packetLoss", 150 + gap1, 220 + gap1, 3).Set("rtt", 200 + shift + gap1, 260 + shift + gap1, 200);
+                var a = s.Analyze();
+                foreach (var cor in a.Correlations.Where(x => x.Pattern != CorrelationPattern.AvailabilityOverlap))
+                {
+                    var parts = cor.ComponentIds.Select(id => a.Observations.Single(o => o.Id == id)).ToList();
+                    var maxStart = parts.Max(p => p.Start); var minEnd = parts.Min(p => p.End);
+                    if (cor.CommonOverlapStart is { } cs && cor.CommonOverlapEnd is { } ce)
+                    {
+                        common++;
+                        Assert.Equal(CorrelationTiming.CommonOverlap, cor.Timing);
+                        Assert.All(parts, p => Assert.True(p.Start <= cs && ce <= p.End));
+                        Assert.Equal(maxStart, cs); Assert.Equal(minEnd, ce);
+                    }
+                    else
+                    {
+                        Assert.True(maxStart > minEnd, "a common instant exists but none was reported");
+                        Assert.NotEqual(CorrelationTiming.CommonOverlap, cor.Timing);
+                        if (parts.Count > 2) { chained++; Assert.Equal(CorrelationTiming.Chained, cor.Timing); }
+                    }
+                    Assert.NotEmpty(cor.Links);
+                    Assert.All(cor.Links, l => Assert.True(l.OverlapStart is null ? l.Gap > TimeSpan.Zero : l.Gap == TimeSpan.Zero));
+                    checkedCorrelations++;
+                }
+            }
+        Assert.True(checkedCorrelations >= 10 && chained >= 1 && common >= 1, $"{checkedCorrelations} correlations, {chained} chained, {common} common");
+    }
+
+    [Fact]
+    public void CorrelationIdsAreUnaffectedByHowTheComponentsAreRelated()
+    {
+        Synthetic Chain() => new Synthetic(1200).Set("rtt", 100, 160, 200).Set("packetLoss", 150, 260, 3).Set("rtt", 240, 300, 200);
+        var first = Assert.Single(Of(Chain().Analyze(), CorrelationPattern.RttAndPacketLoss));
+        var second = Assert.Single(Of(Chain().Analyze(), CorrelationPattern.RttAndPacketLoss));
+        Assert.Equal(first.Id, second.Id); Assert.Equal(first.Explanation, second.Explanation);
+        Assert.Equal(first.Links.Select(l => (l.FirstId, l.SecondId)), second.Links.Select(l => (l.FirstId, l.SecondId)));
+        Assert.StartsWith("cor-", first.Id);
+        // the same components give the same id whatever the unrelated rest of the recording holds
+        var other = Chain(); other.Set("ram", 700, 710, 50);
+        Assert.Equal(first.Id, Assert.Single(Of(other.Analyze(), CorrelationPattern.RttAndPacketLoss)).Id);
     }
 
     [Fact]

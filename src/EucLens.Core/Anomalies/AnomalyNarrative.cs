@@ -129,17 +129,31 @@ internal static class AnomalyNarrative
 
     private static bool IsLowerWorse(AnomalyObservation o) => HistoryChannels.Find(o.Primary.ChannelId) is { HigherIsWorse: false };
 
-    public static string Correlation(CorrelationPattern pattern, IReadOnlyList<AnomalyObservation> parts, DateTimeOffset overlapStart, DateTimeOffset overlapEnd, bool touching)
+    public static string Correlation(CorrelationPattern pattern, IReadOnlyList<AnomalyObservation> parts, CorrelationTiming timing, DateTimeOffset? commonStart, DateTimeOffset? commonEnd,
+        IReadOnlyList<CorrelationLink> links)
     {
-        var overlap = touching ? "intervals within the correlation tolerance of each other" : $"overlapping intervals ({Interval(overlapStart, overlapEnd)})";
+        // The interval is called common only when every component was present in it; otherwise the pairs are named.
+        var timingText = timing switch
+        {
+            CorrelationTiming.CommonOverlap => $"overlapping intervals (all components were present {Interval(commonStart!.Value, commonEnd!.Value)})",
+            CorrelationTiming.WithinTolerance => $"intervals that do not overlap but lie {Duration(links[0].Gap)} apart, within the correlation tolerance",
+            _ => $"linked intervals: {string.Join("; ", links.Select(l => LinkText(parts, l)))}. No instant is common to all {parts.Count} components"
+        };
         var details = string.Join("; ", parts.Select(Describe));
         return pattern switch
         {
-            CorrelationPattern.RttAndPacketLoss => $"RTT and packet loss degraded during {overlap}. {details}. Both measurements indicate connection-quality degradation during this period. The recording does not establish whether the endpoint, the network, the host or a gateway is involved.",
-            CorrelationPattern.GraphicsAndConnection => $"Frame delivery degraded while connection measurements were degraded, in {overlap}, with display activity established. {details}. The timing is correlated; the recording does not show that one caused the other.",
-            CorrelationPattern.FpsAndGuestCpu => $"Frame rate was low during display activity while guest CPU utilization was sustained at a high level, in {overlap}. {details}. The recording does not show that CPU was the cause.",
-            CorrelationPattern.MultipleGuestResources => $"Several guest resource measurements were degraded in {overlap}. {details}. The recording does not show which of them, if any, drove the others.",
+            CorrelationPattern.RttAndPacketLoss => $"RTT and packet loss degraded during {timingText}. {details}. Both measurements indicate connection-quality degradation during this period. The recording does not establish whether the endpoint, the network, the host or a gateway is involved.",
+            CorrelationPattern.GraphicsAndConnection => $"Frame delivery degraded while connection measurements were degraded, in {timingText}, with display activity established. {details}. The timing is correlated; the recording does not show that one caused the other.",
+            CorrelationPattern.FpsAndGuestCpu => $"Frame rate was low during display activity while guest CPU utilization was sustained at a high level, in {timingText}. {details}. The recording does not show that CPU was the cause.",
+            CorrelationPattern.MultipleGuestResources => $"Several guest resource measurements were degraded in {timingText}. {details}. The recording does not show which of them, if any, drove the others.",
             _ => $"{details}. This observation lies next to missing data or a recorded session change; the recording does not show what happened during the gap, and observations on either side are not treated as one continuous event."
         };
+    }
+
+    private static string LinkText(IReadOnlyList<AnomalyObservation> parts, CorrelationLink link)
+    {
+        string Name(string id) => parts.First(p => p.Id == id).Primary.Title.ToLowerInvariant();
+        var pair = $"{Name(link.FirstId)} and {Name(link.SecondId)}";
+        return link.OverlapStart is { } s && link.OverlapEnd is { } e ? $"{pair} overlap ({Time(s)}–{Time(e)} UTC)" : $"{pair} lie {Duration(link.Gap)} apart";
     }
 }

@@ -121,26 +121,30 @@ public sealed class ChartLifetimeTests
 
     private sealed class Subscriber { public int Calls; }
 
+    /// <summary>Owns the subscriber strongly until the test releases it, so the collector cannot take it before delivery has been checked.</summary>
+    private sealed class Root { public Subscriber? Target; }
+
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static WeakReference Subscribe(ChartData data, out Func<int> calls)
+    private static (Root Root, WeakReference Weak) Subscribe(ChartData data)
     {
         var s = new Subscriber();
         WeakSubscription.Collection(data.Points, s, static (x, _) => x.Calls++);
-        var weak = new WeakReference(s);
-        calls = () => weak.Target is Subscriber alive ? alive.Calls : -1;
-        return weak;
+        return (new Root { Target = s }, new WeakReference(s));
     }
 
     [Fact]
     public void WeakSubscriptionDeliversWhileAliveAndNeverKeepsTheSubscriberAlive()
     {
         var data = Data(1);
-        var weak = Subscribe(data, out var calls);
+        var (root, weak) = Subscribe(data);
+        // delivery: the subscriber is strongly rooted here, so it cannot be collected before this assertion
         data.Add(T0.AddSeconds(1), 1);
-        Assert.Equal(1, calls());
+        Assert.Equal(1, root.Target!.Calls);
+        // release the only strong reference; the subscription must not keep the subscriber alive
+        root.Target = null;
         GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
         Assert.False(weak.IsAlive);
         data.Add(T0.AddSeconds(2), 2); // the dead subscription is removed here without error
-        Assert.Equal(-1, calls());
+        GC.KeepAlive(root);
     }
 }
