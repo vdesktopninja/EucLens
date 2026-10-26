@@ -82,6 +82,29 @@ public sealed class SessionHistoryViewModelTests
     }
 
     [Fact]
+    public async Task HistoryFindingsAnalyzeInTheBackgroundAndNavigateToMeasuredEvidence()
+    {
+        var (rig, _) = await OpenAsync(count: 360,
+            make: i => HistoryFixture.Sample(i, rtt: i is >= 120 and < 210 ? 200 : 30));
+        var h = rig.History;
+        Assert.Contains(h.Findings.Observations, o => o.Observation.RuleId == "conn.rtt.high");
+        var row = h.Findings.Observations.First(o => o.Observation.RuleId == "conn.rtt.high");
+        Assert.Contains("measured observation", h.Findings.Status, StringComparison.Ordinal);
+        h.Findings.SelectedObservation = row;
+        Assert.Equal(row, h.Findings.SelectedObservation);
+        Assert.NotNull(h.Findings.SelectedObservation!.Observation.Primary);
+        Assert.True(h.ViewStart <= row.Observation.Start);
+        Assert.True(h.ViewEnd >= row.Observation.End);
+        Assert.Contains("not a confirmed cause", row.Status, StringComparison.Ordinal);
+
+        h.Release();
+        Assert.Empty(h.Findings.Observations);
+        Assert.Empty(h.Findings.Correlations);
+        Assert.Null(h.Findings.SelectedObservation);
+        Assert.False(h.HasHistory);
+    }
+
+    [Fact]
     public async Task EveryChartSharesTheSameTimeRangeAndStaysBounded()
     {
         var rec = await HistoryFixture.EightHours;
