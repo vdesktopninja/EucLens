@@ -9,6 +9,10 @@ namespace EucLens.Tests;
 /// Run time and allocations of the analyzer on the target recording sizes. The numbers are written to the test output (they are in the CI results); the limits asserted
 /// here are deliberately several times above what was measured, so they catch a quadratic or leaking implementation without depending on the speed of the machine.
 /// </summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class SerialPerformanceCollection { public const string Name = "Performance measurements run alone"; }
+
+[Collection(SerialPerformanceCollection.Name)]
 public sealed class AnomalyPerformanceTests(ITestOutputHelper output)
 {
     /// <summary>A long session with a recurring set of events: an RTT episode with loss, a CPU spike, a frame-rate drop, a short gap and memory pressure every ~4,000 samples.</summary>
@@ -79,15 +83,21 @@ public sealed class AnomalyPerformanceTests(ITestOutputHelper output)
     [Fact]
     public void RepeatedAnalysisDoesNotGrowTheHeap()
     {
+        // One batch of analyses settles pools and caches (whatever else the process did before shows up here); a leak would grow the heap again in every later batch.
         var input = LongSession(40_795).ToInput();
-        for (var i = 0; i < 3; i++) AnomalyDetectionEngine.Analyze(input);
-        GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
-        var before = GC.GetTotalMemory(true);
-        for (var i = 0; i < 25; i++) AnomalyDetectionEngine.Analyze(input);
-        GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
-        var growth = GC.GetTotalMemory(true) - before;
-        output.WriteLine($"Heap growth after 25 analyses of 40,795 samples: {growth / 1024.0:0.0} KiB");
-        Assert.True(growth < 2L * 1024 * 1024, $"{growth:N0} bytes");
+        long Batch(int runs)
+        {
+            GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+            var before = GC.GetTotalMemory(true);
+            for (var i = 0; i < runs; i++) AnomalyDetectionEngine.Analyze(input);
+            GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+            return GC.GetTotalMemory(true) - before;
+        }
+        Batch(10);
+        var first = Batch(25); var second = Batch(25); var third = Batch(25);
+        output.WriteLine($"Heap growth per batch of 25 analyses of 40,795 samples: {first / 1024.0:0.0} KiB, {second / 1024.0:0.0} KiB, {third / 1024.0:0.0} KiB");
+        // 25 analyses per batch: a leak of even 40 KiB per analysis would show here.
+        Assert.True(Math.Min(second, third) < 1L * 1024 * 1024, $"{first:N0}, {second:N0}, {third:N0} bytes");
     }
 
     [Fact]

@@ -147,6 +147,10 @@ public sealed class AnomalyInput
 
         var channels = history.AllChannels.Select(c => new AnomalyChannel(c.Channel.Id, c.Unit, c.Values, c.Channel.Title)).ToArray();
         // The history guarantees time order; duplicates are possible and are combined by Create when present.
-        return Create(info.RecordingId?.ToString("N") ?? info.ShortId, history.TickArray, channels, history.Events, info.Protocols, history.GapThreshold, notes, reduced);
+        // "Unknown protocol" means the provider found no Blast counters at that moment; it is a detection state, not a second protocol. Next to a detected protocol it is
+        // left out, so that a recording of one Horizon session is not treated as a mix of protocols. A recording with nothing but "Unknown" keeps it.
+        var unknown = HistoryLoader.ProtocolName(RemoteProtocol.Unknown);
+        var protocols = info.Protocols.Count > 1 ? info.Protocols.Where(p => p != unknown).ToArray() : info.Protocols;
+        return Create(info.RecordingId?.ToString("N") ?? info.ShortId, history.TickArray, channels, history.Events, protocols, history.GapThreshold, notes, reduced);
     }
 }
