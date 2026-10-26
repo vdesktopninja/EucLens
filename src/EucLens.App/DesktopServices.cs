@@ -11,6 +11,8 @@ public sealed class DesktopServices : IDesktopServices
     /// <summary>Smoke tests run unattended; a modal confirmation would block them.</summary>
     public bool AutoConfirmNewRecording { get; init; }
     public static string DataDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EucLens");
+    /// <summary>The services of the smoke run, for the validation that has to answer the save dialog; null in normal use.</summary>
+    internal static DesktopServices? SmokeInstance { get; set; }
     /// <summary>Set by the smoke test so unattended runs never wait for a save dialog; receives (json, file stem) and returns the path, or null to cancel.</summary>
     public Func<bool, string, string?>? ExportPathProvider { get; set; }
     public string? SelectExportPath(bool json, string title, string fileStem)

@@ -243,6 +243,9 @@ internal static class HistoryValidation
         await Section(c, failures, "pointer interaction", () => PointerInteraction(c));
         await Section(c, failures, "incident selection", () => IncidentSelection(c));
         await Section(c, failures, "findings experience", () => FindingsExperience(c));
+        await Section(c, failures, "findings layout matrix", () => FindingsLayoutMatrix(c));
+        await Section(c, failures, "findings export", () => FindingsExport(c));
+        await Section(c, failures, "findings lifetime", () => FindingsLifetime(c));
         await Section(c, failures, "keyboard navigation", () => KeyboardNavigation(c));
         await Section(c, failures, "themes and event icons", () => ThemesAndIcons(c));
         await Section(c, failures, "switching recordings", () => SwitchRecordings(c));
@@ -620,6 +623,192 @@ internal static class HistoryValidation
         panel.ClearValue(FrameworkElement.WidthProperty); await Idle(c);
         f.ShowFull(); await h.Settled; await Idle(c);
         Log(c, $"PASS: findings: {f.Summary}; filters with counts; selecting '{row.Title}' moved all {Charts(c).Length} charts to {HistoryTime.Format(shownFrom, h.Zone)}–{HistoryTime.Format(shownTo, h.Zone)} with the evidence chart emphasized, the interval highlighted and the peak at {HistoryTime.Format(peak, h.Zone)}; Show in charts scrolls to it; arrow keys leave the page where it is; Escape returns to the whole recording; no text leaves the panel at 520 and 760 DIPs");
+    }
+
+    private static Button FindingsButton(SessionHistoryView view, string name) =>
+        DesktopValidation.Descendants<Button>(view).First(b => System.Windows.Automation.AutomationProperties.GetName(b) == name);
+
+    /// <summary>
+    /// The findings panel at the sizes of the supported displays: 1920×1080 at 100 % and 125 %, 1366×768 at 100 %, 2560×1440 at 150 %, in both themes. The CI runner cannot change the
+    /// Windows DPI of the process, so each scale is simulated the way the layout matrix of the other pages does it: the window gets the DIP size that the scale leaves (the pixels a
+    /// user has, divided by the scale). This validates the layout at those effective sizes; it is not a test of the per-monitor DPI behaviour of Windows, which needs a real machine.
+    /// </summary>
+    private static async Task FindingsLayoutMatrix(HistorySmokeContext c)
+    {
+        var a = shortRun!;
+        await OpenAnalyze(c, a, 5);
+        var h = History(c); var f = h.Findings;
+        await WaitFor(() => f.Observations.Count > 0 && f.Summary.Length > 0, "the findings analysis");
+        f.SelectedObservation = f.VisibleObservations[0]; await h.Settled; await Idle(c);
+        var window = c.Window; var (width0, height0, state0) = (window.Width, window.Height, window.WindowState);
+        var results = new List<string>();
+        try
+        {
+            window.WindowState = WindowState.Normal;
+            foreach (var dark in new[] { false, true })
+            foreach (var (width, height, scale) in new[] { (1920, 1080, 1d), (1920, 1080, 1.25d), (1366, 768, 1d), (2560, 1440, 1.5d) })
+            {
+                c.Vm.IsDark = dark;
+                window.Width = width / scale; window.Height = height / scale;
+                await Idle(c); window.UpdateLayout(); await Idle(c); await Task.Delay(120);
+                var view = View(c); var viewport = (FrameworkElement)PageViewport(view);
+                var panel = DesktopValidation.Descendants<Border>(view).First(b => System.Windows.Automation.AutomationProperties.GetName(b) == "Performance findings");
+                var label = $"{(dark ? "dark" : "light")} {width}×{height} at {scale:P0}";
+                Require(panel.ActualWidth > 250 && viewport.ActualWidth > 250, $"{label}: the page has no usable width ({panel.ActualWidth:0}).");
+                var blocks = DesktopValidation.Descendants<TextBlock>(panel).Where(t => t.IsVisible && t.ActualWidth > 0 && t.Text.Length > 0).ToArray();
+                var outside = blocks.Where(t => t.TranslatePoint(new Point(t.ActualWidth, 0), panel).X > panel.ActualWidth + 1).Select(t => t.Text).ToArray();
+                Require(outside.Length == 0, $"{label}: text runs out of the findings panel: {string.Join(" | ", outside.Take(3))}");
+                // the controls a user needs first are there without scrolling: summary, filters, export and full-recording buttons
+                foreach (var name in new[] { "Show full recording", "Export findings as CSV", "Export findings as JSON" })
+                {
+                    var button = FindingsButton(view, name);
+                    var at = button.TranslatePoint(new Point(0, 0), viewport); var end = button.TranslatePoint(new Point(button.ActualWidth, button.ActualHeight), panel);
+                    Require(button.IsVisible && button.Focusable && button.IsTabStop && button.ActualWidth >= 40 && button.ActualHeight >= 20, $"{label}: button '{name}' is not usable.");
+                    Require(end.X <= panel.ActualWidth + 1, $"{label}: button '{name}' is clipped by the panel (right edge {end.X:0} of {panel.ActualWidth:0}).");
+                    Require(at.Y >= 0 && at.Y < viewport.ActualHeight || scale >= 1.5, $"{label}: button '{name}' is below the first screen ({at.Y:0} of {viewport.ActualHeight:0}).");
+                }
+                var severity = (ListBox)DesktopValidation.Descendants<ListBox>(view).First(l => System.Windows.Automation.AutomationProperties.GetName(l) == "Severity filter");
+                Require(DesktopValidation.Descendants<ListBoxItem>(severity).Count() == 4 && severity.ActualWidth <= panel.ActualWidth + 1, $"{label}: the severity filter does not fit.");
+                Require(h.Charts.Count > 0 && DesktopValidation.Descendants<ListBox>(view).Any(l => l.ActualHeight <= HistoryLayout.FindingsListMaxHeight + 1 && System.Windows.Automation.AutomationProperties.GetName(l).StartsWith("Findings", StringComparison.Ordinal)), $"{label}: the findings list is not bounded.");
+                results.Add($"{label}: panel {panel.ActualWidth:0}×{panel.ActualHeight:0} DIPs in a viewport of {viewport.ActualWidth:0}×{viewport.ActualHeight:0}; {blocks.Length} texts inside; 3 buttons within the panel");
+                if (!dark && (width, scale) is (1366, 1d) or (2560, 1.5d)) await Shot(c, panel, Path.Combine(c.EvidenceDirectory, $"history-findings-matrix-{width}x{height}-{scale * 100:0}pct-{(dark ? "dark" : "light")}.png"));
+            }
+        }
+        finally
+        {
+            window.Width = width0; window.Height = height0; window.WindowState = state0; c.Vm.IsDark = true;
+            await Idle(c);
+        }
+        Log(c, $"PASS: findings layout at four display sizes in both themes (available-space simulation, the host DPI is unchanged): {string.Join("; ", results)}");
+    }
+
+    /// <summary>Export from the real buttons: keyboard and automation access, files that parse, nothing in the recording changed, the panel intact after success, cancellation and failure.</summary>
+    private static async Task FindingsExport(HistorySmokeContext c)
+    {
+        var a = shortRun!;
+        await OpenAnalyze(c, a, 5);
+        var h = History(c); var f = h.Findings;
+        await WaitFor(() => f.Observations.Count > 0 && f.HasAnalysis, "the findings analysis");
+        var view = View(c);
+        var services = DesktopServices.SmokeInstance ?? throw new InvalidOperationException("The smoke run has no desktop services.");
+        var folder = Path.Combine(Path.GetTempPath(), "EucLens-findings-export-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        var recordingFiles = Directory.GetFiles(h.Loaded!.Info.Directory, $"EucLens-*-{a.ShortId}*").OrderBy(x => x, StringComparer.Ordinal).ToArray();
+        string Hash() => string.Join("|", recordingFiles.Select(x => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(x)))));
+        var before = Hash();
+        try
+        {
+            var asked = 0;
+            services.ExportPathProvider = (json, stem) => { asked++; return Path.Combine(folder, stem + (json ? ".json" : ".csv")); };
+            f.SelectedObservation = f.VisibleObservations[0]; await h.Settled; await Idle(c);
+            var selected = f.SelectedObservation; var (start, end) = (h.ViewStart, h.ViewEnd); var items = view.FindingsListControl.Items.Count;
+            foreach (var (name, extension) in new[] { ("Export findings as CSV", ".csv"), ("Export findings as JSON", ".json") })
+            {
+                var button = FindingsButton(view, name);
+                Require(button.Focusable && button.IsTabStop && button.IsEnabled && button.IsVisible && button.Command is not null, $"'{name}' cannot be reached with the keyboard.");
+                Require(System.Windows.Automation.AutomationProperties.GetName(button) == name && button.ToolTip is string { Length: > 10 }, $"'{name}' lacks its name or tooltip.");
+                f.ExportMessage = "";
+                // what a screen reader or UI automation client does: invoke the button
+                var peer = (System.Windows.Automation.Provider.IInvokeProvider)new System.Windows.Automation.Peers.ButtonAutomationPeer(button).GetPattern(System.Windows.Automation.Peers.PatternInterface.Invoke)!;
+                peer.Invoke();
+                await WaitFor(() => f.ExportMessage.StartsWith("Findings exported", StringComparison.Ordinal) || f.ExportMessage.Contains("could not", StringComparison.Ordinal), "the export to finish");
+                Require(f.ExportMessage.StartsWith("Findings exported", StringComparison.Ordinal), "The export failed: " + f.ExportMessage);
+                await Idle(c);
+                var file = Directory.GetFiles(folder, "*" + extension).Single();
+                var text = await File.ReadAllTextAsync(file);
+                if (extension == ".json")
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(text);
+                    Require(doc.RootElement.GetProperty("schema").GetString() == FindingsExport_Schema && doc.RootElement.GetProperty("observations").GetArrayLength() == f.Observations.Count, "The JSON export does not match the analysis.");
+                    Require(!text.Contains(h.Loaded.Info.Directory.Replace("\\", "\\\\", StringComparison.Ordinal), StringComparison.Ordinal) && !text.Contains(Environment.MachineName, StringComparison.OrdinalIgnoreCase), "The export names the folder or the machine.");
+                }
+                else Require(text.StartsWith("\uFEFFschema,recording_id", StringComparison.Ordinal) && text.Split("\r\n", StringSplitOptions.RemoveEmptyEntries).Length == 1 + f.Observations.Count + f.Correlations.Count, "The CSV export does not match the analysis.");
+                Require(ReferenceEquals(f.SelectedObservation, selected) && h.ViewStart == start && h.ViewEnd == end, "Exporting changed the selection or the view.");
+                Require(view.FindingsListControl.Items.Count == items && view.FindingsListControl.IsVisible && ((Border)DesktopValidation.Descendants<FrameworkElement>(view).First(e => System.Windows.Automation.AutomationProperties.GetName(e) == "Selected finding evidence")).IsVisible,
+                    "The findings panel is not intact after the export.");
+            }
+            Require(asked == 2 && Directory.GetFiles(folder).Length == 2, "Unexpected files after the exports.");
+            // cancelled dialog: nothing happens
+            services.ExportPathProvider = (_, _) => null; f.ExportMessage = "";
+            FindingsButton(view, "Export findings as JSON").Command!.Execute(null); await Idle(c); await Task.Delay(150);
+            Require(f.ExportMessage.Length == 0 && Directory.GetFiles(folder).Length == 2 && view.FindingsListControl.IsVisible, "A cancelled dialog changed something.");
+            // a folder that does not exist: the failure is explained, no partial file, the panel stays usable
+            services.ExportPathProvider = (json, _) => Path.Combine(folder, "missing", "f" + (json ? ".json" : ".csv"));
+            FindingsButton(view, "Export findings as CSV").Command!.Execute(null);
+            await WaitFor(() => f.ExportMessage.Contains("could not be exported", StringComparison.Ordinal), "the failure message");
+            await Idle(c);
+            Require(f.ExportMessage.Contains("No partial file was left", StringComparison.Ordinal) && Directory.GetFiles(folder, "*.tmp").Length == 0 && view.FindingsListControl.IsVisible && f.HasSelectedObservation, "The panel is not intact after a failed export.");
+            Require(FindingsButton(view, "Export findings as CSV").IsEnabled, "The export button stays disabled after a failure.");
+            Require(Hash() == before, "The recording's files changed during the exports.");
+            await Shot(c, DesktopValidation.Descendants<Border>(view).First(b => System.Windows.Automation.AutomationProperties.GetName(b) == "Performance findings"), Path.Combine(c.EvidenceDirectory, "history-findings-after-export-failure.png"));
+            Log(c, $"PASS: findings export through the real buttons: reachable by keyboard and by automation invoke, CSV and JSON written and parsed ({Directory.GetFiles(folder).Sum(x => new FileInfo(x).Length):N0} bytes), a cancelled dialog and a failing folder leave no file and an intact panel, the selection and the range did not change, the recording's {recordingFiles.Length} files are byte-identical");
+        }
+        finally { services.ExportPathProvider = null; try { Directory.Delete(folder, true); } catch (IOException) { } }
+    }
+
+    private const string FindingsExport_Schema = "euclens.findings/1";
+
+    /// <summary>Twelve complete visits that select a finding, show it in the charts and export it: what the page held for a visit must be collectible afterwards, and the subscriptions and the heap must not grow.</summary>
+    private static async Task FindingsLifetime(HistorySmokeContext c)
+    {
+        var a = shortRun!;
+        var services = DesktopServices.SmokeInstance ?? throw new InvalidOperationException("The smoke run has no desktop services.");
+        var folder = Path.Combine(Path.GetTempPath(), "EucLens-findings-lifetime-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        services.ExportPathProvider = (json, stem) => Path.Combine(folder, stem + (json ? ".json" : ".csv"));
+        var unobserved = new List<Exception>();
+        void OnUnobserved(object? sender, UnobservedTaskExceptionEventArgs e) { lock (unobserved) unobserved.Add(e.Exception); e.SetObserved(); }
+        TaskScheduler.UnobservedTaskException += OnUnobserved;
+        var weak = new List<WeakReference>(); var views = new List<WeakReference>(); var heaps = new List<long>(); var subscriptions = new List<string>();
+        int Handlers(object source, string name)
+        {
+            for (var type = source.GetType(); type is not null; type = type.BaseType)
+                if (type.GetField(name, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.DeclaredOnly)?.GetValue(source) is Delegate d) return d.GetInvocationList().Length;
+            return 0;
+        }
+        try
+        {
+            for (var cycle = 1; cycle <= 12; cycle++)
+            {
+                await OpenAnalyze(c, a, 5);
+                var h = History(c); var f = h.Findings;
+                await WaitFor(() => f.Observations.Count > 0 && f.HasAnalysis, "the findings analysis");
+                var view = View(c);
+                views.Add(new WeakReference(view));
+                view.FindingsListControl.SelectedItem = f.VisibleObservations[0];
+                await h.Settled; await Idle(c);
+                f.ShowInChartsCommand.Execute(null); await Idle(c);
+                FindingsButton(view, "Export findings as JSON").Command!.Execute(null);
+                await WaitFor(() => f.ExportMessage.StartsWith("Findings exported", StringComparison.Ordinal), "the export");
+                weak.Add(new WeakReference(h.Loaded!)); weak.Add(new WeakReference(f.CurrentAnalysis!)); weak.Add(new WeakReference(f.Observations[0])); weak.Add(new WeakReference(f.Observations[0].Detail));
+                foreach (var chart in Charts(c).Take(3)) weak.Add(new WeakReference(LiveChart.GetObjects(chart)));
+                subscriptions.Add($"{Handlers(h, "PropertyChanged")}/{Handlers(f, "PropertyChanged")}/{Handlers(f.VisibleObservations, "CollectionChanged")}/{Handlers(h.Events, "CollectionChanged")}/{Handlers(h.Charts, "CollectionChanged")}");
+                c.Vm.SelectedPage = c.Vm.Pages[0];
+                await Idle(c); await Task.Delay(120);
+                Require(!h.HasHistory && f.Observations.Count == 0 && f.CurrentAnalysis is null && !h.HasEmphasis, $"Cycle {cycle}: leaving the page did not release the findings.");
+                if (cycle >= 4) heaps.Add(HeapAfterCollection());
+            }
+            await Idle(c); await Task.Delay(500); await Idle(c);
+            HeapAfterCollection();
+            for (var i = 0; i < 3; i++) { GC.Collect(); GC.WaitForPendingFinalizers(); await Task.Delay(50); }
+            var aliveViews = views.Count(w => w.IsAlive); var alive = weak.Count(w => w.IsAlive);
+            var growth = heaps[^1] - heaps[0];
+            var slope = Enumerable.Range(0, heaps.Count).Select(i => (i - (heaps.Count - 1) / 2.0) * (heaps[i] - heaps.Average())).Sum() / Enumerable.Range(0, heaps.Count).Select(i => Math.Pow(i - (heaps.Count - 1) / 2.0, 2)).Sum();
+            var steady = subscriptions.Distinct().Count() == 1;
+            await File.WriteAllTextAsync(Path.Combine(c.EvidenceDirectory, "history-findings-lifetime-result.txt"),
+                $"Session History findings, 12 × (Analyze, select a finding, show it in the charts, export JSON, leave){Environment.NewLine}" +
+                $"Managed heap after a full collection, cycles 4–12: {string.Join(" → ", heaps.Select(h => MiB(h)))} MiB (growth {MiB(growth)} MiB, slope {slope / 1048576:0.00} MiB per cycle){Environment.NewLine}" +
+                $"Still alive after the last collection: views {aliveViews}/{views.Count}, findings and analysis objects {alive}/{weak.Count}{Environment.NewLine}" +
+                $"Subscribers per cycle (history PropertyChanged / findings PropertyChanged / visible findings / events / charts): {string.Join(" ", subscriptions.Distinct())} ({(steady ? "constant" : "CHANGED")}){Environment.NewLine}" +
+                $"Unobserved task exceptions: {unobserved.Count}{Environment.NewLine}");
+            Require(aliveViews == 0, $"{aliveViews} of {views.Count} released history views are still reachable.");
+            Require(alive == 0, $"{alive} of {weak.Count} released findings, analysis or chart objects are still reachable.");
+            Require(steady, "The number of subscribers on the page's view models changed between visits: " + string.Join(" ", subscriptions.Distinct()));
+            Require(unobserved.Count == 0, "Unobserved task exceptions: " + string.Join(" | ", unobserved.Select(e => e.GetBaseException().Message)));
+            Require(growth <= 8L << 20 && slope <= 1L << 20, $"Managed heap keeps growing across visits: {string.Join(" → ", heaps.Select(h => MiB(h)))} MiB (slope {slope / 1048576:0.00} MiB per cycle).");
+            Log(c, $"PASS: 12 findings visits: heap {string.Join(" → ", heaps.Select(h => MiB(h)))} MiB (slope {slope / 1048576:0.00} MiB per cycle); views alive {aliveViews}/{views.Count}, findings/analysis/chart objects alive {alive}/{weak.Count}; subscribers constant ({subscriptions.Distinct().Single()}); unobserved task exceptions {unobserved.Count}");
+        }
+        finally { TaskScheduler.UnobservedTaskException -= OnUnobserved; services.ExportPathProvider = null; try { Directory.Delete(folder, true); } catch (IOException) { } }
     }
 
     private static async Task KeyboardNavigation(HistorySmokeContext c)

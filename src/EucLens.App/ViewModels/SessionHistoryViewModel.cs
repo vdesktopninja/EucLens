@@ -752,6 +752,11 @@ public sealed class SessionHistoryViewModel : ObservableObject
             vm.RaiseLists();
         }
         catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "The recording around an incident could not be analyzed.");
+            if (!cancellationToken.IsCancellationRequested && ReferenceEquals(h, history) && ReferenceEquals(selectedIncident, vm)) vm.Summary = $"The recording around this marker could not be analyzed: {ex.Message}";
+        }
     }
 
     private static string DescribeState(HistoryIncident incident, Dictionary<string, string> titles)
@@ -877,6 +882,12 @@ public sealed class SessionHistoryViewModel : ObservableObject
             if (hoverAt is { } at) SetHover(at);
         }
         catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            // Started without anyone awaiting it: a failure is logged and shown, never left in an unobserved task.
+            logger?.LogWarning(ex, "The history charts could not be refreshed.");
+            if (!cancellationToken.IsCancellationRequested && ReferenceEquals(h, history)) RangeMessage = $"The charts could not be refreshed: {ex.Message}";
+        }
     }
 
     private string FormatStats(SeriesWindow w)
@@ -945,8 +956,9 @@ public sealed class SessionHistoryViewModel : ObservableObject
             if (ReferenceEquals(h, history)) Findings.ExportMessage = $"Findings exported ({label}) to {path}. The recording was not changed." + (analysis.ReducedConfidence ? " The analysis has reduced confidence; the file says so." : "");
         }
         catch (OperationCanceledException) { if (ReferenceEquals(h, history)) Findings.ExportMessage = "The export was cancelled. No file was changed."; }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or ArgumentException)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            // A command runs as an async void: whatever else goes wrong (a security policy, a bad path, a bug) is reported here and never reaches the dispatcher.
             logger?.LogWarning(ex, "The findings could not be exported.");
             if (ReferenceEquals(h, history)) Findings.ExportMessage = $"The findings could not be exported: {ex.Message} No partial file was left.";
         }

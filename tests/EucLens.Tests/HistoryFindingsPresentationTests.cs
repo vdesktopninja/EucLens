@@ -16,7 +16,7 @@ public sealed class HistoryFindingsPresentationTests
     private static readonly string Dir = HistoryFixture.Dir;
     private static DateTimeOffset At(double seconds) => HistoryFixture.T0.AddSeconds(seconds);
 
-    private sealed class Desktop : IDesktopServices
+    internal sealed class Desktop : IDesktopServices
     {
         public string? ExportPath { get; set; }
         public int Asked { get; private set; }
@@ -29,16 +29,16 @@ public sealed class HistoryFindingsPresentationTests
         public bool OpenPath(string path, bool selectFile = false) => true;
     }
 
-    private static SessionHistoryViewModel CreateHistory(MemoryStorage storage, TimeZoneInfo? zone = null, Desktop? desktop = null)
+    internal static SessionHistoryViewModel CreateHistory(MemoryStorage storage, TimeZoneInfo? zone = null, Desktop? desktop = null)
     {
         desktop ??= new Desktop(); var recorder = new SessionRecorder();
         var background = new BackgroundViewModel(new MonitoringService(new MonitoringCoordinator(), recorder), recorder, desktop, storage: storage);
         return new(background, desktop, recorder, storage, zone ?? TimeZoneInfo.Utc);
     }
 
-    private static RecordingSummary Summary(MemoryStorage storage, string shortId) => RecordingCatalog.Scan(storage, Dir).Single(s => s.ShortId == shortId);
+    internal static RecordingSummary Summary(MemoryStorage storage, string shortId) => RecordingCatalog.Scan(storage, Dir).Single(s => s.ShortId == shortId);
 
-    private static SessionSnapshot S(int i, double? rtt = 30, double loss = 0, double fps = 30, double cpu = 20, double dirty = 20, bool unknownProtocol = false)
+    internal static SessionSnapshot S(int i, double? rtt = 30, double loss = 0, double fps = 30, double cpu = 20, double dirty = 20, bool unknownProtocol = false)
     {
         var s = HistoryFixture.Sample(i, rtt: rtt is { } r ? r + i % 5 : null, loss: loss, fps: fps + i % 3, cpu: cpu + i % 4);
         var blast = new Dictionary<string, Metric>(s.BlastMetrics ?? new Dictionary<string, Metric>()) { ["dirtyFps"] = Metric.Available(dirty + i % 3, "FPS") };
@@ -47,7 +47,7 @@ public sealed class HistoryFindingsPresentationTests
     }
 
     /// <summary>1,800 samples: an RTT episode with packet loss (peak 7.1 % at second 360), a CPU spike and a frame-rate drop during activity. Four observations, one correlation.</summary>
-    private static SessionSnapshot Busy(int i) =>
+    internal static SessionSnapshot Busy(int i) =>
         S(i, rtt: i is >= 300 and < 420 ? 210 : 30, loss: i == 360 ? 7.1 : i is >= 330 and < 400 ? 2 : 0, cpu: i is >= 900 and < 940 ? 97 : 20, fps: i is >= 1200 and < 1280 ? 6 : 30);
 
     private static async Task<(SessionHistoryViewModel History, MemoryStorage Storage)> OpenAsync(Func<int, SessionSnapshot> make, int count = 1800, TimeZoneInfo? zone = null,
@@ -60,7 +60,7 @@ public sealed class HistoryFindingsPresentationTests
         return (history, rec.Storage);
     }
 
-    private static HistoryObservationItem Row(SessionHistoryViewModel h, string ruleId) => h.Findings.Observations.Single(o => o.Observation.RuleId == ruleId);
+    internal static HistoryObservationItem Row(SessionHistoryViewModel h, string ruleId) => h.Findings.Observations.Single(o => o.Observation.RuleId == ruleId);
     private static void SameTime(long ticks, double? x) => Assert.InRange(Math.Abs(ticks - x!.Value), 0, 1_000);
 
     // ---------- filters and summary ----------

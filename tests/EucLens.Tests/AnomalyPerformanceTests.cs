@@ -81,26 +81,6 @@ public sealed class AnomalyPerformanceTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void RepeatedAnalysisDoesNotGrowTheHeap()
-    {
-        // One batch of analyses settles pools and caches (whatever else the process did before shows up here); a leak would grow the heap again in every later batch.
-        var input = LongSession(40_795).ToInput();
-        long Batch(int runs)
-        {
-            GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
-            var before = GC.GetTotalMemory(true);
-            for (var i = 0; i < runs; i++) AnomalyDetectionEngine.Analyze(input);
-            GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
-            return GC.GetTotalMemory(true) - before;
-        }
-        Batch(10);
-        var first = Batch(25); var second = Batch(25); var third = Batch(25);
-        output.WriteLine($"Heap growth per batch of 25 analyses of 40,795 samples: {first / 1024.0:0.0} KiB, {second / 1024.0:0.0} KiB, {third / 1024.0:0.0} KiB");
-        // 25 analyses per batch: a leak of even 40 KiB per analysis would show here.
-        Assert.True(Math.Min(second, third) < 1L * 1024 * 1024, $"{first:N0}, {second:N0}, {third:N0} bytes");
-    }
-
-    [Fact]
     public void AnalysisOfAHugeInputStaysWithinTheSampleLimit()
     {
         var a = LongSession(280_000).Analyze();

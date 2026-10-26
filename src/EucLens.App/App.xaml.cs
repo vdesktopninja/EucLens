@@ -48,6 +48,7 @@ public partial class App : Application
             if (smoke) Environment.SetEnvironmentVariable(SmokeInstanceVariable, @"Local\EucLens-smoke-" + Environment.ProcessId);
             smokeRoot = smoke ? Path.Combine(Path.GetTempPath(), "EucLens-smoke-data-" + Guid.NewGuid().ToString("N")) : null;
             var desktopServices = new DesktopServices { AutoConfirmNewRecording = smoke, AutoConfirmExit = smoke };
+            if (smoke) DesktopServices.SmokeInstance = desktopServices;
             var store = new BackgroundSettingsStore(Path.Combine(smokeRoot ?? DesktopServices.DataDirectory, "background.json"));
             // The smoke test starts from known settings and a recordings folder of its own.
             // Recordings of the smoke test are kept next to the other evidence so CI uploads them.
