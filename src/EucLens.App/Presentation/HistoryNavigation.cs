@@ -46,6 +46,12 @@ public abstract class HistoryTimeElement : FrameworkElement
     public static readonly DependencyProperty SessionEndProperty = Time(nameof(SessionEnd));
     public static readonly DependencyProperty SelectedAtProperty = DependencyProperty.Register(nameof(SelectedAt), typeof(DateTimeOffset?), typeof(HistoryTimeElement),
         new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+    public static readonly DependencyProperty HighlightStartProperty = DependencyProperty.Register(nameof(HighlightStart), typeof(DateTimeOffset?), typeof(HistoryTimeElement),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+    public static readonly DependencyProperty HighlightEndProperty = DependencyProperty.Register(nameof(HighlightEnd), typeof(DateTimeOffset?), typeof(HistoryTimeElement),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+    public static readonly DependencyProperty PeakAtProperty = DependencyProperty.Register(nameof(PeakAt), typeof(DateTimeOffset?), typeof(HistoryTimeElement),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
     public static readonly DependencyProperty MarkersProperty = DependencyProperty.Register(nameof(Markers), typeof(IReadOnlyList<TimelineMarker>), typeof(HistoryTimeElement),
         new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
     public static readonly DependencyProperty GapsProperty = DependencyProperty.Register(nameof(Gaps), typeof(IReadOnlyList<HistoryGap>), typeof(HistoryTimeElement),
@@ -78,6 +84,11 @@ public abstract class HistoryTimeElement : FrameworkElement
     public DateTimeOffset SessionStart { get => (DateTimeOffset)GetValue(SessionStartProperty); set => SetValue(SessionStartProperty, value); }
     public DateTimeOffset SessionEnd { get => (DateTimeOffset)GetValue(SessionEndProperty); set => SetValue(SessionEndProperty, value); }
     public DateTimeOffset? SelectedAt { get => (DateTimeOffset?)GetValue(SelectedAtProperty); set => SetValue(SelectedAtProperty, value); }
+    /// <summary>An interval to emphasize (for example the interval of a selected finding): shaded on the time axis. Null draws nothing.</summary>
+    public DateTimeOffset? HighlightStart { get => (DateTimeOffset?)GetValue(HighlightStartProperty); set => SetValue(HighlightStartProperty, value); }
+    public DateTimeOffset? HighlightEnd { get => (DateTimeOffset?)GetValue(HighlightEndProperty); set => SetValue(HighlightEndProperty, value); }
+    /// <summary>One instant to mark as a measured extreme; drawn as a dotted line with a diamond. Null draws nothing.</summary>
+    public DateTimeOffset? PeakAt { get => (DateTimeOffset?)GetValue(PeakAtProperty); set => SetValue(PeakAtProperty, value); }
     public IReadOnlyList<TimelineMarker>? Markers { get => (IReadOnlyList<TimelineMarker>?)GetValue(MarkersProperty); set => SetValue(MarkersProperty, value); }
     public IReadOnlyList<HistoryGap>? Gaps { get => (IReadOnlyList<HistoryGap>?)GetValue(GapsProperty); set => SetValue(GapsProperty, value); }
     public TimeZoneInfo? Zone { get => (TimeZoneInfo?)GetValue(ZoneProperty); set => SetValue(ZoneProperty, value); }
@@ -154,6 +165,42 @@ public abstract class HistoryTimeElement : FrameworkElement
         dc.PushTransform(transform);
         dc.DrawGeometry(GlyphBrush(tag), null, geometry);
         dc.Pop();
+    }
+
+    // ---- emphasis ----
+
+    /// <summary>The highlighted interval as a translucent band with edges (an interval that lies outside the axis is not drawn).</summary>
+    protected void DrawHighlight(DrawingContext dc, double top, double height, double opacity)
+    {
+        if (HighlightStart is not { } start || HighlightEnd is not { } end) return;
+        var (left, right) = AxisExtent;
+        double xs = XOf(start), xe = XOf(end);
+        if (xe < left || xs > right) return;
+        double x1 = Math.Clamp(xs, left, right), x2 = Math.Clamp(xe, left, right);
+        dc.PushOpacity(opacity);
+        dc.DrawRectangle(AccentBrush, null, new Rect(x1, top, Math.Max(2, x2 - x1), height));
+        dc.Pop();
+        var edge = new Pen(AccentBrush, 1.5);
+        if (xs >= left) dc.DrawLine(edge, new Point(x1, top), new Point(x1, top + height));
+        if (xe <= right) dc.DrawLine(edge, new Point(x2, top), new Point(x2, top + height));
+    }
+
+    /// <summary>The measured extreme: a dotted line over the full height and a diamond at its top.</summary>
+    protected void DrawPeak(DrawingContext dc, double top, double height)
+    {
+        if (PeakAt is not { } at) return;
+        var (left, right) = AxisExtent;
+        var x = XOf(at);
+        if (x < left || x > right) return;
+        dc.DrawLine(new Pen(WarningBrush, 2) { DashStyle = DashStyles.Dot }, new Point(x, top), new Point(x, top + height));
+        var diamond = new StreamGeometry();
+        using (var g = diamond.Open())
+        {
+            g.BeginFigure(new Point(x, top), true, true);
+            g.LineTo(new Point(x + 5, top + 5), true, false); g.LineTo(new Point(x, top + 10), true, false); g.LineTo(new Point(x - 5, top + 5), true, false);
+        }
+        diamond.Freeze();
+        dc.DrawGeometry(WarningBrush, new Pen(TextBrush, 1), diamond);
     }
 
     // ---- pointer ----
@@ -305,6 +352,7 @@ public sealed class HistoryTimelineStrip : HistoryTimeElement
             var viewLeft = XOf(ViewStart); var viewRight = Math.Max(viewLeft + 3, XOf(ViewEnd));
             var view = new Rect(viewLeft, 2 + LabelBand, Math.Min(viewRight, right) - viewLeft, GlyphBand + 2);
             dc.DrawRectangle(AccentSurfaceBrush, new Pen(AccentBrush, 1.5), view);
+            DrawHighlight(dc, track.Top - 2, track.Height + 4, 0.55);
             DrawTicks(dc);
             // Findings and other events first, user incidents on top and larger.
             foreach (var marker in (Markers ?? []).Where(m => m.Kind != HistoryEventKind.UserIncident && m.Kind is not (HistoryEventKind.RecordingStarted or HistoryEventKind.RecordingEnded)))
@@ -316,6 +364,7 @@ public sealed class HistoryTimelineStrip : HistoryTimeElement
                 var x = XOf(selected);
                 dc.DrawLine(new Pen(AccentBrush, 2), new Point(x, LabelBand), new Point(x, LabelBand + GlyphBand + 4));
             }
+            DrawPeak(dc, LabelBand, GlyphBand + 4);
             if (DragFrom is { } from && DragTo is { } to)
                 dc.DrawRectangle(AccentSurfaceBrush, new Pen(AccentBrush, 1) { DashStyle = DashStyles.Dash }, new Rect(Math.Min(from, to), LabelBand, Math.Abs(to - from), GlyphBand + 4));
         }
@@ -390,6 +439,7 @@ public sealed class HistoryChartOverlay : HistoryTimeElement
                 dc.DrawRectangle(MutedBrush, null, new Rect(x1, 0, x2 - x1, ActualHeight));
                 dc.Pop();
             }
+            DrawHighlight(dc, 0, ActualHeight, 0.16);
             var dashed = new Pen(AccentBrush, 1.25) { DashStyle = new DashStyle([4, 3], 0) };
             foreach (var marker in (Markers ?? []).Where(m => m.Kind == HistoryEventKind.UserIncident))
             {
@@ -398,6 +448,7 @@ public sealed class HistoryChartOverlay : HistoryTimeElement
             }
             if (SelectedAt is { } selected && XOf(selected) is var sx && sx >= left && sx <= right)
                 dc.DrawLine(new Pen(AccentBrush, 2.5), new Point(sx, 0), new Point(sx, ActualHeight));
+            DrawPeak(dc, 0, ActualHeight);
             if (HoverAt is { } hover && XOf(hover) is var hx && hx >= left && hx <= right)
                 dc.DrawLine(new Pen(TextBrush, 1) { DashStyle = DashStyles.Solid }, new Point(hx, 0), new Point(hx, ActualHeight));
             if (DragFrom is { } from && DragTo is { } to)

@@ -64,7 +64,22 @@ public sealed class HistoryChartRow : ObservableObject
     /// <summary>The recorded value nearest to the pointer, or N/A.</summary>
     public string Readout { get => readout; set => Set(ref readout, value); }
     public bool ShowNoData => Data.Points.Count == 0;
-    public string AutomationName => $"{Title} in {Unit}. {Stats}";
+    public string AutomationName => $"{Title} in {Unit}. {Stats}" + (Emphasis == ChartEmphasis.Primary ? " Evidence for the selected finding." : Emphasis == ChartEmphasis.Supporting ? " Supporting measurement for the selected finding." : "");
+    private ChartEmphasis emphasis;
+    /// <summary>The selected finding's relation to this chart. Presentation only: the chart's data and range are untouched.</summary>
+    public ChartEmphasis Emphasis
+    {
+        get => emphasis;
+        internal set
+        {
+            if (!Set(ref emphasis, value)) return;
+            Raise(nameof(IsPrimary)); Raise(nameof(IsSupporting)); Raise(nameof(IsEmphasized)); Raise(nameof(EmphasisLabel)); Raise(nameof(AutomationName));
+        }
+    }
+    public bool IsEmphasized => emphasis != ChartEmphasis.None;
+    public bool IsPrimary => emphasis == ChartEmphasis.Primary;
+    public bool IsSupporting => emphasis == ChartEmphasis.Supporting;
+    public string EmphasisLabel => emphasis == ChartEmphasis.Primary ? "Evidence for the selected finding" : emphasis == ChartEmphasis.Supporting ? "Supporting measurement" : "";
     internal void Raised() { Raise(nameof(ShowNoData)); Raise(nameof(AutomationName)); }
 }
 
@@ -172,7 +187,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
         this.background = background; this.desktop = desktop; this.recorder = recorder; this.storage = storage ?? new PhysicalRecordingStorage();
         this.zone = zone ?? TimeZoneInfo.Local; this.logger = logger;
         ChartsRuntime.EnsureInitialized();
-        Findings = new HistoryFindingsViewModel(this.zone, NavigateToFinding);
+        Findings = new HistoryFindingsViewModel(this.zone, NavigateToFinding, ClearEmphasis, ShowFullRecording);
         RangePresets = [new(HistoryRangePreset.EntireSession, "Entire session"), new(HistoryRangePreset.Last60Minutes, "Last 60 minutes"), new(HistoryRangePreset.Last15Minutes, "Last 15 minutes"), new(HistoryRangePreset.Custom, "Custom range")];
         ContextChoices = [new(TimeSpan.FromMinutes(1), "± 1 min"), new(TimeSpan.FromMinutes(2), "± 2 min"), new(TimeSpan.FromMinutes(5), "± 5 min"), new(TimeSpan.FromMinutes(10), "± 10 min")];
         Filters = [new(HistoryEventFilter.All, "All events"), new(HistoryEventFilter.Incidents, "User incidents"), new(HistoryEventFilter.Findings, "Diagnostic findings"), new(HistoryEventFilter.Other, "Recording and session")];
@@ -228,13 +243,38 @@ public sealed class SessionHistoryViewModel : ObservableObject
     public bool ShowPlaceholder => !HasHistory && !HasError && !IsLoading;
     public LoadedHistory? Loaded => history;
     public HistoryFindingsViewModel Findings { get; }
-    private void NavigateToFinding(DateTimeOffset start, DateTimeOffset end, DateTimeOffset? peak)
+    /// <summary>
+    /// Shows a finding: every chart goes to its real interval (recorded UTC times) with context on both sides, the chart(s) that carry its evidence are emphasized, and the
+    /// readouts show the recorded values at the time of the measured extreme. The charts, their data and their shared range are the ones that were already there.
+    /// </summary>
+    private void NavigateToFinding(FindingTarget target)
     {
         if (history is null) return;
-        var padding = Context;
-        SetRange(start - padding, end + padding);
-        if (peak is { } at) SetHover(at);
+        var duration = target.End - target.Start;
+        // Context before and after: half the finding's own length, at least 15 seconds, at most the context the user chose for incidents.
+        var padding = TimeSpan.FromTicks(Math.Clamp(duration.Ticks / 2, TimeSpan.FromSeconds(15).Ticks, Math.Max(Context.Ticks, TimeSpan.FromSeconds(15).Ticks)));
+        SetRange(target.Start - padding, target.End + padding);
+        foreach (var row in Charts)
+            row.Emphasis = target.PrimaryChannels.Contains(row.Id, StringComparer.Ordinal) ? ChartEmphasis.Primary
+                : target.SupportingChannels.Contains(row.Id, StringComparer.Ordinal) ? ChartEmphasis.Supporting : ChartEmphasis.None;
+        if (target.Peak is { } at) SetHover(at);
+        Raise(nameof(HasEmphasis));
     }
+
+    private void ClearEmphasis()
+    {
+        foreach (var row in Charts) row.Emphasis = ChartEmphasis.None;
+        Raise(nameof(HasEmphasis));
+    }
+
+    private void ShowFullRecording()
+    {
+        ClearEmphasis();
+        ResetZoom();
+    }
+
+    /// <summary>True while a finding's chart is emphasized.</summary>
+    public bool HasEmphasis => Charts.Any(c => c.Emphasis != ChartEmphasis.None);
     public TimeZoneInfo Zone => zone;
     /// <summary>Validation seam: shows a recording in another time zone (for example one that crosses a clock change). Applies to the next recording opened.</summary>
     internal void UseTimeZone(TimeZoneInfo value) { zone = value; Findings.SetTimeZone(value); Raise(nameof(Zone)); Raise(nameof(ZoneNote)); }
@@ -248,6 +288,8 @@ public sealed class SessionHistoryViewModel : ObservableObject
     // ---------- overview ----------
 
     public ObservableCollection<MetricCard> Facts { get; } = [];
+    /// <summary>One line for the overview: state, duration, samples, protocol and data coverage. The full facts are one expander away.</summary>
+    public string CompactSummary { get; private set; } = "";
     public string StateLabel { get; private set; } = "";
     public string StateIcon { get; private set; } = "NoData";
     public string StateNote { get; private set; } = "";
@@ -441,7 +483,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
         try
         {
             var result = await AnomalyDetectionEngine.AnalyzeAsync(loaded, cancellationToken: token);
-            if (!token.IsCancellationRequested && ReferenceEquals(loaded, history)) Findings.Show(result);
+            if (!token.IsCancellationRequested && ReferenceEquals(loaded, history)) Findings.Show(result, loaded.Info);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
@@ -452,6 +494,27 @@ public sealed class SessionHistoryViewModel : ObservableObject
     }
 
     private static string Trim(string? reason) => string.IsNullOrWhiteSpace(reason) ? "no valid values" : reason.TrimEnd('.');
+
+    /// <summary>
+    /// The protocols of a recording. "Unknown protocol" is not a protocol: the Horizon provider records it for any moment in which no Blast counter instance was found for the
+    /// session (not yet detected, session inactive or disconnected). It is shown as a detection state next to the protocol that was detected, never as a second protocol.
+    /// </summary>
+    internal static string ProtocolSummary(HistoryInfo info)
+    {
+        if (info.Protocols.Count == 0) return "Not recorded";
+        var known = info.Protocols.Where(p => p != UnknownProtocol).ToArray();
+        if (known.Length == 0) return "Not detected";
+        return info.Protocols.Contains(UnknownProtocol) ? string.Join(", ", known) + " (not detected during part of the recording)" : string.Join(", ", known);
+    }
+
+    internal static string ProtocolNote(HistoryInfo info)
+    {
+        if (!info.Protocols.Contains(UnknownProtocol)) return "";
+        return info.Protocols.Count == 1 ? "No Blast counters were found for this session: nothing is claimed about the protocol"
+            : "At times no Blast counters were found (not yet detected, session inactive or disconnected)";
+    }
+
+    private static readonly string UnknownProtocol = HistoryLoader.ProtocolName(RemoteProtocol.Unknown);
 
     private static string StateWords(RecordingCompleteness state) => state switch
     {
@@ -480,7 +543,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
         Facts.Add(new(info.HasEnded ? "End" : info.IsPartial ? "Last sample analyzed" : "Last data", T(info.EndedUtc), info.HasEnded ? "" : info.IsPartial ? "Not the end of the recording" : "Not a recorded end"));
         Facts.Add(new(info.IsPartial ? "Duration analyzed" : "Duration", HistoryTime.FormatSpan(info.Duration), info.IsPartial ? "Beginning of the recording only" : ""));
         Facts.Add(new("Data source", info.IsDemo ? "Demo data" : "Real session", info.AppVersion.Length > 0 ? $"EUC Lens {info.AppVersion}" : ""));
-        Facts.Add(new("Protocol", info.Protocols.Count == 0 ? "Not recorded" : string.Join(", ", info.Protocols), ""));
+        Facts.Add(new("Protocol", ProtocolSummary(info), ProtocolNote(info)));
         Facts.Add(new("Samples", info.Samples.ToString("N0", CultureInfo.CurrentCulture), $"{info.Parts} recording part(s)"));
         Facts.Add(new("Diagnostic warnings", info.Warnings.ToString(CultureInfo.CurrentCulture), "Recorded by the diagnostic engine"));
         Facts.Add(new("Critical findings", info.Criticals.ToString(CultureInfo.CurrentCulture), "Recorded by the diagnostic engine"));
@@ -491,7 +554,10 @@ public sealed class SessionHistoryViewModel : ObservableObject
         Facts.Add(new("Recording state", StateLabel, info.State == RecordingCompleteness.Complete ? info.EndReason : info.IsPartial ? "Not the whole recording" : "Not complete"));
         IssueLines.Clear();
         foreach (var issue in issues) IssueLines.Add((issue.IsProblem ? "Problem: " : "Note: ") + issue.Message);
-        Raise(nameof(HasIssues)); Raise(nameof(StateLabel)); Raise(nameof(StateIcon)); Raise(nameof(StateNote));
+        var protocol = info.Protocols.Where(p => p != UnknownProtocol).ToArray();
+        CompactSummary = $"{StateLabel} · {HistoryTime.FormatSpan(info.Duration)} · {info.Samples.ToString("N0", CultureInfo.InvariantCulture)} samples · " +
+            (protocol.Length == 0 ? "protocol not detected" : string.Join(", ", protocol)) + $" · {(info.DataCoverage * 100).ToString("0.0", CultureInfo.InvariantCulture)}% data coverage";
+        Raise(nameof(HasIssues)); Raise(nameof(StateLabel)); Raise(nameof(StateIcon)); Raise(nameof(StateNote)); Raise(nameof(CompactSummary));
     }
 
     private void BuildEvents(LoadedHistory loaded)

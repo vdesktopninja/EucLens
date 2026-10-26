@@ -242,6 +242,7 @@ internal static class HistoryValidation
         await Section(c, failures, "zoom and range selection", () => ZoomAndRanges(c));
         await Section(c, failures, "pointer interaction", () => PointerInteraction(c));
         await Section(c, failures, "incident selection", () => IncidentSelection(c));
+        await Section(c, failures, "findings experience", () => FindingsExperience(c));
         await Section(c, failures, "keyboard navigation", () => KeyboardNavigation(c));
         await Section(c, failures, "themes and event icons", () => ThemesAndIcons(c));
         await Section(c, failures, "switching recordings", () => SwitchRecordings(c));
@@ -514,6 +515,108 @@ internal static class HistoryValidation
         Require(h.Events.Single(e => e.Event.IncidentId == second.Id).Annotation.StartsWith("Display stutter", StringComparison.Ordinal), "The list does not show the annotation.");
         await Shot(c, View(c), Path.Combine(c.EvidenceDirectory, "history-incident2-annotated-light.png"));
         Log(c, "PASS: selecting an incident centres the view with ±2 min, marks it on strip and overlay, and the deterministic text reports the recorded RTT spike (380 ms) for the first and the frame-rate dip (3 FPS, no RTT claim) for the second; evidence lists recorded values; the annotation is saved beside the recording");
+    }
+
+    /// <summary>
+    /// The findings panel as a user meets it: summary, filters, the list, the evidence of a selected finding, navigation of every chart to its real interval with the
+    /// evidence chart emphasized and the peak marked, the keyboard (arrows never scroll the page, Escape returns to the whole recording), both themes, and no text
+    /// running out of the panel at the narrow widths that high scaling produces.
+    /// </summary>
+    private static async Task FindingsExperience(HistorySmokeContext c)
+    {
+        var a = shortRun!;
+        await OpenAnalyze(c, a, 5);
+        var h = History(c); var f = h.Findings;
+        await WaitFor(() => f.Observations.Count > 0 && f.Summary.Length > 0, "the findings analysis");
+        await Idle(c); await DesktopValidation.WaitForChartMeasureAsync(c.Window);
+        var view = View(c);
+        var list = view.FindingsListControl;
+        var named = (string name) => DesktopValidation.Descendants<FrameworkElement>(view).First(e => System.Windows.Automation.AutomationProperties.GetName(e) == name);
+
+        // Summary, snapshot and data quality come from the analysis and the recording's own metadata.
+        var summary = (TextBlock)named("Findings summary");
+        Require(summary.Text == f.Summary && f.Summary.StartsWith($"{f.Observations.Count} observation", StringComparison.Ordinal), $"The summary line differs: '{summary.Text}' / '{f.Summary}'.");
+        Require(((TextBlock)named("Data coverage summary")).Text.StartsWith("Data coverage: ", StringComparison.Ordinal) && f.DataQuality.Contains("1 gap", StringComparison.Ordinal), "The data coverage line is wrong: " + f.DataQuality);
+        Require(!((Expander)named("Recording details")).IsExpanded && !((Expander)named("Data quality and evaluation details")).IsExpanded, "The recording details and data quality sections must start collapsed.");
+        Require(list.Items.Count == f.VisibleObservations.Count && list.IsVisible, "The findings list does not show the visible observations.");
+        await Idle(c);
+        var realized = DesktopValidation.Descendants<ListBoxItem>(list).ToArray();
+        Require(realized.Length > 0 && realized.Length <= f.VisibleObservations.Count && realized.All(r => r.Focusable), "The findings rows are missing or not focusable.");
+        Require(DesktopValidation.Descendants<TextBlock>(list).Any(t => t.Text.Contains("Round-trip time", StringComparison.Ordinal)), "A finding row does not name the measured metric.");
+
+        // Filters: segmented controls with counts; a filter changes the list and nothing else.
+        var severity = (ListBox)named("Severity filter");
+        Require(severity.Items.Count == 4 && f.SeverityFilters.All(x => x.Label.Contains('(')), "The severity filter lacks its options or counts.");
+        severity.SelectedItem = f.SeverityFilters.Single(x => x.Value == FindingSeverityFilter.Critical); await Idle(c);
+        Require(list.Items.Count == f.Observations.Count(o => o.Observation.Severity == Severity.Critical), "The Critical filter shows the wrong rows.");
+        severity.SelectedItem = f.SeverityFilters[0]; await Idle(c);
+        Require(list.Items.Count == f.Observations.Count, "Clearing the filter did not show every finding again.");
+
+        // Selecting a finding through the list: every chart goes to its real interval, the evidence chart is emphasized, the peak is marked.
+        var row = f.VisibleObservations.First(o => o.Observation.Primary.ChannelId == "rtt");
+        list.SelectedItem = row;
+        await h.Settled; await Idle(c); await DesktopValidation.WaitForChartMeasureAsync(c.Window); await Task.Delay(150);
+        var o = row.Observation;
+        Require(ReferenceEquals(f.SelectedObservation, row), "Selecting the row did not select the finding.");
+        Require(h.ViewStart <= o.Start && h.ViewEnd >= o.End && h.ViewStart > h.SessionStart - TimeSpan.FromTicks(1) && h.ViewEnd - h.ViewStart < h.SessionEnd - h.SessionStart, "The charts do not show the finding with context around it.");
+        foreach (var chart in Charts(c))
+        {
+            var axis = (LiveChartsCore.SkiaSharpView.Axis)chart.XAxes.First();
+            Require(Math.Abs((axis.MinLimit ?? 0) - h.ViewStart.UtcDateTime.Ticks) < 1000 && Math.Abs((axis.MaxLimit ?? 0) - h.ViewEnd.UtcDateTime.Ticks) < 1000, "A chart is not on the finding's range.");
+        }
+        Require(Overlay(c).HighlightStart == o.Start && Overlay(c).HighlightEnd == o.End && Strip(c).HighlightStart == o.Start && Strip(c).HighlightEnd == o.End, "The interval of the finding is not highlighted on the charts and the strip.");
+        Require(Overlay(c).PeakAt == o.Primary.WorstAt && Strip(c).PeakAt == o.Primary.WorstAt, "The measured extreme is not marked.");
+        var primary = h.Charts.Single(r => r.IsPrimary);
+        Require(primary.Id == "rtt" && h.Charts.Count(r => r.IsEmphasized) == 1, $"The emphasized charts are: {string.Join(", ", h.Charts.Where(r => r.IsEmphasized).Select(r => r.Id))}.");
+        var container = (FrameworkElement)view.ChartListControl.ItemContainerGenerator.ContainerFromItem(primary)!;
+        var band = DesktopValidation.Descendants<Border>(container).First(b => b.Background is SolidColorBrush { Color.A: > 0 } && b.BorderThickness.Top >= 1);
+        Require(band.Background is SolidColorBrush fill && fill.Color == ((SolidColorBrush)c.Window.FindResource("AccentSurfaceBrush")).Color, "The evidence chart is not drawn with the emphasis background.");
+        Require(DesktopValidation.Descendants<TextBlock>(container).Any(t => t.Text == "Evidence for the selected finding" && t.IsVisible), "The evidence chart lacks its label.");
+        var detail = (Border)named("Selected finding evidence");
+        Require(detail.IsVisible && DesktopValidation.Descendants<TextBlock>(detail).Any(t => t.Text == row.Detail.KeyValues && t.IsVisible), "The key measured values are not visible without expanding anything.");
+        Require(DesktopValidation.Descendants<TextBlock>(detail).Any(t => t.Text == o.Explanation), "The deterministic explanation is not shown unchanged.");
+        Require(!((Expander)named("Measurement evidence")).IsExpanded, "The dense evidence should start collapsed.");
+
+        // "Show in charts" brings the emphasized chart into the viewport.
+        var viewport = (FrameworkElement)PageViewport(view);
+        f.ShowInChartsCommand.Execute(null);
+        await Idle(c); await Task.Delay(200); await Idle(c);
+        var top = container.TranslatePoint(new Point(0, 0), viewport).Y;
+        Require(top < viewport.ActualHeight && top + container.ActualHeight > 0, $"The emphasized chart is not in the viewport after 'Show in charts' (top {top:0}, viewport height {viewport.ActualHeight:0}).");
+
+        // The keyboard: arrows move through the findings without scrolling the page, Escape returns to the whole recording.
+        var scroller = (ScrollViewer)viewport;
+        list.Focus(); h.Findings.SelectedObservation = f.VisibleObservations[0]; await Idle(c);
+        var offset = scroller.VerticalOffset;
+        DesktopValidation.RaiseKey(list, Key.Down); await Idle(c);
+        Require(Math.Abs(scroller.VerticalOffset - offset) < 0.5, "Moving through the findings with the arrow keys scrolled the page.");
+        DesktopValidation.RaiseKey(list, Key.Escape); await h.Settled; await Idle(c);
+        Require(f.SelectedObservation is null && !h.HasEmphasis && h.ViewStart == h.SessionStart && h.ViewEnd == h.SessionEnd && Overlay(c).HighlightStart is null && Overlay(c).PeakAt is null,
+            "Escape did not return to the whole recording.");
+        Require(((Button)named("Show full recording")).IsEnabled == false, "'Show full recording' is enabled with nothing to clear.");
+
+        // Both themes, and no text running out of the panel at narrow widths (what 125 % to 150 % scaling does to the page).
+        var panel = (FrameworkElement)named("Performance findings");
+        f.SelectedObservation = row; await h.Settled; await Idle(c);
+        foreach (var dark in new[] { false, true })
+        {
+            c.Vm.IsDark = dark;
+            await Idle(c); await Task.Delay(200); await DesktopValidation.WaitForChartMeasureAsync(c.Window);
+            await Shot(c, panel, Path.Combine(c.EvidenceDirectory, $"history-findings-{(dark ? "dark" : "light")}.png"));
+        }
+        c.Vm.IsDark = false; await Idle(c);
+        foreach (var width in new[] { 520d, 760d })
+        {
+            panel.Width = width; panel.UpdateLayout(); await Idle(c);
+            var blocks = DesktopValidation.Descendants<TextBlock>(panel).Where(t => t.IsVisible && t.ActualWidth > 0 && t.Text.Length > 0).ToArray();
+            var outside = blocks.Where(t => t.TranslatePoint(new Point(t.ActualWidth, 0), panel).X > panel.ActualWidth + 1).Select(t => t.Text).ToArray();
+            Require(outside.Length == 0, $"At a panel width of {width} DIPs these texts run out of the panel: {string.Join(" | ", outside.Take(3))}");
+            Require(blocks.All(t => t.TextTrimming == TextTrimming.None), "A findings text is trimmed instead of wrapped.");
+            await Shot(c, panel, Path.Combine(c.EvidenceDirectory, $"history-findings-{width:0}px.png"));
+        }
+        panel.ClearValue(FrameworkElement.WidthProperty); await Idle(c);
+        f.ShowFull(); await h.Settled; await Idle(c);
+        Log(c, $"PASS: findings: {f.Summary}; filters with counts; selecting '{row.Title}' moved all {Charts(c).Length} charts to {HistoryTime.Format(h.ViewStart, h.Zone)}–{HistoryTime.Format(h.ViewEnd, h.Zone)} with the evidence chart emphasized, the interval highlighted and the peak at {HistoryTime.Format(o.Primary.WorstAt, h.Zone)}; Show in charts scrolls to it; arrow keys leave the page where it is; Escape returns to the whole recording; no text leaves the panel at 520 and 760 DIPs");
     }
 
     private static async Task KeyboardNavigation(HistorySmokeContext c)

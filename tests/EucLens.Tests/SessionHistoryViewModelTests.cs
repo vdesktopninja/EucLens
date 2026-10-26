@@ -89,7 +89,8 @@ public sealed class SessionHistoryViewModelTests
         var h = rig.History;
         Assert.Contains(h.Findings.Observations, o => o.Observation.RuleId == "conn.rtt.high");
         var row = h.Findings.Observations.First(o => o.Observation.RuleId == "conn.rtt.high");
-        Assert.Contains("measured observation", h.Findings.Status, StringComparison.Ordinal);
+        Assert.Contains("observation", h.Findings.Summary, StringComparison.Ordinal);
+        Assert.Contains("Measured conditions", h.Findings.Status, StringComparison.Ordinal);
         h.Findings.SelectedObservation = row;
         Assert.Equal(row, h.Findings.SelectedObservation);
         Assert.NotNull(h.Findings.SelectedObservation!.Observation.Primary);

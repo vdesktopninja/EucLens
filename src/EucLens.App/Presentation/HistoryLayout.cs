@@ -11,5 +11,9 @@ public static class HistoryLayout
     public const double PlotLeft = 64, PlotRight = 16, PlotTop = 6, PlotBottom = 22;
     /// <summary>Height of the event list's own viewport (DIPs): about nine rows. The list is virtualized, so its length no longer decides the height of the page.</summary>
     public const double EventListMaxHeight = 520;
+    /// <summary>Height of the findings list's own viewport (DIPs): about five rows of three lines. It scrolls inside, so the page stays short.</summary>
+    public const double FindingsListMaxHeight = 330;
+    /// <summary>Height of the correlation lists' viewport (DIPs).</summary>
+    public const double CorrelationListMaxHeight = 170;
     public static readonly Margin PlotMargin = new((float)PlotLeft, (float)PlotTop, (float)PlotRight, (float)PlotBottom);
 }
