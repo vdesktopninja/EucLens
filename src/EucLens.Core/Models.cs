@@ -106,6 +106,9 @@ public interface ISessionRecorder
     /// <summary>The recording ended by itself, for example because of a storage failure. May be raised on a background thread.</summary>
     event Action<RecordingEndReason>? Ended { add { } remove { } }
     RecordingSinkStatus? SinkStatus => null;
+    /// <summary>Saves a user-marked performance issue into the persisted recording; the result says whether it really reached the disk.</summary>
+    Task<IncidentResult> MarkIncidentAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(new IncidentResult(IncidentOutcome.NotPersistent, null, "Only a recording saved to disk can hold incident markers."));
     /// <summary>True when samples are streamed to disk, so they are saved without an export.</summary>
     bool IsPersistent => false;
     void Add(SessionSnapshot sample);

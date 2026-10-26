@@ -14,6 +14,19 @@ internal sealed class MemoryStorage : IRecordingStorage
     public Exception? WriteFault { get; set; }
     public long? Free { get; set; } = long.MaxValue / 2;
     public ManualResetEventSlim? WriteGate { get; set; }
+    // Failure injection by file name, for the durability tests: a fault for one kind of file leaves the others working.
+    public Func<string, Exception?>? WriteFaultFor { get; set; }
+    public Func<string, Exception?>? FlushFaultFor { get; set; }
+    public Func<string, Exception?>? DisposeFaultFor { get; set; }
+    public Func<string, string, Exception?>? RenameFault { get; set; }
+    public Func<string, Exception?>? DeleteFault { get; set; }
+    /// <summary>Files whose content is cut in half when it is flushed: a compressed copy that did not reach the disk completely.</summary>
+    public Func<string, bool>? TruncateOnFlush { get; set; }
+    /// <summary>While closed, flushing a file blocks: a disk that does not answer.</summary>
+    public ManualResetEventSlim? FlushGate { get; set; }
+    private int openHandles;
+    /// <summary>Files created and not yet disposed.</summary>
+    public int OpenHandles => Volatile.Read(ref openHandles);
     public DateTimeOffset Now { get; set; } = new(2026, 10, 23, 8, 0, 0, TimeSpan.Zero);
 
     public void EnsureDirectory(string directory) { }
@@ -25,6 +38,7 @@ internal sealed class MemoryStorage : IRecordingStorage
             if (CreateFault?.Invoke(path) is { } fault) throw fault;
             Files[path] = [];
             Times[path] = Now;
+            Interlocked.Increment(ref openHandles);
             return new Handle(this, path);
         }
     }
@@ -36,8 +50,8 @@ internal sealed class MemoryStorage : IRecordingStorage
     {
         lock (gate) return Files.Where(f => Path.GetDirectoryName(f.Key) == directory).Select(f => new RecordingFileInfo(f.Key, f.Value.Length, Times[f.Key])).ToArray();
     }
-    public void Delete(string path) { lock (gate) { Files.Remove(path); Times.Remove(path); } }
-    public void Rename(string from, string to) { lock (gate) { Files[to] = Files[from]; Times[to] = Times[from]; Files.Remove(from); Times.Remove(from); } }
+    public void Delete(string path) { if (DeleteFault?.Invoke(path) is { } fault) throw fault; lock (gate) { Files.Remove(path); Times.Remove(path); } }
+    public void Rename(string from, string to) { if (RenameFault?.Invoke(from, to) is { } fault) throw fault; lock (gate) { Files[to] = Files[from]; Times[to] = Times[from]; Files.Remove(from); Times.Remove(from); } }
     public long? FreeSpace(string directory) => Free;
     public long TotalBytes { get { lock (gate) return Files.Values.Sum(v => (long)v.Length); } }
     public string[] Names(string directory) { lock (gate) return Files.Keys.Where(k => Path.GetDirectoryName(k) == directory).Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal).ToArray()!; }
@@ -54,16 +68,32 @@ internal sealed class MemoryStorage : IRecordingStorage
         {
             owner.WriteGate?.Wait();
             if (owner.WriteFault is { } fault) throw fault;
+            if (owner.WriteFaultFor?.Invoke(path) is { } fileFault) throw fileFault;
             buffer.Write(data, offset, count);
         }
         public override void Flush()
         {
+            owner.FlushGate?.Wait();
             if (owner.WriteFault is { } fault) throw fault;
-            lock (owner.gate) { if (owner.Files.ContainsKey(path)) { owner.Files[path] = buffer.ToArray(); owner.Times[path] = owner.Now; } }
+            if (owner.FlushFaultFor?.Invoke(path) is { } fileFault) throw fileFault;
+            lock (owner.gate)
+            {
+                if (!owner.Files.ContainsKey(path)) return;
+                var bytes = buffer.ToArray();
+                owner.Files[path] = owner.TruncateOnFlush?.Invoke(path) == true ? bytes[..(bytes.Length / 2)] : bytes;
+                owner.Times[path] = owner.Now;
+            }
         }
+        private bool disposed;
         protected override void Dispose(bool disposing)
         {
-            if (disposing && owner.WriteFault is null) { try { Flush(); } catch (IOException) { } }
+            if (disposing && !disposed)
+            {
+                disposed = true;
+                Interlocked.Decrement(ref owner.openHandles);
+                if (owner.WriteFault is null) { try { Flush(); } catch (IOException) { } }
+                if (owner.DisposeFaultFor?.Invoke(path) is { } closeFault) { base.Dispose(disposing); throw closeFault; }
+            }
             base.Dispose(disposing);
         }
         public override int Read(byte[] data, int offset, int count) => throw new NotSupportedException();

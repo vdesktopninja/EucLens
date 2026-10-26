@@ -27,7 +27,7 @@ internal static class DesktopValidation
         var report = new StringBuilder();
         var dpi = VisualTreeHelper.GetDpi(window);
         report.AppendLine($"Host DPI: {dpi.PixelsPerInchX:0} × {dpi.PixelsPerInchY:0}. Other scale cases below simulate available DIP space; they do not change Windows DPI.");
-        var navigation = Descendants<ListBox>(window).Single(list => list.Items.Count == 6);
+        var navigation = Descendants<ListBox>(window).Single(list => ReferenceEquals(list.ItemsSource, vm.Pages));
         var client = (FrameworkElement)window.Content;
         var chromeWidth = window.ActualWidth - client.ActualWidth;
         var chromeHeight = window.ActualHeight - client.ActualHeight;
@@ -142,11 +142,17 @@ internal static class DesktopValidation
         var charts = Descendants<CartesianChart>(window).ToArray();
         var expected = page is DashboardPage ? 2 : page is DiagnosticsPage ? 4 : page is RecorderPage or SystemPage ? 1 : 0;
         if (charts.Length != expected) throw new InvalidOperationException($"{page.Name}: expected {expected} charts, found {charts.Length}.");
+        CheckChartList(charts, page.Name);
+    }
+
+    /// <summary>The ownership and theme rules every chart follows (own LiveCharts objects built from its ChartData, drawn by the engine, themed, no animation).</summary>
+    internal static void CheckChartList(IEnumerable<CartesianChart> charts, string page)
+    {
         foreach (var chart in charts)
         {
             // Every chart owns its LiveCharts objects (built from the view model's ChartData), and the engine must draw
             // exactly those, mirroring the current data and range, not LiveCharts' defaults.
-            var data = LiveChart.GetData(chart) ?? throw new InvalidOperationException($"{page.Name}: a chart is not bound through LiveChart.Data.");
+            var data = LiveChart.GetData(chart) ?? throw new InvalidOperationException($"{page}: a chart is not bound through LiveChart.Data.");
             var objects = LiveChart.GetObjects(chart)!;
             var engine = (LiveChartsCore.CartesianChartEngine)chart.CoreChart;
             if (!ReferenceEquals(chart.Series?.FirstOrDefault(), objects.Line) || engine.XAxes.Length == 0 || !ReferenceEquals(engine.XAxes[0], objects.XAxes[0])
@@ -217,7 +223,7 @@ internal static class DesktopValidation
         await window.Dispatcher.InvokeAsync(() => PageScroll(window).UpdateLayout(), DispatcherPriority.ApplicationIdle);
     }
 
-    private static void RaiseKey(UIElement target, Key key) => target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(target)!, 0, key) { RoutedEvent = Keyboard.KeyDownEvent });
+    internal static void RaiseKey(UIElement target, Key key) => target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(target)!, 0, key) { RoutedEvent = Keyboard.KeyDownEvent });
     /// <summary>Raises what the input system raises for a real wheel turn: the preview event, then (unless handled) the bubbling event.</summary>
     private static void RaiseWheel(UIElement target, int delta)
     {
@@ -622,7 +628,7 @@ internal static class DesktopValidation
     /// <summary>The scroll viewer that hosts the current page (the one whose content is the page view model's view).</summary>
     private static ScrollViewer? PageHost(Window window) => Descendants<ScrollViewer>(window).FirstOrDefault(v => v.Content is ContentControl { Content: PageViewModel });
 
-    private static void Capture(Window window, FrameworkElement visual, string path)
+    internal static void Capture(Window window, FrameworkElement visual, string path)
     {
         // Capture the actual WPF client visual. Native window chrome is excluded.
         var bitmap = new RenderTargetBitmap((int)Math.Ceiling(visual.ActualWidth),
@@ -643,7 +649,7 @@ internal static class DesktopValidation
         using var stream = File.Create(path);
         encoder.Save(stream);
     }
-    private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
+    internal static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
     {
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
         {

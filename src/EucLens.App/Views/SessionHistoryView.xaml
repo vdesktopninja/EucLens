@@ -1,0 +1,129 @@
+<UserControl x:Class="EucLens.App.Views.SessionHistoryView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:ui="clr-namespace:EucLens.App.Presentation" xmlns:vmtypes="clr-namespace:EucLens.App.ViewModels" xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF">
+ <!-- Session History. DataContext: SessionHistoryPage. One recording at a time: overview, range controls, the whole session as a strip of events, charts that share one time axis,
+      then the event list and the selected incident. Nothing here touches the live view or the sampling loop. -->
+ <StackPanel>
+  <TextBlock Text="Session history" Style="{StaticResource Heading}" />
+  <TextBlock Text="Open a saved recording to see what was recorded, when the user marked a performance issue, and the measurements around it. Everything is read from the recording on this computer." Style="{StaticResource Muted}" Margin="0,0,0,12" />
+
+  <Border Style="{StaticResource Panel}" AutomationProperties.Name="Recording selection"><StackPanel>
+   <StackPanel>
+    <ComboBox ItemsSource="{Binding Monitor.History.Recordings}" SelectedItem="{Binding Monitor.History.SelectedRecording}" AutomationProperties.Name="Saved recording" HorizontalAlignment="Stretch">
+     <ComboBox.ItemTemplate><DataTemplate><TextBlock Typography.NumeralAlignment="Tabular"><Run Text="{Binding Started, Mode=OneWay}" FontWeight="SemiBold" /><Run Text="  ·  " /><Run Text="{Binding Duration, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding Samples, Mode=OneWay}" /><Run Text=" samples  ·  " /><Run Text="{Binding Summary.Incidents, Mode=OneWay}" /><Run Text=" incident(s)  ·  " /><Run Text="{Binding Status, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}" /></TextBlock></DataTemplate></ComboBox.ItemTemplate>
+    </ComboBox>
+    <WrapPanel Margin="0,8,0,0"><Button Content="Refresh list" Command="{Binding Monitor.History.RefreshRecordingsCommand}" Margin="0,0,8,0" /><Button Content="Open folder" Command="{Binding Monitor.History.OpenFolderCommand}" Margin="0,0,8,0" /><Button Content="Export incidents (CSV)" Command="{Binding Monitor.History.ExportIncidentsCommand}" Margin="0,0,8,0" ToolTip="Optional separate file: marked incidents with their annotations. The session CSV and JSON exports are unchanged." /><Button Content="Export timeline (CSV)" Command="{Binding Monitor.History.ExportTimelineCommand}" ToolTip="Optional separate file: every timeline entry." /></WrapPanel>
+   </StackPanel>
+   <TextBlock Text="{Binding Monitor.History.Message}" Style="{StaticResource Muted}" Margin="0,8,0,0" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="History status" />
+   <TextBlock Text="{Binding Monitor.History.LoadProgress}" Style="{StaticResource Muted}" TextWrapping="Wrap" Typography.NumeralAlignment="Tabular" Visibility="{Binding Monitor.History.IsLoading, Converter={StaticResource BoolToVisibility}}" />
+   <TextBlock Text="{Binding Monitor.History.Error}" Foreground="{DynamicResource CriticalBrush}" FontWeight="SemiBold" Margin="0,6,0,0" TextWrapping="Wrap" Visibility="{Binding Monitor.History.HasError, Converter={StaticResource BoolToVisibility}}" AutomationProperties.LiveSetting="Assertive" AutomationProperties.Name="Recording error" />
+  </StackPanel></Border>
+
+  <StackPanel Visibility="{Binding Monitor.History.HasHistory, Converter={StaticResource BoolToVisibility}}">
+   <Border Style="{StaticResource Panel}" AutomationProperties.Name="Recording overview"><StackPanel>
+    <StackPanel Orientation="Horizontal"><Path Style="{StaticResource SeverityIcon}" Tag="{Binding Monitor.History.StateIcon}" Margin="0,0,8,0" /><TextBlock Text="{Binding Monitor.History.StateLabel}" FontWeight="SemiBold" FontSize="{StaticResource StateFontSize}" /></StackPanel>
+    <TextBlock Text="{Binding Monitor.History.StateNote}" Style="{StaticResource Muted}" Margin="0,2,0,8" TextWrapping="Wrap" />
+    <Border BorderBrush="{DynamicResource WarningBrush}" BorderThickness="2,0,0,0" Padding="8,2,0,2" Margin="0,0,0,8" Visibility="{Binding Monitor.History.IsPartial, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="Partial analysis notice"><TextBlock Text="{Binding Monitor.History.PartialNote}" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" /></Border>
+    <ItemsControl ItemsSource="{Binding Monitor.History.Facts}" Focusable="False" AutomationProperties.Name="Recording facts">
+     <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+     <ItemsControl.ItemTemplate><DataTemplate><StackPanel Width="230" Margin="0,0,16,8" AutomationProperties.Name="{Binding Label}"><TextBlock Text="{Binding Label}" Style="{StaticResource Meta}" /><TextBlock Text="{Binding Value}" Style="{StaticResource ValueText}" TextWrapping="Wrap" /><TextBlock Text="{Binding Detail}" Style="{StaticResource Meta}" /></StackPanel></DataTemplate></ItemsControl.ItemTemplate>
+    </ItemsControl>
+    <ItemsControl ItemsSource="{Binding Monitor.History.IssueLines}" Focusable="False" Visibility="{Binding Monitor.History.HasIssues, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="Reading notes"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Style="{StaticResource Reading}" Margin="0,2,0,0" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+    <TextBlock Text="{Binding Monitor.History.UnavailableNote}" Style="{StaticResource Meta}" Margin="0,6,0,0" Visibility="{Binding Monitor.History.HasUnavailableNote, Converter={StaticResource BoolToVisibility}}" />
+    <TextBlock Text="{Binding Monitor.History.ZoneNote}" Style="{StaticResource Meta}" Margin="0,6,0,0" />
+   </StackPanel></Border>
+
+   <Border Style="{StaticResource Panel}" AutomationProperties.Name="Time range"><StackPanel>
+    <WrapPanel>
+     <StackPanel Margin="0,0,12,6"><TextBlock Text="Range" Style="{StaticResource Meta}" /><ComboBox Width="170" ItemsSource="{Binding Monitor.History.RangePresets}" SelectedItem="{Binding Monitor.History.SelectedPreset}" DisplayMemberPath="Label" AutomationProperties.Name="Range preset" /></StackPanel>
+     <StackPanel Margin="0,0,12,6"><TextBlock Text="Zoom" Style="{StaticResource Meta}" /><WrapPanel><Button Content="Zoom out" Command="{Binding Monitor.History.ZoomOutCommand}" Margin="0,0,6,0" ToolTip="Show twice the time (Ctrl + mouse wheel, or the minus key on the charts)" /><Button Content="Zoom in" Command="{Binding Monitor.History.ZoomInCommand}" Margin="0,0,6,0" ToolTip="Show half the time (Ctrl + mouse wheel, or the plus key on the charts)" /><Button Content="Reset zoom" Command="{Binding Monitor.History.ResetZoomCommand}" ToolTip="Show the entire session (Home on the charts)" /></WrapPanel></StackPanel>
+     <StackPanel Margin="0,0,12,6"><TextBlock Text="Incidents" Style="{StaticResource Meta}" /><WrapPanel><Button Content="◀ Previous incident" Command="{Binding Monitor.History.PreviousIncidentCommand}" Margin="0,0,6,0" AutomationProperties.Name="Previous incident" ToolTip="Page Up on the charts" /><Button Content="Next incident ▶" Command="{Binding Monitor.History.NextIncidentCommand}" AutomationProperties.Name="Next incident" ToolTip="Page Down on the charts" /></WrapPanel></StackPanel>
+     <StackPanel Margin="0,0,12,6"><TextBlock Text="Context around an incident" Style="{StaticResource Meta}" /><ComboBox Width="110" ItemsSource="{Binding Monitor.History.ContextChoices}" SelectedItem="{Binding Monitor.History.SelectedContext}" DisplayMemberPath="Label" AutomationProperties.Name="Context around an incident" /></StackPanel>
+    </WrapPanel>
+    <WrapPanel>
+     <StackPanel Margin="0,0,8,6"><TextBlock Text="From (local time)" Style="{StaticResource Meta}" /><TextBox Width="170" Text="{Binding Monitor.History.CustomFrom, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Range start, local time" /></StackPanel>
+     <StackPanel Margin="0,0,8,6"><TextBlock Text="To (local time)" Style="{StaticResource Meta}" /><TextBox Width="170" Text="{Binding Monitor.History.CustomTo, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Range end, local time" /></StackPanel>
+     <Button Content="Apply range" Command="{Binding Monitor.History.ApplyCustomRangeCommand}" VerticalAlignment="Bottom" Margin="0,0,0,6" />
+    </WrapPanel>
+    <TextBlock Text="{Binding Monitor.History.RangeText}" Style="{StaticResource Reading}" Typography.NumeralAlignment="Tabular" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Visible range" />
+    <TextBlock Text="{Binding Monitor.History.RangeMessage}" Foreground="{DynamicResource CriticalBrush}" TextWrapping="Wrap" />
+    <TextBlock Text="Drag across the strip or the charts to select a range. Ctrl + mouse wheel zooms. With a chart or the strip focused: arrow keys move, + and − zoom, Home shows the entire session, Page Up and Page Down step through incidents." Style="{StaticResource Meta}" Margin="0,4,0,6" />
+    <ui:HistoryTimelineStrip x:Name="Strip" SessionStart="{Binding Monitor.History.SessionStart, Mode=OneWay}" SessionEnd="{Binding Monitor.History.SessionEnd, Mode=OneWay}" ViewStart="{Binding Monitor.History.ViewStart, Mode=OneWay}" ViewEnd="{Binding Monitor.History.ViewEnd, Mode=OneWay}" Markers="{Binding Monitor.History.Markers, Mode=OneWay}" Gaps="{Binding Monitor.History.Gaps, Mode=OneWay}" SelectedAt="{Binding Monitor.History.SelectedIncident.Incident.At, Mode=OneWay, FallbackValue={x:Null}}" Zone="{Binding Monitor.History.Zone, Mode=OneWay}" AutomationProperties.Name="Session timeline: events, gaps and the visible range" ToolTip="The whole session. Each kind of event has its own shape (legend below). Shaded stretches have no samples. The framed part is what the charts show." />
+    <ItemsControl ItemsSource="{x:Static ui:HistoryEventKinds.IconTags}" Focusable="False" Margin="0,4,0,0" AutomationProperties.Name="Event shapes"><ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel><ItemsControl.ItemTemplate><DataTemplate><StackPanel Orientation="Horizontal" Margin="0,0,14,0"><Path Style="{StaticResource EventIcon}" Tag="{Binding}" Margin="0,0,4,0" /><TextBlock Text="{Binding}" Style="{StaticResource Meta}" /></StackPanel></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+   </StackPanel></Border>
+
+   <Border Style="{StaticResource ChartSurface}" AutomationProperties.Name="Historical charts"><StackPanel>
+    <TextBlock Text="Measurements in the visible range" FontWeight="SemiBold" />
+    <TextBlock Text="{Binding Monitor.History.HoverText}" Style="{StaticResource Meta}" Typography.NumeralAlignment="Tabular" MinHeight="16" AutomationProperties.LiveSetting="Off" AutomationProperties.Name="Time under the pointer" />
+    <Grid>
+     <ItemsControl ItemsSource="{Binding Monitor.History.Charts}" Focusable="False" AutomationProperties.Name="Chart list">
+      <ItemsControl.ItemTemplate><DataTemplate>
+       <StackPanel>
+        <TextBlock Text="{Binding Group}" Style="{StaticResource SectionLabel}" Visibility="{Binding ShowGroup, Converter={StaticResource BoolToVisibility}}" />
+        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,6,0,0" Margin="0,6,0,0">
+         <StackPanel>
+          <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+           <TextBlock TextWrapping="Wrap" FontSize="{StaticResource ReadingFontSize}"><Run Text="{Binding Title, Mode=OneWay}" FontWeight="SemiBold" /><Run Text=" · " Foreground="{DynamicResource MutedBrush}" /><Run Text="{Binding Unit, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}" /></TextBlock>
+           <TextBlock Grid.Column="1" Text="{Binding Readout}" Style="{StaticResource Meta}" TextAlignment="Right" Typography.NumeralAlignment="Tabular" Margin="8,0,0,0" />
+          </Grid>
+          <TextBlock Text="{Binding Stats}" Style="{StaticResource Meta}" Typography.NumeralAlignment="Tabular" />
+          <TextBlock Text="{Binding UnitNote}" Style="{StaticResource Meta}" Foreground="{DynamicResource WarningBrush}" Visibility="{Binding HasUnitNote, Converter={StaticResource BoolToVisibility}}" />
+          <Grid Height="120" Margin="0,4,0,0">
+           <lvc:CartesianChart ui:LiveChart.Data="{Binding Data}" AnimationsSpeed="0:0:0" DrawMargin="{x:Static ui:HistoryLayout.PlotMargin}" TooltipPosition="Hidden" Background="{DynamicResource ChartBackgroundBrush}" ui:ChartTheme.Text="{DynamicResource MutedBrush}" ui:ChartTheme.Surface="{DynamicResource SurfaceBrush}" ui:ChartTheme.Grid="{DynamicResource ChartGridBrush}" ui:ChartTheme.Line="{DynamicResource AccentBrush}" ui:ChartTheme.Warning="{DynamicResource WarningBrush}" ui:ChartTheme.Critical="{DynamicResource CriticalBrush}" AutomationProperties.Name="{Binding AutomationName}" />
+           <TextBlock Text="No valid values in this range" Style="{StaticResource Reading}" Foreground="{DynamicResource MutedBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="{Binding ShowNoData, Converter={StaticResource BoolToVisibility}}" />
+          </Grid>
+         </StackPanel>
+        </Border>
+       </StackPanel>
+      </DataTemplate></ItemsControl.ItemTemplate>
+     </ItemsControl>
+     <ui:HistoryChartOverlay x:Name="Overlay" PlotLeft="{x:Static ui:HistoryLayout.PlotLeft}" PlotRight="{x:Static ui:HistoryLayout.PlotRight}" ViewStart="{Binding Monitor.History.ViewStart, Mode=OneWay}" ViewEnd="{Binding Monitor.History.ViewEnd, Mode=OneWay}" Markers="{Binding Monitor.History.Markers, Mode=OneWay}" Gaps="{Binding Monitor.History.Gaps, Mode=OneWay}" SelectedAt="{Binding Monitor.History.SelectedIncident.Incident.At, Mode=OneWay, FallbackValue={x:Null}}" Zone="{Binding Monitor.History.Zone, Mode=OneWay}" AutomationProperties.Name="Charts time cursor: move the pointer to read values, drag to select a range" />
+    </Grid>
+   </StackPanel></Border>
+
+   <Border Style="{StaticResource Panel}" AutomationProperties.Name="Incident timeline"><StackPanel>
+    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+     <StackPanel><TextBlock Text="Incident timeline" FontWeight="SemiBold" /><TextBlock Text="{Binding Monitor.History.EventsHeading}" Style="{StaticResource Meta}" /></StackPanel>
+     <ComboBox Grid.Column="1" Width="200" ItemsSource="{Binding Monitor.History.Filters}" SelectedItem="{Binding Monitor.History.SelectedFilter}" DisplayMemberPath="Label" AutomationProperties.Name="Event filter" />
+    </Grid>
+    <ui:AdaptiveColumnsPanel MinimumColumnWidth="430" MaximumColumns="2" Margin="0,8,0,0" AutomationProperties.Name="Events and selected incident">
+     <!-- Virtualized: the page measures this list with unlimited height, so it has its own bounded viewport (MaxHeight) and scroll viewer; only the rows in view
+          (plus a few) get containers, which are recycled while scrolling. Every entry stays in the collection. The wheel passes to the page at either end. -->
+     <ListBox x:Name="EventList" ItemsSource="{Binding Monitor.History.Events}" SelectedItem="{Binding Monitor.History.SelectedEvent}" Style="{StaticResource TableList}" ItemContainerStyle="{StaticResource TableRow}" MaxHeight="{x:Static ui:HistoryLayout.EventListMaxHeight}" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" VirtualizingPanel.ScrollUnit="Item" VirtualizingPanel.CacheLength="1,1" VirtualizingPanel.CacheLengthUnit="Item" ScrollViewer.CanContentScroll="True" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Timeline events">
+      <ListBox.Template><ControlTemplate TargetType="ListBox"><Border Background="{TemplateBinding Background}"><ScrollViewer x:Name="EventScroll" Focusable="False" CanContentScroll="True" VerticalScrollBarVisibility="{TemplateBinding ScrollViewer.VerticalScrollBarVisibility}" HorizontalScrollBarVisibility="{TemplateBinding ScrollViewer.HorizontalScrollBarVisibility}" ui:WheelChaining.Enabled="True"><ItemsPresenter /></ScrollViewer></Border></ControlTemplate></ListBox.Template>
+      <ListBox.ItemsPanel><ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate></ListBox.ItemsPanel>
+      <ListBox.ItemTemplate><DataTemplate>
+       <Grid AutomationProperties.Name="{Binding AutomationName}"><Grid.ColumnDefinitions><ColumnDefinition Width="26" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+        <Path Style="{StaticResource EventIcon}" Tag="{Binding IconTag}" />
+        <StackPanel Grid.Column="1" Margin="0,0,12,0" MinWidth="104"><TextBlock Text="{Binding Time}" Typography.NumeralAlignment="Tabular" FontSize="{StaticResource ReadingFontSize}" /><TextBlock Text="{Binding KindLabel}" Style="{StaticResource Meta}" /></StackPanel>
+        <StackPanel Grid.Column="2"><TextBlock Text="{Binding Title}" Style="{StaticResource Reading}" FontWeight="SemiBold" /><TextBlock Text="{Binding Detail}" Style="{StaticResource Meta}" Visibility="{Binding HasDetail, Converter={StaticResource BoolToVisibility}}" /><TextBlock Text="{Binding Annotation}" Style="{StaticResource Reading}" Visibility="{Binding HasAnnotation, Converter={StaticResource BoolToVisibility}}" /></StackPanel>
+       </Grid>
+      </DataTemplate></ListBox.ItemTemplate>
+     </ListBox>
+     <StackPanel Visibility="{Binding Monitor.History.HasSelectedIncident, Converter={StaticResource BoolToVisibility}}" Margin="12,0,0,0">
+     <StackPanel DataContext="{Binding Monitor.History.SelectedIncident}" AutomationProperties.Name="Selected incident">
+      <TextBlock Text="{Binding Heading}" FontWeight="SemiBold" TextWrapping="Wrap" />
+      <TextBlock Text="What the recording shows around this marker" Style="{StaticResource SubLabel}" />
+      <TextBlock Text="{Binding Summary}" Style="{StaticResource Reading}" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Summary of the recording around the incident" />
+      <ItemsControl ItemsSource="{Binding Changes}" Focusable="False" Margin="0,6,0,0" AutomationProperties.Name="Observed changes"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Style="{StaticResource Reading}" Margin="0,2,0,0"><Run Text="• " /><Run Text="{Binding Mode=OneWay}" /></TextBlock></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+      <ItemsControl ItemsSource="{Binding Missing}" Focusable="False" Margin="0,6,0,0" AutomationProperties.Name="Missing measurements"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Style="{StaticResource Meta}"><Run Text="Missing: " /><Run Text="{Binding Mode=OneWay}" /></TextBlock></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+      <TextBlock Text="Recorded diagnostic state" Style="{StaticResource SubLabel}" />
+      <TextBlock Text="{Binding RecordedState}" Style="{StaticResource Reading}" />
+      <TextBlock Text="Administrator annotation" Style="{StaticResource SubLabel}" />
+      <ComboBox ItemsSource="{x:Static vmtypes:HistoryIncidentViewModel.Categories}" SelectedItem="{Binding Category}" DisplayMemberPath="Label" Width="240" HorizontalAlignment="Left" AutomationProperties.Name="Incident category" />
+      <TextBox Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}" MaxLength="500" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="64" Margin="0,6,0,0" AutomationProperties.Name="Incident description" />
+      <WrapPanel Margin="0,6,0,0"><Button Content="Save annotation" Command="{Binding SaveCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,10,0" /><TextBlock Text="{Binding DescriptionCount}" Style="{StaticResource Meta}" VerticalAlignment="Center" Margin="0,0,10,0" /><TextBlock Text="{Binding SaveMessage}" Style="{StaticResource Meta}" VerticalAlignment="Center" AutomationProperties.LiveSetting="Polite" /></WrapPanel>
+      <TextBlock Text="Saved beside the recording in a small file; the recording itself is never rewritten." Style="{StaticResource Meta}" />
+      <Expander Header="Recorded evidence: every metric before and after the marker" IsExpanded="{Binding IsEvidenceExpanded}" Margin="0,10,0,0" AutomationProperties.Name="Recorded evidence">
+       <ItemsControl ItemsSource="{Binding Evidence}" Focusable="False"><ItemsControl.ItemTemplate><DataTemplate>
+        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,4"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+         <StackPanel><TextBlock Style="{StaticResource Reading}"><Run Text="{Binding Metric, Mode=OneWay}" FontWeight="SemiBold" /><Run Text="  " /><Run Text="{Binding Sample, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}" /></TextBlock><TextBlock Text="{Binding Status}" Style="{StaticResource Meta}" /></StackPanel>
+         <TextBlock Grid.Column="1" TextAlignment="Right" Typography.NumeralAlignment="Tabular" Margin="8,0,0,0" Style="{StaticResource Reading}"><Run Text="{Binding Value, Mode=OneWay}" FontWeight="SemiBold" /><Run Text=" " /><Run Text="{Binding Unit, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}" /></TextBlock>
+        </Grid></Border>
+       </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+      </Expander>
+     </StackPanel>
+     </StackPanel>
+    </ui:AdaptiveColumnsPanel>
+   </StackPanel></Border>
+  </StackPanel>
+ </StackPanel>
+</UserControl>

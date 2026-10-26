@@ -28,6 +28,7 @@ internal static class BackgroundValidation
     private static readonly StringBuilder Report = new();
 
     private static void Require(bool condition, string failure) { if (!condition) throw new InvalidOperationException(failure); }
+    private static T Require1<T>(IReadOnlyList<T> items, string failure) => items.Count == 1 ? items[0] : throw new InvalidOperationException($"{failure} ({items.Count} found)");
     private static void Log(BackgroundSmokeContext c, string line)
     {
         Report.AppendLine(line);
@@ -83,6 +84,7 @@ internal static class BackgroundValidation
         await Section(c, failures, "tray artifacts", () => CaptureTrayArtifacts(c));
         await Section(c, failures, "minimize, restore and hidden recording", () => CheckMinimizeRestoreAndHiddenRecording(c));
         await Section(c, failures, "close to tray", () => CheckCloseToTray(c));
+        await Section(c, failures, "incident marker on a failing disk", () => CheckIncidentOnFailingDisk(c));
         await Section(c, failures, "single instance", () => CheckSingleInstance(c));
         await Section(c, failures, "visible versus hidden soak", () => Soak(c));
         if (failures.Count > 0) throw new InvalidOperationException($"Background validation failed in {failures.Count} section(s): {string.Join("; ", failures)}");
@@ -95,7 +97,7 @@ internal static class BackgroundValidation
         catch (Exception ex)
         {
             failures.Add(name);
-            Log(c, $"FAIL: {name}: {ex.GetType().Name}: {ex.Message}");
+            Log(c, $"FAIL: {name}: {ex.GetType().Name}: {ex.Message} | first frame: {HistoryValidation.FirstFrame(ex)}");
         }
         await ResetAsync(c);
     }
@@ -169,7 +171,9 @@ internal static class BackgroundValidation
 
         Check("monitoring running", "monitoring", () => Problems(false));
         Require(Menu("Monitoring") == "Pause Monitoring" && Menu("Recording") == "Start Recording" && Enabled("Recording"), "Menu text does not match 'running, not recording'.");
+        Require(Menu("Mark Performance Issue").Contains("needs a recording", StringComparison.Ordinal) && !Enabled("Mark Performance Issue"), "Without a recording the incident item is not disabled with its explanation.");
         Check("recording started", "recording", () => c.Vm.StartRecordingCommand.Execute(null));
+        Require(Menu("Mark Performance Issue") == "Mark Performance Issue" && Enabled("Mark Performance Issue"), "While recording, the incident item is not enabled.");
         Require(c.Recorder.IsRecording, "The recording did not start.");
         Require(Menu("Recording") == "Stop Recording", "Menu does not offer 'Stop Recording' while recording.");
         Check("recording + active warning", "recording-warning", () => Problems(true));
@@ -178,7 +182,7 @@ internal static class BackgroundValidation
         Require(Menu("Monitoring") == "Resume Monitoring" && Menu("Recording") == "Stop Recording", "Menu does not offer 'Resume Monitoring' while paused.");
         Check("monitoring resumed", "recording", () => c.Monitoring.ResumeMonitoring());
         Check("recording stopped", "monitoring", () => c.Vm.StopRecordingCommand.Execute(null));
-        Require(!c.Recorder.IsRecording && Menu("Recording") == "Start Recording", "After stopping, the icon or menu still suggests recording.");
+        Require(!c.Recorder.IsRecording && Menu("Recording") == "Start Recording" && !Enabled("Mark Performance Issue"), "After stopping, the icon or menu still suggests recording.");
         Check("active warning, not recording", "warning", () => Problems(true));
         Check("warning cleared", "monitoring", () => Problems(false));
         Check("monitoring stopped", "idle", () => c.Monitoring.StopMonitoring());
@@ -298,6 +302,14 @@ internal static class BackgroundValidation
         Require(gained >= 4, $"Only {gained} samples were recorded in {hiddenAt.Elapsed.TotalSeconds:0.0} s while the window was hidden.");
         Require(tickGain <= hiddenAt.Elapsed.TotalSeconds + 3, $"{tickGain} collection ticks in {hiddenAt.Elapsed.TotalSeconds:0.0} s: a second sampler is running.");
         Require(c.Recorder.IsRecording && c.Tray.Appearance!.State is TrayState.Recording, "Recording or the recording tray state was lost while hidden.");
+        // One click in the tray menu, window still hidden: the marker is saved and recording carries on.
+        Require(!c.Window.IsVisible && c.Monitoring.CanMarkIncident, "The incident action is not available while the window is hidden.");
+        var samplesBeforeMark = c.Recorder.SampleCount;
+        await c.Tray.MarkIncidentAsync();
+        var marker = c.Monitoring.LastIncident ?? throw new InvalidOperationException("The tray action did not save an incident marker.");
+        Require(Math.Abs((marker.At - DateTimeOffset.UtcNow).TotalSeconds) < 10 && marker.Sequence == 1 && !c.Window.IsVisible, "The incident marker has the wrong time or the window was opened.");
+        await WaitFor(() => c.Recorder.SampleCount > samplesBeforeMark, "samples after the incident marker");
+        Require(c.Recorder.IsRecording && c.Monitoring.Coordinator.State == MonitoringState.Running, "Marking an incident interrupted monitoring or recording.");
         Require((c.Vm.RttChart.Points.Count > 0 ? c.Vm.RttChart.Points[^1].At : default) == shownWhileHidden, "Charts were fed while the window was hidden.");
 
         var restore = Stopwatch.StartNew();
@@ -343,6 +355,13 @@ internal static class BackgroundValidation
         await RecordingExport.ExportCsvAsync(csv, () => RecordingCatalog.ReadSamples(new PhysicalRecordingStorage(), summary));
         Require(File.ReadAllLines(csv).Length == summary.Samples + 1, "The CSV export of the saved recording has the wrong row count.");
         Log(c, $"PASS: the saved recording holds all {summary.Samples} samples without a gap longer than {longest.TotalSeconds:0.0} s ({summary.Parts.Count} part(s), {BackgroundViewModel.FormatBytes(summary.Bytes)}, {summary.LostSamples} lost) and exports as CSV");
+        // The incident marked from the hidden tray is in the file once, in its place among the samples, and the history reads it back.
+        Require(summary.Incidents == 1, $"The catalog counts {summary.Incidents} incidents, expected 1.");
+        var history = HistoryLoader.Load(new PhysicalRecordingStorage(), folder, summary.ShortId);
+        var read = Require1(history.Incidents, "The history did not find the incident marked while hidden.");
+        Require(read.Id == marker.Id && read.At == marker.At && history.Info.Samples == summary.Samples && history.Info.State == RecordingCompleteness.Complete, "The history differs from what was recorded.");
+        Require(read.Before is not null && read.After is not null && read.Before.Timestamp <= read.After.Timestamp, "The incident has no samples on both sides.");
+        Log(c, $"PASS: the incident marked from the hidden tray menu (no. {marker.Sequence} at {marker.At:HH:mm:ss}Z) is in the saved recording exactly once between samples {read.Before!.Timestamp:HH:mm:ss.fff} and {read.After!.Timestamp:HH:mm:ss.fff}; monitoring and recording continued; the history reader returns the same id and time");
     }
 
     // ---------- close to tray ----------
@@ -364,6 +383,55 @@ internal static class BackgroundValidation
         await c.Recorder.StopAsync();
         await SaveSettings(c, b => { b.CloseToTray = false; });
         Log(c, "PASS: close to tray hid the window, monitoring and recording continued, the window was restored; Exit (tested at the end of this run) is the only way out");
+    }
+
+    // ---------- incident marker through the tray action, with the disk failing ----------
+
+    private static async Task CheckIncidentOnFailingDisk(BackgroundSmokeContext c)
+    {
+        SmokeFaultStorage.FailWrites = false;
+        c.Vm.StartRecordingCommand.Execute(null);
+        await WaitFor(() => c.Recorder.IsRecording && c.Recorder.SampleCount >= 3, "samples before the first marker");
+        c.Window.Hide();                                                 // the real tray action, window hidden
+        try
+        {
+            await c.Tray.MarkIncidentAsync();
+            var first = c.Monitoring.LastIncident ?? throw new InvalidOperationException("The first marker was not saved.");
+            Require(c.Tray.LastBalloonText is { } ok && ok.Contains("marked at", StringComparison.Ordinal) && c.Tray.LastBalloonIcon == WinForms.ToolTipIcon.Info, "The confirmation of a saved marker is wrong: " + c.Tray.LastBalloonText);
+
+            // The disk now refuses every write. The tray action must say so and must not confirm anything.
+            SmokeFaultStorage.FailWrites = true;
+            var failedFrom = c.Recorder.SinkStatus?.SamplesLost ?? 0;
+            await c.Tray.MarkIncidentAsync();
+            Require(Equals(c.Monitoring.LastIncident, first), "A marker is reported as saved although the disk refused it.");
+            Require(c.Tray.LastBalloonText is { } bad && bad.Contains("could not be saved", StringComparison.Ordinal) && !bad.Contains("marked at", StringComparison.Ordinal) && c.Tray.LastBalloonIcon == WinForms.ToolTipIcon.Warning,
+                "The notification after a failed write is not an honest failure: " + c.Tray.LastBalloonText);
+            await WaitFor(() => c.Vm.Background.LastIncidentFailed && c.Vm.Background.LastIncidentText.StartsWith("Incident not saved", StringComparison.Ordinal), "the failure on the Recorder page");
+            Require(!c.Vm.Status.Contains("saved at", StringComparison.Ordinal), "The status bar claims a saved marker after a failed write: " + c.Vm.Status);
+            Require(c.Recorder.SinkStatus?.State == RecordingSinkState.Faulted, "The recording does not report its storage fault.");
+            await WaitFor(() => (c.Recorder.SinkStatus?.SamplesLost ?? 0) > failedFrom, "samples to be counted as lost while the disk fails");
+
+            // The disk recovers: the writer reopens by itself, records the loss, and the next marker is saved and confirmed.
+            SmokeFaultStorage.FailWrites = false;
+            await WaitFor(() => c.Recorder.SinkStatus?.State == RecordingSinkState.Active, "the writer to reopen after the disk recovered", 40_000);
+            await c.Tray.MarkIncidentAsync();
+            var third = c.Monitoring.LastIncident ?? throw new InvalidOperationException("No marker after recovery.");
+            Require(third.Id != first.Id && third.Sequence > first.Sequence + 1, "The marker after recovery has the wrong identity.");
+            Require(c.Tray.LastBalloonText is { } again && again.Contains("marked at", StringComparison.Ordinal), "The confirmation after recovery is wrong: " + c.Tray.LastBalloonText);
+            await c.Recorder.StopAsync();
+
+            var folder = c.Vm.Background.Current.EffectiveDirectory;
+            var summary = RecordingCatalog.Scan(new PhysicalRecordingStorage(), folder).First();
+            var history = HistoryLoader.Load(new PhysicalRecordingStorage(), folder, summary.ShortId);
+            Require(history.Incidents.Select(i => i.Id).SequenceEqual([first.Id, third.Id]), $"The recording holds {history.Incidents.Count} incident(s); only the two that were confirmed may be in it.");
+            Require(history.Events.Any(e => e.Kind == HistoryEventKind.DataLoss) && history.Info.LostSamples > 0, "The data loss during the failure is not recorded and counted.");
+            Log(c, $"PASS: through the real tray action with the window hidden: a marker is confirmed only after it is on disk; with the disk refusing writes the user is told \"could not be saved\" (warning), nothing is confirmed, the Recorder page and the storage status show the failure and {history.Info.LostSamples} lost samples are counted; after recovery the writer reopened, recorded a data-loss mark and the next marker was saved; the recording holds exactly the two confirmed incidents");
+        }
+        finally
+        {
+            SmokeFaultStorage.FailWrites = false;
+            c.Window.Show();
+        }
     }
 
     // ---------- single instance ----------

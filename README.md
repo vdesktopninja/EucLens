@@ -50,6 +50,13 @@ The active data source is always shown in the header banner and sidebar.
   [Background monitoring](docs/BACKGROUND_MONITORING.md).
 
   See [Diagnostic intelligence](docs/DIAGNOSTICS.md).
+- **Session history and incident timeline (0.4.4)**: *Mark Performance Issue* in the tray menu (one click, no window needed) or on the Session Recorder page saves a
+  timestamped incident marker into the running recording, confirmed only once it is on disk. Later, *Analyze recording* opens the saved session on the new
+  **Session History** page: overview (complete, interrupted or in progress), a timeline of every recorded event with its own icon and label, synchronized charts of
+  connection, graphics and guest metrics on one time axis (zoom, ranges, previous/next incident, P50/P95/maximum, valid and missing counts), peak-preserving
+  reduction for multi-hour recordings, and for each incident what the recording shows around it, described deterministically and without naming a cause.
+  Administrators can annotate incidents (stored beside the recording; the recording is never rewritten). See [Session history](docs/SESSION_HISTORY.md).
+
 - Start/stop timestamped recording, elapsed time, sample count and a historical
   RTT chart (latest 600 samples). JSON and CSV export to a chosen local file.
 - Local preferences, bounded application logs, no authentication, telemetry,

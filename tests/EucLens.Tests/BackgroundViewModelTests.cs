@@ -102,21 +102,24 @@ public sealed class BackgroundViewModelTests
     }
 
     [Fact]
-    public async Task RepeatedHideAndRestoreNeverStartsASecondSamplerOrDuplicatesSamples()
-    {
-        await using var rig = await Rig.CreateAsync(persistent: false);
-        var clock = System.Diagnostics.Stopwatch.StartNew();
-        rig.Run();
-        rig.Vm.StartRecordingCommand.Execute(null);
-        for (var i = 0; i < 40; i++) { rig.Vm.SetPresenting(false); await Task.Delay(8); rig.Vm.SetPresenting(true); await Task.Delay(8); }
-        await Assert.ThrowsAsync<InvalidOperationException>(() => rig.Vm.RunAsync(CancellationToken.None)); // exactly one loop exists
-        await WaitUntil(() => rig.Recorder.SampleCount >= 30);
-        var stamps = rig.Recorder.Samples.Select(s => s.Timestamp).ToArray();
-        Assert.Equal(stamps.Length, stamps.Distinct().Count());
-        Assert.Equal(stamps.OrderBy(t => t), stamps);                                           // strictly in order, none twice
-        // One loop at a 20 ms cadence cannot exceed one tick per 20 ms.
-        Assert.True(rig.Coordinator.Ticks <= clock.Elapsed.TotalMilliseconds / 20 + 5, $"{rig.Coordinator.Ticks} ticks in {clock.Elapsed.TotalMilliseconds:0} ms");
-    }
+    public Task RepeatedHideAndRestoreNeverStartsASecondSamplerOrDuplicatesSamples() =>
+        // As in the application, the view model is created, started, hidden, restored and disposed on one UI thread; collection and
+        // diagnostic evaluation still run on the thread pool and post their results back to it. Sampling is never paused.
+        SingleThreadContext.RunAsync(async () =>
+        {
+            await using var rig = await Rig.CreateAsync(persistent: false);
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            rig.Run();
+            rig.Vm.StartRecordingCommand.Execute(null);
+            for (var i = 0; i < 40; i++) { rig.Vm.SetPresenting(false); await Task.Delay(8); rig.Vm.SetPresenting(true); await Task.Delay(8); }
+            await Assert.ThrowsAsync<InvalidOperationException>(() => rig.Vm.RunAsync(CancellationToken.None)); // exactly one loop exists
+            await WaitUntil(() => rig.Recorder.SampleCount >= 30);
+            var stamps = rig.Recorder.Samples.Select(s => s.Timestamp).ToArray();
+            Assert.Equal(stamps.Length, stamps.Distinct().Count());
+            Assert.Equal(stamps.OrderBy(t => t), stamps);                                           // strictly in order, none twice
+            // One loop at a 20 ms cadence cannot exceed one tick per 20 ms.
+            Assert.True(rig.Coordinator.Ticks <= clock.Elapsed.TotalMilliseconds / 20 + 5, $"{rig.Coordinator.Ticks} ticks in {clock.Elapsed.TotalMilliseconds:0} ms");
+        });
 
     [Fact]
     public async Task APersistedRecordingContinuesWhileHiddenAndHoldsEverySample()

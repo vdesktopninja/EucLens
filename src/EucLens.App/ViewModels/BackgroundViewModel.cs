@@ -37,6 +37,7 @@ public sealed class BackgroundViewModel : ObservableObject
         UseDefaultFolderCommand = new(() => RecordingDirectory = "");
         OpenRecordingsFolderCommand = new(OpenRecordingsFolder);
         RefreshRecordingsCommand = new(RefreshRecordingsAsync);
+        MarkIncidentCommand = new(() => MarkIncidentAsync(), () => monitoring.CanMarkIncident);
         monitoring.StatusChanged += _ => Post(RefreshMonitoring);
         Apply(BackgroundSettings.Defaults);
     }
@@ -63,8 +64,41 @@ public sealed class BackgroundViewModel : ObservableObject
     public RelayCommand PauseMonitoringCommand { get; }
     public RelayCommand ResumeMonitoringCommand { get; }
 
+    // ---------- incident marker ----------
+
+    private string lastIncidentText = "";
+    private bool lastIncidentFailed;
+    public AsyncCommand MarkIncidentCommand { get; }
+    /// <summary>Raised on the UI context after every attempt, so the status bar and the tray can confirm or explain.</summary>
+    public event Action<IncidentResult>? IncidentCompleted;
+    public bool CanMarkIncident => monitoring.CanMarkIncident;
+    /// <summary>Time and outcome of the latest attempt; empty before the first one.</summary>
+    public string LastIncidentText { get => lastIncidentText; private set => Set(ref lastIncidentText, value); }
+    public bool LastIncidentFailed { get => lastIncidentFailed; private set => Set(ref lastIncidentFailed, value); }
+    /// <summary>Why the action is unavailable, shown next to the disabled button; empty while it can be used.</summary>
+    public string IncidentHint => monitoring.CanMarkIncident ? "" : recorder.IsRecording
+        ? "Only a recording saved to disk can hold incident markers."
+        : "Start a recording to mark performance issues. The marker is saved into the recording at the moment you click.";
+
+    /// <summary>Marks a performance issue now. Never reports success unless the marker is on disk.</summary>
+    public async Task<IncidentResult> MarkIncidentAsync()
+    {
+        var result = await monitoring.MarkIncidentAsync().ConfigureAwait(false);
+        Post(() =>
+        {
+            LastIncidentFailed = !result.Saved;
+            LastIncidentText = result is { Saved: true, Marker: { } marker }
+                ? $"Last incident: no. {marker.Sequence} at {marker.At.ToLocalTime():HH:mm:ss} (saved to the recording)."
+                : result.Outcome == IncidentOutcome.Unknown ? $"Incident outcome unknown: {result.Message}" : $"Incident not saved: {result.Message}";
+            Raise(nameof(IncidentHint)); Raise(nameof(CanMarkIncident));
+            IncidentCompleted?.Invoke(result);
+        });
+        return result;
+    }
+
     private void RefreshMonitoring()
     {
+        MarkIncidentCommand.Refresh(); Raise(nameof(CanMarkIncident)); Raise(nameof(IncidentHint));
         foreach (var name in new[] { nameof(State), nameof(IsStopped), nameof(IsRunning), nameof(IsPaused), nameof(MonitoringText), nameof(TrayDescription) }) Raise(name);
         StartMonitoringCommand.Refresh(); PauseMonitoringCommand.Refresh(); ResumeMonitoringCommand.Refresh();
         RefreshStorage();
@@ -174,6 +208,14 @@ public sealed class BackgroundViewModel : ObservableObject
 
     // ---------- recordings ----------
 
+    internal IRecordingStorage Storage => storage;
+
+    /// <summary>Raised when the user asks to analyze a saved recording; the main view model opens Session History.</summary>
+    public event Action<RecordingSummary>? AnalyzeRequested;
+    internal void RequestAnalyze(RecordingSummary summary) => AnalyzeRequested?.Invoke(summary);
+    internal bool IsActiveRecording(RecordingSummary summary) =>
+        recorder.IsRecording && recorder.SinkStatus?.RecordingId is { } id && RecordingFormat.ShortId(id) == summary.ShortId;
+
     public ObservableCollection<RecordingItem> Recordings { get; } = [];
     public string RecordingsMessage { get => recordingsMessage; private set => Set(ref recordingsMessage, value); }
     public string StorageStatus { get => storageStatus; private set => Set(ref storageStatus, value); }
@@ -258,14 +300,18 @@ public sealed class RecordingItem(RecordingSummary summary, BackgroundViewModel 
     public string Duration => $"{(int)Summary.Duration.TotalHours:00}:{Summary.Duration.Minutes:00}:{Summary.Duration.Seconds:00}";
     public string Size => BackgroundViewModel.FormatBytes(Summary.Bytes);
     public string Samples => Summary.Samples.ToString("N0", CultureInfo.CurrentCulture);
-    public string Events => $"{Summary.Warnings} warning · {Summary.Criticals} critical";
+    public string Events => $"{Summary.Warnings} warning · {Summary.Criticals} critical · {Summary.Incidents} marked incident(s)";
+    /// <summary>A recording is never called complete unless its end was written; the one still being written is not called interrupted either.</summary>
+    public bool IsActive => !Summary.IsComplete && owner.IsActiveRecording(Summary);
     public string Status => Summary.IsComplete
         ? Summary.EndReason + (Summary.LostSamples > 0 ? $" · {Summary.LostSamples:N0} samples lost" : "")
-        : "Interrupted · readable up to the last complete line" + (Summary.LostSamples > 0 ? $" · {Summary.LostSamples:N0} samples lost" : "");
+        : (IsActive ? "Recording in progress · saved as it is collected" : "Interrupted · readable up to the last complete line") + (Summary.LostSamples > 0 ? $" · {Summary.LostSamples:N0} samples lost" : "");
     public string Source => Summary.Source == "Demo" ? "Demo data" : "Real session";
     public string AutomationName => $"Recording from {Started}, {Duration}, {Samples} samples, {Events}, {Status}";
     public RelayCommand OpenFileCommand { get; } = new(() => owner.Open(summary, folderOnly: false));
     public RelayCommand OpenFolderCommand { get; } = new(() => owner.Open(summary, folderOnly: true));
     public AsyncCommand ExportJsonCommand { get; } = new(() => owner.ExportAsync(summary, json: true));
     public AsyncCommand ExportCsvCommand { get; } = new(() => owner.ExportAsync(summary, json: false));
+    /// <summary>Opens the recording in Session History.</summary>
+    public RelayCommand AnalyzeCommand { get; } = new(() => owner.RequestAnalyze(summary));
 }

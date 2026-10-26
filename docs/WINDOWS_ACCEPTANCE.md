@@ -49,3 +49,15 @@ CI cannot judge these; please check them once on a real Windows 11 VDI session:
 7. Lock and unlock the session: monitoring continues; no notification is shown on the lock screen.
 8. Point the recordings folder at a share and disconnect it: a storage problem is shown, samples are counted as lost, and the recording stops with a clear reason after a minute.
 9. Leave a recording running unattended for hours with the window hidden and compare Task Manager CPU and memory with the visible window.
+
+## Session history and incident timeline (0.4.4) — manual acceptance
+
+1. Start a recording, minimize EUC Lens to the tray, right-click the tray icon: *Mark Performance Issue* is enabled. Click it; a short notification confirms the time. Without a recording the item is disabled and says so. Unplug or fill the recordings location and mark again: the notification says the marker could not be saved (it never says saved).
+2. Mark several issues over a longer period, stop the recording, open **Session Recorder → Analyze recording**. Every marker is on the timeline strip and in the event list at the time you clicked; the first and last samples around each are in *Recorded evidence*.
+3. Select an incident: the charts centre on it (±2 min by default). Check that what the text says matches the charts (a spike it names is visible), that a calm interval says nothing stood out, and that missing measurements are stated, not drawn as zero.
+4. Drag across the charts, use Ctrl + mouse wheel, the preset, custom range and zoom buttons; all charts move together and the cursor line follows the pointer in every chart. Use the keyboard (arrows, + and −, Home, Page Up/Down) with the charts or strip focused.
+5. At 100 %, 125 % and 150 % display scaling and in both themes, check that the charts, the strip, the event icons and their labels are readable at 1366×768 and 1920×1080.
+6. Open a recording made by EUC Lens 0.4.3 (no incidents) and one that was interrupted (kill the process while recording): both open, the second is labelled *Interrupted* and never *Complete*.
+7. Open a real multi-hour Horizon recording: it loads without freezing the window, memory stays moderate, short RTT or CPU spikes are visible when zoomed out, and zooming in shows every sample.
+8. Annotate an incident, close and reopen the page and the application: the category and description are still there; the recording file itself is unchanged (check its timestamp).
+9. Daylight-saving change: a recording that spans the clock change shows distinct local times (the offset is shown for the repeated hour) and stays in order.

@@ -9,6 +9,7 @@
    <DataTemplate DataType="{x:Type vm:DashboardPage}"><views:DashboardView /></DataTemplate>
    <DataTemplate DataType="{x:Type vm:DiagnosticsPage}"><views:DiagnosticsView /></DataTemplate>
    <DataTemplate DataType="{x:Type vm:RecorderPage}"><views:RecorderView /></DataTemplate>
+   <DataTemplate DataType="{x:Type vm:SessionHistoryPage}"><views:SessionHistoryView /></DataTemplate>
    <DataTemplate DataType="{x:Type vm:SystemPage}"><views:SystemView /></DataTemplate>
    <DataTemplate DataType="{x:Type vm:AdvancedPage}"><views:AdvancedView /></DataTemplate>
    <DataTemplate DataType="{x:Type vm:SettingsPage}"><views:SettingsView /></DataTemplate>

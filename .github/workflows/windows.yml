@@ -12,7 +12,7 @@ concurrency:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
@@ -22,7 +22,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '10.0.402'
       - name: Verify SDK on PATH
         run: dotnet --info
       - name: Validate WPF design contract
@@ -61,25 +61,42 @@ jobs:
             throw 'Portable publish must contain exactly EucLens.exe'
           }
           $app = Start-Process artifacts/win-x64/EucLens.exe -ArgumentList '--smoke-test' -PassThru
-          if (-not $app.WaitForExit(480000)) {
+          if (-not $app.WaitForExit(900000)) {
             $app.Kill()
             throw 'WPF smoke test timed out'
           }
           $app.Refresh()
+          # Every result is printed and every check is made before the step fails, so one failure never hides the evidence of the others.
+          $problems = @()
           if (Test-Path artifacts/win-x64/smoke-result.txt) {
             Get-Content artifacts/win-x64/smoke-result.txt
           }
-          if ($app.ExitCode -ne 0) { throw "WPF smoke test failed ($($app.ExitCode))" }
+          if ($app.ExitCode -ne 0) { $problems += "WPF smoke test failed ($($app.ExitCode))" }
           if (Test-Path artifacts/win-x64/visual-evidence/background-validation.txt) {
             Get-Content artifacts/win-x64/visual-evidence/background-validation.txt
           }
-          if (-not (Test-Path artifacts/win-x64/smoke-result.txt)) { throw 'Missing smoke result' }
-          $exitCheck = Get-Content artifacts/win-x64/visual-evidence/background-validation.txt -Raw
-          if ($exitCheck -notmatch 'PASS: Exit finalized the running recording') { throw 'Exit did not finalize the recording' }
-          if ($exitCheck -match 'FAIL:') { throw 'Background validation reported a failure' }
-          if (-not ((Get-Content artifacts/win-x64/smoke-result.txt -Raw).StartsWith('PASS:'))) {
-            throw 'WPF smoke result did not pass'
+          if (-not (Test-Path artifacts/win-x64/smoke-result.txt)) { $problems += 'Missing smoke result' }
+          if (Test-Path artifacts/win-x64/visual-evidence/background-validation.txt) {
+            $exitCheck = Get-Content artifacts/win-x64/visual-evidence/background-validation.txt -Raw
+            if ($exitCheck -notmatch 'PASS: Exit finalized the running recording') { $problems += 'Exit did not finalize the recording' }
+            if ($exitCheck -match 'FAIL:') { $problems += 'Background validation reported a failure' }
+          } else { $problems += 'Missing background validation result' }
+          if (Test-Path artifacts/win-x64/visual-evidence/history-validation.txt) {
+            Get-Content artifacts/win-x64/visual-evidence/history-validation.txt
           }
+          foreach ($result in 'history-events-result.txt', 'history-navigation-result.txt', 'history-6h-result.txt') {
+            if (Test-Path "artifacts/win-x64/visual-evidence/$result") { Get-Content "artifacts/win-x64/visual-evidence/$result" }
+          }
+          if (-not (Test-Path artifacts/win-x64/visual-evidence/history-validation.txt)) { $problems += 'Missing history validation result' }
+          else {
+            $historyCheck = Get-Content artifacts/win-x64/visual-evidence/history-validation.txt -Raw
+            if ($historyCheck -notmatch 'PASS: history validation complete') { $problems += 'History validation did not complete' }
+            if ($historyCheck -match 'FAIL:') { $problems += 'History validation reported a failure' }
+          }
+          if ((Test-Path artifacts/win-x64/smoke-result.txt) -and -not ((Get-Content artifacts/win-x64/smoke-result.txt -Raw).StartsWith('PASS:'))) {
+            $problems += 'WPF smoke result did not pass'
+          }
+          if ($problems.Count -gt 0) { throw ('Windows validation failed: ' + ($problems -join '; ')) }
       - name: Upload test and smoke evidence
         if: always()
         uses: actions/upload-artifact@v7

@@ -443,20 +443,25 @@ public sealed class RecordingStreamingTests
         for (var second = 0; second < 8 * 3600; second++)
         {
             clock.Set(TestSamples.T0.AddSeconds(second));
-            if (second == 2 * 3600) service.PauseMonitoring();
-            if (second == 2 * 3600 + 300) service.ResumeMonitoring();
-            if (second == 5 * 3600) service.OnSessionEvent(SessionEventKind.RemoteDisconnected);
-            if (second == 5 * 3600 + 120) service.OnSessionEvent(SessionEventKind.RemoteReconnected);
+            var transition = false;
+            if (second == 2 * 3600) { service.PauseMonitoring(); transition = true; }
+            if (second == 2 * 3600 + 300) { service.ResumeMonitoring(); transition = true; }
+            if (second == 5 * 3600) { service.OnSessionEvent(SessionEventKind.RemoteDisconnected); transition = true; }
+            if (second == 5 * 3600 + 120) { service.OnSessionEvent(SessionEventKind.RemoteReconnected); transition = true; }
+            // Pacing: a real writer drains between 1 s ticks, this loop does not wait for it. The checkpoint therefore sits BEFORE the paused-state
+            // `continue` (a flush that falls in a pause must not be skipped, or about 900 samples pile up across the pause and the outcome depends on
+            // how fast the writer thread happens to run), and a state transition is flushed as well. The queue depth is then bounded by this test, not by CPU speed.
+            if (transition || second % 600 == 0) await writer.FlushAsync();
             if (coordinator.State != MonitoringState.Running) continue;
             var sample = TestSamples.Make(second, clock.GetUtcNow(), blast: !(second >= 5 * 3600 && second < 5 * 3600 + 120), withEvent: second % 5400 == 100);
             recorder.Add(sample); written++;
             service.OnSample(sample, null);
-            if (second % 600 == 0) await writer.FlushAsync(); // let the writer keep up, as a real one does between 1 s ticks
         }
         await recorder.StopAsync();
 
         Assert.Equal(written, recorder.SampleCount);
         Assert.Equal(written, (int)recorder.SinkStatus!.SamplesWritten + (int)recorder.SinkStatus.SamplesLost);
+        Assert.Equal(0, recorder.SinkStatus.SamplesLost);            // paced as a real writer is: nothing may be dropped here (overload is covered by its own tests)
         Assert.Equal(SessionRecorder.PersistedTailSamples, recorder.Samples.Count);
         var summary = Assert.Single(RecordingCatalog.Scan(storage, Dir));
         Assert.True(summary.IsComplete);

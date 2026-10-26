@@ -38,6 +38,21 @@
  <StreamGeometry x:Key="SeverityGeometryHealthy">F0 M0.5,8 A7.5,7.5 0 1 1 15.5,8 A7.5,7.5 0 1 1 0.5,8 Z M3.76,8.94 L7.04,12.21 L12.37,6.20 L11.03,5.00 L6.96,9.59 L5.04,7.66 Z</StreamGeometry>
  <StreamGeometry x:Key="SeverityGeometryRecovered">F0 M0.5,8 A7.5,7.5 0 1 1 15.5,8 A7.5,7.5 0 1 1 0.5,8 Z M2,8 A6,6 0 1 1 14,8 A6,6 0 1 1 2,8 Z M4.40,8.80 L7.14,11.55 L11.64,6.36 L10.36,5.24 L7.06,9.05 L5.60,7.60 Z</StreamGeometry>
  <StreamGeometry x:Key="SeverityGeometryNoData">F0 M0.5,8 A7.5,7.5 0 1 1 15.5,8 A7.5,7.5 0 1 1 0.5,8 Z M2,8 A6,6 0 1 1 14,8 A6,6 0 1 1 2,8 Z M4.5,7 H11.5 V9 H4.5 Z</StreamGeometry>
+ <!-- Timeline event shapes (16 × 16, even-odd). Every event kind has its own shape and always a text label; findings reuse the severity shapes below. -->
+ <StreamGeometry x:Key="EventGeometryIncident">F0 M3,1 H4.6 V15 H3 Z M4.6,2 L13.5,5.2 L4.6,8.4 Z</StreamGeometry>
+ <StreamGeometry x:Key="EventGeometryPause">F0 M3.5,2.5 H6.5 V13.5 H3.5 Z M9.5,2.5 H12.5 V13.5 H9.5 Z</StreamGeometry>
+ <StreamGeometry x:Key="EventGeometryResume">F0 M4,2 L13.5,8 L4,14 Z</StreamGeometry>
+ <StreamGeometry x:Key="EventGeometryDisconnect">F0 M0.5,8 A7.5,7.5 0 1 1 15.5,8 A7.5,7.5 0 1 1 0.5,8 Z M2,8 A6,6 0 1 1 14,8 A6,6 0 1 1 2,8 Z M3.4,11.5 L11.5,3.4 L12.6,4.5 L4.5,12.6 Z</StreamGeometry>
+ <StreamGeometry x:Key="EventGeometryDataLoss">F0 M1.5,1.5 H14.5 V14.5 H1.5 Z M3,3 V13 H13 V3 Z M5,6 L6,5 L8,7 L10,5 L11,6 L9,8 L11,10 L10,11 L8,9 L6,11 L5,10 L7,8 Z</StreamGeometry>
+ <StreamGeometry x:Key="EventGeometryLock">F0 M3,7 H13 V14.5 H3 Z M5,7 V5 A3,3 0 0 1 11,5 V7 H9.5 V5 A1.5,1.5 0 0 0 6.5,5 V7 Z</StreamGeometry>
+ <StreamGeometry x:Key="EventGeometryUnlock">F0 M3,7 H13 V14.5 H3 Z M4.5,7 V4.5 A3,3 0 0 1 10.5,4.5 V5.5 H9 V4.5 A1.5,1.5 0 0 0 6,4.5 V7 Z</StreamGeometry>
+ <StreamGeometry x:Key="EventGeometryStart">F0 M2.5,8 A5.5,5.5 0 1 1 13.5,8 A5.5,5.5 0 1 1 2.5,8 Z</StreamGeometry>
+ <StreamGeometry x:Key="EventGeometryEnd">F0 M3,3 H13 V13 H3 Z</StreamGeometry>
+ <StreamGeometry x:Key="EventGeometryNote">F0 M3,1.5 H10 L13,4.5 V14.5 H3 Z M5,6 H11 V7.2 H5 Z M5,8.7 H11 V9.9 H5 Z M5,11.4 H9 V12.6 H5 Z</StreamGeometry>
+ <StreamGeometry x:Key="EventGeometrySessionChange">F0 M8,1.5 L14.5,8 L8,14.5 L1.5,8 Z M8,4.5 L11.5,8 L8,11.5 L4.5,8 Z</StreamGeometry>
+ <StreamGeometry x:Key="EventGeometryOther">F0 M5.5,8 A2.5,2.5 0 1 1 10.5,8 A2.5,2.5 0 1 1 5.5,8 Z</StreamGeometry>
+ <StreamGeometry x:Key="EventGeometryAvailability">F0 M0.5,8 A7.5,7.5 0 1 1 15.5,8 A7.5,7.5 0 1 1 0.5,8 Z M2,8 A6,6 0 1 1 14,8 A6,6 0 1 1 2,8 Z M4.5,7 H11.5 V9 H4.5 Z</StreamGeometry>
+ <StreamGeometry x:Key="EventGeometryReconnect">F0 M0.5,8 A7.5,7.5 0 1 1 15.5,8 A7.5,7.5 0 1 1 0.5,8 Z M3.76,8.94 L7.04,12.21 L12.37,6.20 L11.03,5.00 L6.96,9.59 L5.04,7.66 Z</StreamGeometry>
  <GridLength x:Key="FindingSeverityWidth">92</GridLength>
  <GridLength x:Key="FindingCategoryWidth">96</GridLength>
  <GridLength x:Key="FindingTimeWidth">76</GridLength>
