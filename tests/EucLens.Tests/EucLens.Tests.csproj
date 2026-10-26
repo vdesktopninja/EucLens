@@ -7,6 +7,7 @@
   <Compile Include="../../src/EucLens.App/ViewModels/DiagnosticItems.cs" Link="App/DiagnosticItems.cs" />
   <Compile Include="../../src/EucLens.App/ViewModels/BackgroundViewModel.cs" Link="App/BackgroundViewModel.cs" />
   <Compile Include="../../src/EucLens.App/ViewModels/SessionHistoryViewModel.cs" Link="App/SessionHistoryViewModel.cs" />
+  <Compile Include="../../src/EucLens.App/ViewModels/HistoryFindingsViewModel.cs" Link="App/HistoryFindingsViewModel.cs" />
   <Compile Include="../../src/EucLens.App/ViewModels/BulkObservableCollection.cs" Link="App/BulkObservableCollection.cs" />
   <Compile Include="../../src/EucLens.App/Presentation/HistoryEventKinds.cs" Link="App/HistoryEventKinds.cs" />
   <Compile Include="../../src/EucLens.App/ViewModels/ChartsRuntime.cs" Link="App/ChartsRuntime.cs" />
