@@ -164,12 +164,15 @@ public sealed class SessionHistoryViewModel : ObservableObject
     private IReadOnlyList<HistoryEventItem> allEvents = [];
     private Task refreshTask = Task.CompletedTask;
     private Task analysisTask = Task.CompletedTask;
+    private Task findingsTask = Task.CompletedTask;
+    private CancellationTokenSource? findingsCts;
 
     public SessionHistoryViewModel(BackgroundViewModel background, IDesktopServices desktop, ISessionRecorder recorder, IRecordingStorage? storage = null, TimeZoneInfo? zone = null, ILogger? logger = null)
     {
         this.background = background; this.desktop = desktop; this.recorder = recorder; this.storage = storage ?? new PhysicalRecordingStorage();
         this.zone = zone ?? TimeZoneInfo.Local; this.logger = logger;
         ChartsRuntime.EnsureInitialized();
+        Findings = new HistoryFindingsViewModel(this.zone, NavigateToFinding);
         RangePresets = [new(HistoryRangePreset.EntireSession, "Entire session"), new(HistoryRangePreset.Last60Minutes, "Last 60 minutes"), new(HistoryRangePreset.Last15Minutes, "Last 15 minutes"), new(HistoryRangePreset.Custom, "Custom range")];
         ContextChoices = [new(TimeSpan.FromMinutes(1), "± 1 min"), new(TimeSpan.FromMinutes(2), "± 2 min"), new(TimeSpan.FromMinutes(5), "± 5 min"), new(TimeSpan.FromMinutes(10), "± 10 min")];
         Filters = [new(HistoryEventFilter.All, "All events"), new(HistoryEventFilter.Incidents, "User incidents"), new(HistoryEventFilter.Findings, "Diagnostic findings"), new(HistoryEventFilter.Other, "Recording and session")];
@@ -224,9 +227,17 @@ public sealed class SessionHistoryViewModel : ObservableObject
     public string LoadProgress { get => loadProgress; private set => Set(ref loadProgress, value); }
     public bool ShowPlaceholder => !HasHistory && !HasError && !IsLoading;
     public LoadedHistory? Loaded => history;
+    public HistoryFindingsViewModel Findings { get; };
+    private void NavigateToFinding(DateTimeOffset start, DateTimeOffset end, DateTimeOffset? peak)
+    {
+        if (history is null) return;
+        var padding = Context;
+        SetRange(start - padding, end + padding);
+        if (peak is { } at) SetHover(at);
+    }
     public TimeZoneInfo Zone => zone;
     /// <summary>Validation seam: shows a recording in another time zone (for example one that crosses a clock change). Applies to the next recording opened.</summary>
-    internal void UseTimeZone(TimeZoneInfo value) { zone = value; Raise(nameof(Zone)); Raise(nameof(ZoneNote)); }
+    internal void UseTimeZone(TimeZoneInfo value) { zone = value; Findings.SetTimeZone(value); Raise(nameof(Zone)); Raise(nameof(ZoneNote)); }
     /// <summary>The most samples loaded; the limit is explained on the page when it is reached. Lowered only by the validation.</summary>
     internal int SampleLimit { get; set; } = HistoryLoader.MaximumSamples;
     /// <summary>True when only the beginning of the recording was analyzed.</summary>
@@ -316,7 +327,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
     public AsyncCommand ExportTimelineCommand { get; }
 
     /// <summary>For tests and shutdown: the work of the latest refresh and analysis.</summary>
-    internal Task Settled => Task.WhenAll(refreshTask, analysisTask);
+    internal Task Settled => Task.WhenAll(refreshTask, analysisTask, findingsTask);
 
     // ---------- page lifetime ----------
 
@@ -335,7 +346,8 @@ public sealed class SessionHistoryViewModel : ObservableObject
     {
         KeepDraft(selectedIncident);
         openVersion++;
-        Cancel(ref loadCts); Cancel(ref refreshCts); Cancel(ref analysisCts);
+        Cancel(ref loadCts); Cancel(ref refreshCts); Cancel(ref analysisCts); Cancel(ref findingsCts);
+        Findings.Clear();
         history = null; annotations = RecordingAnnotations.Empty;
         foreach (var row in Charts) row.Data.Clear();
         Charts.Clear(); Events.Clear(); allEvents = []; Facts.Clear(); IssueLines.Clear();
@@ -412,6 +424,31 @@ public sealed class SessionHistoryViewModel : ObservableObject
         ViewStart = start; ViewEnd = end;
         RaiseAll();
         SetRange(start, end);
+        StartFindings(loaded);
+    }
+
+    private void StartFindings(LoadedHistory loaded)
+    {
+        Cancel(ref findingsCts);
+        var cts = new CancellationTokenSource(); findingsCts = cts;
+        var token = cts.Token;
+        Findings.Loading();
+        findingsTask = AnalyzeFindingsAsync(loaded, token);
+    }
+
+    private async Task AnalyzeFindingsAsync(LoadedHistory loaded, CancellationToken token)
+    {
+        try
+        {
+            var result = await AnomalyDetectionEngine.AnalyzeAsync(loaded, cancellationToken: token);
+            if (!token.IsCancellationRequested && ReferenceEquals(loaded, history)) Findings.Show(result);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "History anomaly analysis failed.");
+            if (!token.IsCancellationRequested && ReferenceEquals(loaded, history)) Findings.Failed(ex.Message);
+        }
     }
 
     private static string Trim(string? reason) => string.IsNullOrWhiteSpace(reason) ? "no valid values" : reason.TrimEnd('.');
