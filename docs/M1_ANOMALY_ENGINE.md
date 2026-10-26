@@ -246,7 +246,18 @@ Synthetic long sessions (an RTT episode with loss, a CPU spike, an FPS drop, a 1
 | 250,000 | 92–258 ms (varies with parallel tests) | 6.6 MiB | 310 / 62 |
 | 250,000 + 20,000 events, 1,500 candidate episodes | 91 ms | 5.7 MiB | 100 (cap) + 1,400 omitted |
 
-Real recording of 21,300 samples through the writer and loader: 3.5 ms, 0.48 MiB. Run time for 10× the samples grew 3.8× to 5.6× (linear). Heap growth after 25 analyses of 40,795 samples: about 0 KiB. The limits asserted in tests (25 ms/1 MiB, 250 ms/4 MiB, 400 ms/8 MiB, 2 s/32 MiB) are 6–10× above these numbers on purpose: they detect quadratic behaviour or leaks, not machine speed. Windows CI numbers are in the PR description.
+Real recording of 21,300 samples through the writer and loader: 3.5 ms, 0.48 MiB. Run time for 10× the samples grew 3.8× to 5.6× (linear). Heap growth after 25 analyses of 40,795 samples: about 0 KiB. The limits asserted in tests (25 ms/1 MiB, 250 ms/4 MiB, 400 ms/8 MiB, 2 s/32 MiB) are 6–10× above these numbers on purpose: they detect quadratic behaviour or leaks, not machine speed. 
+Windows CI (run 40315379847, commit `6fe5bd1`, `windows-2025-vs2026`, Release): 580/580 tests passed, none skipped, no warnings.
+
+| Samples | Time | Allocated |
+|---|---|---|
+| 1,200 | 1.9 ms | 0.05 MiB |
+| 21,300 | 18.8 ms | 0.63 MiB |
+| 40,795 | 62 ms | 1.15 MiB |
+| 250,000 | 304 ms | 6.60 MiB |
+| 250,000 + 20,000 events | 247 ms | 5.71 MiB |
+
+Real 21,300-sample recording through writer and loader: 13 ms, 0.48 MiB. 25,000 → 250,000 samples: 22 ms → 241 ms (ratio 10.9, linear). Heap growth after 25 analyses: 15 KiB. All well inside the asserted limits.
 
 ## 13. Known limitations
 
