@@ -57,6 +57,8 @@ public sealed class LoadedHistory
     public IReadOnlyList<HistoryChannelData> Channels => AllChannels.Where(c => c.IsPresent).ToArray();
     public IReadOnlyList<HistoryChannelData> UnavailableChannels => AllChannels.Where(c => !c.IsPresent).ToArray();
     public int SampleCount => ticks.Length;
+    /// <summary>The sample times (UTC ticks, in time order) for the analyzer; read-only by convention, never modified.</summary>
+    internal long[] TickArray => ticks;
     public DateTimeOffset FirstSample => ticks.Length == 0 ? Info.StartedUtc : FromTicks(ticks[0]);
     public DateTimeOffset LastSample => ticks.Length == 0 ? Info.EndedUtc : FromTicks(ticks[^1]);
     /// <summary>The span the charts can show: from the first to the last sample (or the recording's own start and end when there are none).</summary>
