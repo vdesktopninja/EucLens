@@ -1,6 +1,6 @@
 # EUC Lens 0.5 — M3: performance, reliability and secure export
 
-Status: implemented on `feature/euc-lens-0.5-intelligent-diagnostics`; not merged, not released, version unchanged (0.4.4). **Manual Horizon acceptance (M4) has not been done.**
+Status: implemented in 0.5.0 (release candidate on `feature/euc-lens-0.5-intelligent-diagnostics`; not yet published). The measurements below were taken on the M3 commit, before the version change from 0.4.4 to 0.5.0, which touches no analysis or export code. Manual Horizon acceptance (M4) was accepted by the project owner; it was not independently verified by the project's own tests.
 
 M3 changes no detection threshold, baseline, severity or correlation rule, and not the recording format `euclens.recording/1`. It adds measurement, protection against regressions, one optional export, and fixes for what the measurement and the review found.
 
@@ -225,4 +225,4 @@ No Critical findings. Thread affinity: the export builds on the pool from immuta
 * **Timing numbers** depend on the runner; the limits catch order-of-magnitude regressions only.
 * The Unknown-protocol note and the availability notes depend on what real recordings contain.
 
-M4 has **not** been started and the release gate of the roadmap is not met.
+The owner has since accepted M4 (see `docs/ROADMAP_0.5.md`); that acceptance does not remove the risks above.

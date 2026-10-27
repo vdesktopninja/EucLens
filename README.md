@@ -57,6 +57,13 @@ The active data source is always shown in the header banner and sidebar.
   reduction for multi-hour recordings, and for each incident what the recording shows around it, described deterministically and without naming a cause.
   Administrators can annotate incidents (stored beside the recording; the recording is never rewritten). See [Session history](docs/SESSION_HISTORY.md).
 
+- **Intelligent findings (0.5.0)**: when a saved recording is opened in Session History, a deterministic, offline analysis lists what the recording shows:
+  sustained and short-lived RTT, packet-loss, frame-rate, queueing, CPU, memory, GPU and disk observations, each with its UTC interval, the measured values, the threshold
+  or baseline used, the data coverage and what is not known, plus conservative "correlated timing" links between observations. Selecting a finding opens the synchronized
+  charts at its evidence window and marks the peak. Missing measurements are never treated as zero. Findings can be exported to CSV or JSON (`euclens.findings/1`) with
+  spreadsheet formula protection. The findings do not name a root cause. See the [changelog](CHANGELOG.md), [the analysis rules](docs/M1_ANOMALY_ENGINE.md) and
+  [the roadmap and known limitations](docs/ROADMAP_0.5.md).
+
 - Start/stop timestamped recording, elapsed time, sample count and a historical
   RTT chart (latest 600 samples). JSON and CSV export to a chosen local file.
 - Local preferences, bounded application logs, no authentication, telemetry,
