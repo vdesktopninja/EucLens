@@ -286,15 +286,16 @@ public sealed class RecordingDurabilityTests
     [Fact]
     public async Task NewRecordingsCarryTheApplicationVersionAndOldOnesStillOpen()
     {
-        Assert.Equal("0.4.4", AppVersion.Current);
+        Assert.Equal("0.5.0", AppVersion.Current);
         var (writer, storage, _, recorder, _) = Create();
         await RecordWithConfirmedIncidentAsync(recorder, writer);
         await recorder.StopAsync();
         var part = storage.Names(Dir).Single(n => n.EndsWith(".jsonl", StringComparison.Ordinal));
         using (var header = JsonDocument.Parse(HistoryFixture.ReadText(storage, Path.Combine(Dir, part)).Split('\n')[0]))
-            Assert.Equal("0.4.4", header.RootElement.GetProperty("app").GetString());
+            Assert.Equal("0.5.0", header.RootElement.GetProperty("app").GetString());
         var history = HistoryFixture.Load(storage, RecordingFormat.ShortIdOf(part));
-        Assert.Equal("0.4.4", history.Info.AppVersion);
+        Assert.Equal("0.5.0", history.Info.AppVersion);
+        Assert.Equal("euclens.recording/1", RecordingFormat.Schema);
 
         // A recording made by 0.4.3: stamped 0.4.3, no incident fields anywhere.
         var (oldWriter, oldStorage, _, oldRecorder, _) = Create();
@@ -312,5 +313,18 @@ public sealed class RecordingDurabilityTests
         Assert.Equal(4, old.SampleCount);
         Assert.Empty(old.Incidents);
         Assert.Equal(RecordingCompleteness.Complete, old.Info.State);
+
+        // A recording made by the released 0.4.4 (same schema, stamped 0.4.4) still opens and keeps its stamp.
+        var (_, releasedStorage, _, _, _) = Create();
+        var released = new RecordingWriter(() => IncidentTests.Options(compress: false), releasedStorage, new FakeClock(releasedStorage.Now), "0.4.4");
+        var releasedRecorder = new SessionRecorder(released, new FakeClock(releasedStorage.Now));
+        releasedRecorder.Start(false);
+        for (var i = 0; i < 4; i++) releasedRecorder.Add(TestSamples.Make(i));
+        await releasedRecorder.StopAsync();
+        var releasedPart = releasedStorage.Names(Dir).Single(n => n.EndsWith(".jsonl", StringComparison.Ordinal));
+        var releasedHistory = HistoryFixture.Load(releasedStorage, RecordingFormat.ShortIdOf(releasedPart));
+        Assert.Equal("0.4.4", releasedHistory.Info.AppVersion);
+        Assert.Equal(4, releasedHistory.SampleCount);
+        Assert.Equal(RecordingCompleteness.Complete, releasedHistory.Info.State);
     }
 }

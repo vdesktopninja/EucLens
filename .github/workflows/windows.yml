@@ -53,6 +53,26 @@ jobs:
           if ($blue -lt 100 -or $white -lt 20 -or $cyan -lt 5) { throw 'The executable icon is not the EUC Lens icon' }
           New-Item -ItemType Directory -Force artifacts/win-x64/visual-evidence | Out-Null
           $bitmap.Save((Join-Path (Resolve-Path artifacts/win-x64/visual-evidence) 'exe-icon-pipeline.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+      - name: Verify the executable version, size and SHA-256
+        shell: pwsh
+        run: |
+          $expected = ([xml](Get-Content Directory.Build.props)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          $exe = Get-Item artifacts/win-x64/EucLens.exe
+          $info = $exe.VersionInfo
+          $hash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          New-Item -ItemType Directory -Force artifacts/win-x64/visual-evidence | Out-Null
+          $report = @(
+            "Expected version (Directory.Build.props): $expected"
+            "FileVersion: $($info.FileVersion)"
+            "ProductVersion: $($info.ProductVersion)"
+            "Size: $($exe.Length) bytes"
+            "SHA-256: $hash"
+          )
+          $report | Set-Content artifacts/win-x64/visual-evidence/exe-version.txt
+          $report
+          if (-not $expected) { throw 'Directory.Build.props has no Version' }
+          if ($info.FileVersion -ne "$expected.0") { throw "FileVersion $($info.FileVersion) does not match $expected" }
+          if (-not $info.ProductVersion.StartsWith($expected)) { throw "ProductVersion $($info.ProductVersion) does not match $expected" }
       - name: Verify single EXE and run Windows smoke test
         shell: pwsh
         run: |

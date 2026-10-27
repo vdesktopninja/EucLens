@@ -9,7 +9,7 @@
     <IsPublishable>false</IsPublishable>
     <DebugType>embedded</DebugType>
     <!-- The one place the application version is set. Assemblies carry it and AppVersion reads it; recordings record it. -->
-    <Version>0.4.4</Version>
+    <Version>0.5.0</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 </Project>
