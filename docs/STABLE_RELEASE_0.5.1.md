@@ -50,7 +50,8 @@ in every Real Session, including sessions without them.
 | Live sampling | Overwrote each real sample's workload with the selection | Removed. The Blast provider no longer sets *Idle*; new samples carry no workload. |
 | Recording format and exports | `Workload` in every sample; CSV column `workload` | `Workload` is optional: null (omitted) in new samples, kept in older recordings. The CSV column stays in place and reads `Unavailable` for new samples and the historical value for older ones. |
 | Preferences | `Workload` saved and restored | Ignored. |
-| Session History analysis (`gfx.fps.low`, `gfx.dropped.high`) | Never used the workload: display activity from recorded dirty FPS | Unchanged. |
+| Session History analysis `gfx.fps.low` | Never used the workload; judged whenever recorded dirty FPS ≥ 5, so it could report typing or slowly changing content that live Diagnostics (with Idle selected) called expected | Rule version 2: judged only while dirty FPS ≥ 15, the same gate as live Diagnostics (see "One policy for live Diagnostics and Session History"). |
+| Session History analysis `gfx.dropped.high` | Never used the workload; dirty FPS ≥ 5 | Unchanged. |
 | 0.3 rules `HostRules.GraphicsBottleneckRule`, `DiagnosticEngine.FrameRateRule` | Not used by the application since 0.4 | Unchanged library code, kept with their tests; documented as unused. |
 | `MockMetricsProvider` | Workload shapes its synthetic FPS | Unchanged; test data only. |
 
@@ -73,6 +74,41 @@ unless the administrator selected a workload), 0.5.1 judges low FPS by default w
 per second. Compared with 0.5.0 with *Interactive graphics* selected, 0.5.1 no longer warns for slowly changing content, or
 without a dirty-frame counter.
 
+## One policy for live Diagnostics and Session History
+
+The first 0.5.1 candidate left Session History's `gfx.fps.low` on its 0.5.0 gate (dirty FPS ≥ 5) while live Diagnostics needed
+dirty FPS ≥ 15. For the same measurements the two disagreed: typing at 8 content changes and 8 frames per second, 12 changes and
+6 frames, or 14 changes and 9 frames were "expected" live and a low-FPS observation in Session History (reproduced by a test
+before the change). Both now judge low FPS only while the content changes at least as often as the frame-rate threshold.
+
+| Measurements | Live Diagnostics | Session History |
+|---|---|---|
+| Dirty FPS ≥ 15, FPS below 15 | Warning (below 15 for ≥ 70 % of 60 s) | Observation (below 15, or below the recording's own baseline, for ≥ 30 s) |
+| Dirty FPS 5 to below 15 (typing, slow scrolling) | Not judged, finding recovers | Not judged, excluded like a static screen |
+| Dirty FPS below 5 | Not judged | Not judged (`NotApplicable` if the whole recording) |
+| No dirty-frame counter | Not judged, finding closes | `InsufficientData`, "Display activity cannot be established" |
+
+Why 15 and not a new number: it is the low-FPS threshold itself. Fewer than 15 content changes per second cannot fill 15 frames
+per second, so a lower frame rate is explained by the content; 5 (`ActivityDirtyFps`) only separates a static from a changing
+screen and stays the gate for dropped frames and for frame-rate instability. Neither threshold was changed. Tests
+(`LowFpsPolicyConsistencyTests`) feed identical measurements to both engines: video, exactly 15, 14, typing, slow scrolling, a
+static screen, no counter and a healthy video.
+
+Differences that remain, on purpose:
+
+* **Window.** Live uses the trailing 60 s (a finding must be raised as it happens, and recovers when the window clears).
+  History smooths dirty FPS over ±5 s around each sample, so it can place the start and end of an episode within a recording.
+  A short change in content can therefore be judged in one and not the other at the edges of an episode.
+* **Adaptive baseline.** History also compares with the recording's own baseline (median − 4σ), so a drop from 60 FPS to 30
+  during demanding content is an observation although 30 is above 15. Live has no baseline.
+* **Dropped frames.** History has `gfx.dropped.high` (dirty FPS ≥ 5); live has no dropped-frame rule.
+* **Duration and severity.** History needs 30 s and 5 samples and reports Critical when half the samples are below 5 FPS; live
+  needs 70 % of 60 s and has its own severity rules.
+
+The rule is version 2 (`gfx.fps.low`), recorded in every observation. Recordings are not changed; opening an old recording now
+analyses it under the new gate, so a recording that showed a low-FPS observation under 0.5.0 for slowly changing content shows
+none under 0.5.1.
+
 ## Limitations caused by removing the workload selection
 
 * **No dirty-frame counter, no frame-rate judgement.** Sessions without Horizon Blast counters have no FPS measurement at
@@ -85,9 +121,7 @@ without a dirty-frame counter.
   The interpretation of the counter rests on its name (see [DIAGNOSTICS.md](DIAGNOSTICS.md)).
 * **One threshold for every kind of content.** A declared *Video playback* used to say that 24–30 FPS mattered; now 15 FPS is
   the line for all content that changes at least that often.
-* **Session History is unchanged.** Its `gfx.fps.low` rule judges low FPS whenever recorded dirty FPS ≥ 5 (0.5.0 behaviour,
-  never workload-based). It can therefore report slowly changing content that the live engine no longer judges. Aligning it
-  would change the analysis engine and was left out of this change.
+* **Slow delivery of slowly changing content is not reported in Session History either** (same gate, same reason).
 
 ## Compatibility
 

@@ -41,8 +41,7 @@ public static class AnomalyDetectionEngine
         private readonly List<string> limitations = [];
         private readonly bool blast;
         private readonly Dictionary<string, int> finite = new(StringComparer.Ordinal);
-        private byte[]? activity;
-        private bool activityComputed;
+        private readonly Dictionary<double, byte[]?> activityByThreshold = [];
         private int omitted;
 
         public Run(AnomalyInput input, AnomalyOptions options, CancellationToken token)
@@ -166,10 +165,9 @@ public static class AnomalyDetectionEngine
 
         // ----- display activity -----
 
-        private byte[]? Activity()
+        private byte[]? Activity(double minimumDirtyFps)
         {
-            if (activityComputed) return activity;
-            activityComputed = true;
+            if (activityByThreshold.TryGetValue(minimumDirtyFps, out var cached)) return cached;
             var channel = input.Channel("dirtyFps");
             if (channel is null || !UnitTable.FramesPerSecond.TryGetFactor(channel.Unit, out var factor)) return null;
             var ticks = timeline.Ticks;
@@ -183,7 +181,7 @@ public static class AnomalyDetectionEngine
                 sum[i + 1] = sum[i] + (ok ? v : 0); cnt[i + 1] = cnt[i] + (ok ? 1 : 0);
                 anyValid |= ok;
             }
-            if (!anyValid) return null;
+            if (!anyValid) return activityByThreshold[minimumDirtyFps] = null;
             var segFirst = new int[timeline.Segment[Math.Max(count - 1, 0)] + 2]; Array.Fill(segFirst, -1);
             var segLast = new int[segFirst.Length];
             for (var i = 0; i < count; i++) { var s = timeline.Segment[i]; if (segFirst[s] < 0) segFirst[s] = i; segLast[s] = i; }
@@ -198,9 +196,9 @@ public static class AnomalyDetectionEngine
                 var s = timeline.Segment[i];
                 var a = Math.Max(lo, segFirst[s]); var b = Math.Min(hi, segLast[s] + 1);
                 var n = cnt[b] - cnt[a];
-                result[i] = n < options.MinimumActivitySamples ? (byte)0 : (sum[b] - sum[a]) / n >= options.ActivityDirtyFps ? (byte)2 : (byte)1;
+                result[i] = n < options.MinimumActivitySamples ? (byte)0 : (sum[b] - sum[a]) / n >= minimumDirtyFps ? (byte)2 : (byte)1;
             }
-            return activity = result;
+            return activityByThreshold[minimumDirtyFps] = result;
         }
 
         // ----- one rule -----
@@ -233,7 +231,7 @@ public static class AnomalyDetectionEngine
             byte[]? activityStates = null;
             if (rule.RequiresDisplayActivity)
             {
-                activityStates = Activity();
+                activityStates = Activity(rule.RequiresFrameDemand ? options.FrameDemandDirtyFps : options.ActivityDirtyFps);
                 if (activityStates is null) return Skip(RuleState.InsufficientData, "Display activity cannot be established: the Dirty FPS counter is not recorded, unavailable or in an unverified unit. Low frame rate is not judged without it.");
             }
 
@@ -266,7 +264,9 @@ public static class AnomalyDetectionEngine
                 if (usable == 0)
                 {
                     return idle > 0
-                        ? (Result(RuleState.NotApplicable, $"The screen was static throughout ({AnomalyNarrative.Count(idle)} sample(s) with Dirty FPS below {AnomalyRules.Describe(options.ActivityDirtyFps)}): low frame rate is expected there and is not an anomaly.", 0, count), none)
+                        ? (Result(RuleState.NotApplicable, rule.RequiresFrameDemand
+                            ? $"The content changed fewer than {AnomalyRules.Describe(options.FrameDemandDirtyFps)} times per second throughout ({AnomalyNarrative.Count(idle)} sample(s) with Dirty FPS below {AnomalyRules.Describe(options.FrameDemandDirtyFps)}): a static screen or slowly changing content makes a low frame rate expected there, and it is not an anomaly."
+                            : $"The screen was static throughout ({AnomalyNarrative.Count(idle)} sample(s) with Dirty FPS below {AnomalyRules.Describe(options.ActivityDirtyFps)}): low frame rate is expected there and is not an anomaly.", 0, count), none)
                         : (Result(RuleState.InsufficientData, outOfRange > 0 ? $"No valid sample: {AnomalyNarrative.Count(outOfRange)} value(s) were outside the plausible range (counter errors)." : "The metric has no valid sample that can be used (missing, unavailable, disconnected or outside the context the metric needs)."), none);
                 }
 
@@ -330,7 +330,7 @@ public static class AnomalyDetectionEngine
                     produced.Add(Materialize(rule, channel, capacity, c.Episode, c.Kind, c.Severity, c.Span, classes, eligible, activityStates, basis, abs, baselineLimit, baseline, factor, note));
                 }
                 var reason = note;
-                if (idle > 0) reason = (reason is null ? "" : reason + " ") + $"{AnomalyNarrative.Count(idle)} sample(s) during a static screen were not evaluated.";
+                if (idle > 0) reason = (reason is null ? "" : reason + " ") + $"{AnomalyNarrative.Count(idle)} sample(s) during a static screen{(rule.RequiresFrameDemand ? " or slowly changing content" : "")} were not evaluated.";
                 return (Result(RuleState.Evaluated, reason, usable, count - usable, produced.Count), produced);
             }
             finally { pool.Return(canonical); bytes.Return(classes); bytes.Return(eligible); }

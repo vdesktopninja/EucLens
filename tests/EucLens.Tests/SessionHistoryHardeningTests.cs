@@ -182,10 +182,10 @@ public sealed class SessionHistoryHardeningTests
         Assert.True(h.SelectedIncident.IsDirty);
 
         h.OnPageHidden();                                                                   // the page is left and shown again
-        var summary = h.Recordings.Count > 0 ? h.Recordings[0].Summary : null;
-        _ = summary;
         h.OnPageShown();
-        await Task.Delay(200); await h.Settled;
+        await h.Settled;                                                                    // the recording is loaded again, its charts and analysis are done
+        Assert.True(h.HasHistory);
+        Assert.False(h.IsLoading);
         h.SelectedEvent = h.Events.Single(e => e.Event.IncidentId == first.Id);
         Assert.Equal("typed, not saved", h.SelectedIncident!.Description);
 
@@ -194,6 +194,40 @@ public sealed class SessionHistoryHardeningTests
         h.SelectedEvent = h.Events.Single(e => e.Event.IncidentId == first.Id);
         Assert.False(h.SelectedIncident!.IsDirty);
         Assert.Equal("typed, not saved", h.SelectedIncident.Description);
+    }
+
+    private sealed class SlowReadStorage(IRecordingStorage inner) : IRecordingStorage
+    {
+        public volatile bool Slow;
+        public void EnsureDirectory(string directory) => inner.EnsureDirectory(directory);
+        public Stream Create(string path) => inner.Create(path);
+        public Stream OpenRead(string path) { if (Slow) Thread.Sleep(600); return inner.OpenRead(path); }
+        public IReadOnlyList<RecordingFileInfo> List(string directory) => inner.List(directory);
+        public void Delete(string path) => inner.Delete(path);
+        public void Rename(string from, string to) => inner.Rename(from, to);
+        public long? FreeSpace(string directory) => inner.FreeSpace(directory);
+    }
+
+    [Fact]
+    public async Task ShowingThePageAgainIsCompleteWhenSettledEvenIfReadingTheRecordingTakesLongerThanAnyFixedWait()
+    {
+        // The disk is slow on every machine here (600 ms per file), not only on a loaded CI runner: the re-opening started by OnPageShown must still be waited for.
+        var rec = await HistoryFixture.RecordAsync(300, step: async (i, c) => { if (i == 150) await c.MarkIncidentAsync(); }, compress: false);
+        var storage = new SlowReadStorage(rec.Storage);
+        var h = CreateHistory(storage);
+        await h.OpenAsync(Summary(rec.Storage, rec.ShortId)); await h.Settled;
+        h.OnPageHidden();
+        Assert.False(h.HasHistory);
+
+        storage.Slow = true;
+        h.OnPageShown();
+        Assert.False(h.HasHistory);                                                          // the load is still running
+        await h.Settled;
+
+        Assert.True(h.HasHistory);
+        Assert.False(h.IsLoading);
+        Assert.Single(h.Events, e => e.IsIncident);
+        Assert.NotEmpty(h.Charts);
     }
 
     [Fact]

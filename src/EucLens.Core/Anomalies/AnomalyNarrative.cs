@@ -98,7 +98,9 @@ internal static class AnomalyNarrative
                     : "The recording does not state the direction of the measured packet loss.";
                 break;
             case "gfx.fps.low": case "gfx.dropped.high":
-                yield return "Display activity was established from the recorded Dirty FPS counter only; the user-selected workload type is not evidence of activity.";
+                yield return "Display activity was established from the recorded Dirty FPS counter only; a workload value stored in an older recording is not evidence of activity.";
+                if (rule.RequiresFrameDemand)
+                    yield return "Low frame rate is judged only while the content changed at least as often as the frame-rate threshold (Dirty FPS at or above it); slowly changing content that is delivered slowly is not reported.";
                 break;
             case "guest.cpu.saturation": case "guest.cpu.spike":
                 yield return "High guest CPU utilization is a guest-resource observation; it is not attributed to the remote-display protocol or to any process.";

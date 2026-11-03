@@ -178,6 +178,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
     private bool suppressSelection;
     private IReadOnlyList<HistoryEventItem> allEvents = [];
     private Task refreshTask = Task.CompletedTask;
+    private Task reopenTask = Task.CompletedTask;
     private Task analysisTask = Task.CompletedTask;
     private Task findingsTask = Task.CompletedTask;
     private CancellationTokenSource? findingsCts, exportCts;
@@ -374,8 +375,15 @@ public sealed class SessionHistoryViewModel : ObservableObject
     public AsyncCommand ExportFindingsJsonCommand { get; }
     private bool CanExportFindings() => history is not null && Findings.HasAnalysis && !exportingFindings;
 
-    /// <summary>For tests and shutdown: the work of the latest refresh and analysis.</summary>
-    internal Task Settled => Task.WhenAll(refreshTask, analysisTask, findingsTask);
+    /// <summary>For tests and shutdown: the recording opened again by <see cref="OnPageShown"/>, then the work of the latest refresh and analysis it started.</summary>
+    internal Task Settled => SettledAsync();
+
+    private async Task SettledAsync()
+    {
+        // The re-opening starts the refresh and the analysis only when its load has finished, so the three are read after it.
+        await reopenTask;
+        await Task.WhenAll(refreshTask, analysisTask, findingsTask);
+    }
 
     // ---------- page lifetime ----------
 
@@ -386,7 +394,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
     public void OnPageShown()
     {
         _ = background.RefreshRecordingsAsync();
-        if (opened is not null && history is null && !isLoading) _ = OpenAsync(opened);
+        if (opened is not null && history is null && !isLoading) reopenTask = OpenAsync(opened);
     }
 
     /// <summary>Cancels loading, aggregation and analysis and drops the loaded recording; the selection is remembered so the page can open it again.</summary>

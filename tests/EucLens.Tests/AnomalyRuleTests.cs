@@ -182,7 +182,7 @@ public sealed class AnomalyRuleTests
         var activity = Assert.Single(o.Metrics, m => m.Role == "Display activity");
         Assert.Equal("dirtyFps", activity.ChannelId); Assert.True(activity.P50 > 10);
         Assert.Contains("Display activity was present", o.Explanation);
-        Assert.Contains(o.Limitations, l => l.Contains("user-selected workload"));
+        Assert.Contains(o.Limitations, l => l.Contains("workload value stored in an older recording"));
     }
 
     [Fact]

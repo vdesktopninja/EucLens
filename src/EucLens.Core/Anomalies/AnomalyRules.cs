@@ -75,6 +75,11 @@ public sealed record AnomalyRule
     public int ShortMinimumSamples { get; init; } = 1;
     /// <summary>The metric means something only while the screen demonstrably changes (recorded Dirty FPS); without that evidence the rule reports insufficient data.</summary>
     public bool RequiresDisplayActivity { get; init; }
+    /// <summary>
+    /// Stricter than <see cref="RequiresDisplayActivity"/>: the content must change at least <see cref="AnomalyOptions.FrameDemandDirtyFps"/> times per second (recorded Dirty FPS) for the
+    /// metric to be judged. A frame rate below that is then explained by the content itself, not by the session. The live engine applies the same gate to low frame rate.
+    /// </summary>
+    public bool RequiresFrameDemand { get; init; }
     /// <summary>The metric is a Horizon Blast counter: the rule applies only when the recording shows Horizon Blast evidence.</summary>
     public bool RequiresBlast { get; init; }
     /// <summary>A rule whose observations are activity or context, not a malfunction: never above Info.</summary>
@@ -116,8 +121,8 @@ public static class AnomalyRules
             MissingMetricNote = "available bandwidth in a verified unit" },
 
         // ----- Graphics -----
-        new() { Id = "gfx.fps.low", ChannelId = "fps", Domain = HistoryGroup.Graphics, Title = "Low frame rate during display activity", Units = UnitTable.FramesPerSecond, MaximumValue = 1000, HigherIsWorse = false,
-            Criterion = RuleCriterion.Either, AbsoluteThreshold = 15, CriticalThreshold = 5, Baseline = new(4, 2), SustainedAfter = Thirty, MinimumSamples = 5, RequiresDisplayActivity = true },
+        new() { Id = "gfx.fps.low", ChannelId = "fps", Domain = HistoryGroup.Graphics, Title = "Low frame rate while the content is changing", Units = UnitTable.FramesPerSecond, MaximumValue = 1000, HigherIsWorse = false,
+            Criterion = RuleCriterion.Either, AbsoluteThreshold = 15, CriticalThreshold = 5, Baseline = new(4, 2), SustainedAfter = Thirty, MinimumSamples = 5, RequiresDisplayActivity = true, RequiresFrameDemand = true, Version = 2 },
         new() { Id = "gfx.dropped.high", ChannelId = "droppedFrames", Domain = HistoryGroup.Graphics, Title = "Increased dropped frames during display activity", Units = UnitTable.Percent, MaximumValue = 100.5,
             AbsoluteThreshold = 5, CriticalThreshold = 15, SustainedAfter = Thirty, MinimumSamples = 5, RequiresDisplayActivity = true },
 
@@ -162,6 +167,11 @@ public sealed record AnomalyOptions
     // ----- Display activity -----
     /// <summary>Dirty FPS at or above this (smoothed over <see cref="ActivityWindow"/>) shows the screen is changing; matches the live engine's ActivityDirtyFps.</summary>
     public double ActivityDirtyFps { get; init; } = 5;
+    /// <summary>
+    /// Low frame rate is judged only while Dirty FPS (smoothed over <see cref="ActivityWindow"/>) is at least this: the content then changes at least as often as the frame-rate
+    /// threshold, so fewer delivered frames are not explained by the content. Equal to the low-FPS threshold of the rule and to the live engine's LowFps.
+    /// </summary>
+    public double FrameDemandDirtyFps { get; init; } = 15;
     public TimeSpan ActivityWindow { get; init; } = TimeSpan.FromSeconds(10);
     public int MinimumActivitySamples { get; init; } = 3;
 
@@ -194,6 +204,7 @@ public sealed record AnomalyOptions
         if (MinimumBaselineSpan < TimeSpan.FromSeconds(10)) errors.Add("MinimumBaselineSpan must be at least 10 seconds.");
         if (!(BaselineTrimFraction is >= 0 and <= 0.5)) errors.Add("BaselineTrimFraction must be between 0 and 0.5.");
         if (!(ActivityDirtyFps > 0)) errors.Add("ActivityDirtyFps must be positive.");
+        if (!(FrameDemandDirtyFps >= ActivityDirtyFps)) errors.Add("FrameDemandDirtyFps must be at least ActivityDirtyFps.");
         if (ActivityWindow < TimeSpan.FromSeconds(2)) errors.Add("ActivityWindow must be at least 2 seconds.");
         if (MinimumActivitySamples < 1) errors.Add("MinimumActivitySamples must be at least 1.");
         if (!(QualifiedCoverage is > 0 and <= 1)) errors.Add("QualifiedCoverage must be between 0 and 1.");

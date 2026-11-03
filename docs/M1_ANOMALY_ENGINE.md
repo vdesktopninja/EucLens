@@ -48,7 +48,7 @@ Units are canonical units; recorded units that convert (see `UnitTable`) are con
 | `conn.loss.burst` | `packetLoss` | absolute ≥ 3 % | — | Burst (≥ 2 samples) | Info; Warning if peak ≥ 10 % |
 | `conn.queueing.increase` | `outQueueing` (µs, ms, s) | absolute ≥ 50 ms **and** baseline (6σ, σ ≥ 5 ms); Blast only | ≥ 15 s, ≥ 5 samples | — | Warning; Critical if ≥ half ≥ 250 ms |
 | `conn.bandwidth.pressure` | `bandwidthConsumption` ÷ `availableBandwidth` (Mbps, Kbps, Gbps, bps; both verified) | ratio ≥ 0.85 | ≥ 30 s, ≥ 5 samples | — | Warning; Critical if ≥ half ≥ 1.0 |
-| `gfx.fps.low` | `fps` (FPS), **requires display activity** | below 15 FPS **or** baseline (median − 4σ, σ ≥ max(2 FPS, 10 % of the median)) | ≥ 30 s, ≥ 5 samples | — | Warning; Critical if ≥ half < 5 FPS |
+| `gfx.fps.low` (version 2) | `fps` (FPS), **requires frame demand: dirty FPS ≥ 15** | below 15 FPS **or** baseline (median − 4σ, σ ≥ max(2 FPS, 10 % of the median)) | ≥ 30 s, ≥ 5 samples | — | Warning; Critical if ≥ half < 5 FPS |
 | `gfx.dropped.high` | `droppedFrames` (%), **requires display activity** | absolute ≥ 5 % | ≥ 30 s, ≥ 5 samples | — | Warning; Critical if ≥ half ≥ 15 % |
 | `guest.cpu.saturation` | `cpu` (%) | absolute ≥ 90 % | ≥ 60 s, ≥ 10 samples | — | Warning; Critical if ≥ half ≥ 98 % |
 | `guest.cpu.spike` | `cpu` | absolute ≥ 90 % **and** baseline (6σ, σ ≥ 5 pts) | — | Spike | Info |
@@ -97,7 +97,9 @@ A session that is *always* bad (RTT 200 ms throughout) is not a deviation from i
 
 ## 5. Display activity (FPS and dropped frames)
 
-Low FPS on a static screen is expected. Activity is established **only** from the recorded `dirtyFps` counter: the mean over a ±5 s window (at least three valid samples, same segment, not disconnected) must be ≥ `ActivityDirtyFps` = 5 (the live engine's default). The user-selected workload type is *not* evidence and is not used. Result per sample: active (evaluated), idle (excluded; `NotApplicable` when the whole recording is idle), unknown (excluded). Without the dirty-frame counter the rule reports `InsufficientData`: "Display activity cannot be established". Observations carry the dirty-FPS evidence as a second metric (role `Display activity`).
+Low FPS on a static screen is expected. Activity is established **only** from the recorded `dirtyFps` counter: the mean over a ±5 s window (at least three valid samples, same segment, not disconnected) must be ≥ `ActivityDirtyFps` = 5 (the live engine's default). The user-selected workload type is *not* evidence and is not used. Result per sample: active (evaluated), idle (excluded; `NotApplicable` when the whole recording is idle), unknown (excluded).
+
+**Frame demand (low FPS, version 2 of `gfx.fps.low`, 0.5.1).** Low FPS is a stricter question than "is the screen changing": a screen that changes 8 times per second cannot be delivered at 15 frames per second, so 8 FPS there is expected. `gfx.fps.low` therefore judges a sample only while the same ±5 s mean of dirty FPS is ≥ `FrameDemandDirtyFps` = 15, which is its own absolute threshold and the live engine's `LowFps`. Typing, slow scrolling and slowly changing content (dirty FPS 5 to below 15) are excluded like a static screen, for the absolute criterion and for the baseline criterion (the baseline is computed from demanding content only). Version 1 used the 5 FPS gate and could report the same recording that live Diagnostics called expected. `gfx.dropped.high` keeps the 5 FPS gate: it is a loss ratio, not a rate the content can explain, and the live engine has no dropped-frame rule to disagree with. Without the dirty-frame counter the rule reports `InsufficientData`: "Display activity cannot be established". Observations carry the dirty-FPS evidence as a second metric (role `Display activity`).
 
 ## 6. Metric coverage requirements
 
@@ -263,7 +265,7 @@ Real 21,300-sample recording through writer and loader: 13 ms, 0.48 MiB. 25,000 
 
 ## 13. Known limitations
 
-* **No workload/activity column in `LoadedHistory`.** Display activity is Dirty-FPS-based; Horizon recordings without that counter get `InsufficientData` for graphics rules. The recorded workload type is user-selected and deliberately not used.
+* **No workload/activity column in `LoadedHistory`.** Display activity is Dirty-FPS-based; Horizon recordings without that counter get `InsufficientData` for graphics rules. A workload value stored in a recording made before 0.5.1 is user-selected and deliberately not used.
 * **No disk latency, queue length, per-direction loss, jitter or bandwidth in verified units** in the history channels today. The rules exist and are tested with such channels, but real recordings report `InsufficientData` for them. Jitter and unverified bandwidth are not interpreted by design.
 * **Thresholds are defaults from the live engine and engineering judgement**, not calibrated against a fleet. They are configurable (`AnomalyOptions`, `AnomalyRule`) and each rule has a version. Calibration belongs to manual Horizon acceptance (M4).
 * **Baseline is per recording**, not per user or per pool; a short recording has no adaptive rules.

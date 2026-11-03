@@ -358,9 +358,8 @@ public sealed class SessionHistoryViewModelTests
         Assert.False(h.IsLoading);
 
         h.OnPageShown();
-        for (var wait = 0; wait < 200 && !h.HasHistory; wait++) await Task.Delay(25);
+        await h.Settled;                                                           // the load of the recording that was open, then its charts and analysis
         Assert.True(h.HasHistory);
-        await h.Settled;
         GC.KeepAlive(rec);
     }
 
