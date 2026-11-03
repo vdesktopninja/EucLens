@@ -1,9 +1,14 @@
 name: Windows build and portable publish
 on:
   push:
-    branches: [main, 'feature/**', 'cez/**']
+    branches: [main, 'feature/**', 'release/**', 'cez/**']
   pull_request:
   workflow_dispatch:
+    inputs:
+      upload_portable:
+        description: 'Upload the portable EXE as a release-candidate artifact (kept 3 days)'
+        type: boolean
+        default: true
 permissions:
   contents: read
 concurrency:
@@ -117,8 +122,122 @@ jobs:
             $problems += 'WPF smoke result did not pass'
           }
           if ($problems.Count -gt 0) { throw ('Windows validation failed: ' + ($problems -join '; ')) }
-      - name: Upload test and smoke evidence
+      # The smoke test above drives the published EXE with --smoke-test. This step starts it the way a person does (no arguments)
+      # from a copy in a folder of its own, and checks that the main window appears, answers and the process stays alive.
+      - name: Launch the published EXE as a user would
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'launch-check'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item artifacts/win-x64/EucLens.exe $dir
+          $app = Start-Process (Join-Path $dir 'EucLens.exe') -PassThru
+          try {
+            $deadline = (Get-Date).AddSeconds(60)
+            while ((Get-Date) -lt $deadline -and -not $app.HasExited) {
+              $app.Refresh()
+              if ($app.MainWindowHandle -ne 0) { break }
+              Start-Sleep -Milliseconds 500
+            }
+            if ($app.HasExited) { throw "EucLens.exe exited at start with code $($app.ExitCode)" }
+            if ($app.MainWindowHandle -eq 0) { throw 'No main window appeared within 60 seconds' }
+            Start-Sleep -Seconds 8
+            $app.Refresh()
+            if ($app.HasExited) { throw "EucLens.exe exited by itself with code $($app.ExitCode)" }
+            if (-not $app.Responding) { throw 'The main window does not respond' }
+            if ($app.MainWindowTitle -notlike '*EUC Lens*') { throw "Unexpected window title '$($app.MainWindowTitle)'" }
+            "PASS: launched $((Get-Item (Join-Path $dir 'EucLens.exe')).Length) bytes, window '$($app.MainWindowTitle)', responding, alive after 8 s" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          } finally {
+            if (-not $app.HasExited) { $null = $app.CloseMainWindow(); if (-not $app.WaitForExit(10000)) { $app.Kill() } }
+          }
+      - name: Verify the executable embeds no API key or credential
+        shell: pwsh
+        run: |
+          $text = [System.Text.Encoding]::Latin1.GetString([System.IO.File]::ReadAllBytes((Resolve-Path artifacts/win-x64/EucLens.exe)))
+          $hits = [regex]::Matches($text, 'sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|Bearer [A-Za-z0-9._-]{20,}')
+          if ($hits.Count -gt 0) { throw "Credential-like strings in the executable: $($hits.Count)" }
+          'PASS: no credential-like strings in EucLens.exe' | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+      - name: Summarize test and smoke results in the job log
         if: always()
+        shell: pwsh
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          # The durable record of a run is this log: validation-results expires after 1 day.
+          $ErrorActionPreference = 'Continue'
+          $summary = @()
+          $trx = Get-ChildItem TestResults -Filter *.trx -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $trx) {
+            $summary += 'Tests: no result file was produced (the build or the test step did not finish)'
+          } else {
+            $run = [xml](Get-Content $trx.FullName)
+            $c = $run.TestRun.ResultSummary.Counters
+            $summary += "Tests: total $($c.total), passed $($c.passed), failed $($c.failed), not executed $($c.notExecuted)"
+            $failed = @($run.TestRun.Results.UnitTestResult | Where-Object { $_.outcome -eq 'Failed' })
+            foreach ($f in $failed) {
+              "::error title=Test failed::$($f.testName)"
+              Write-Host "::group::Failed: $($f.testName)"
+              $message = "$($f.Output.ErrorInfo.Message)"
+              $stack = "$($f.Output.ErrorInfo.StackTrace)"
+              if ($message.Length -gt 3000) { $message = $message.Substring(0, 3000) + ' ...' }
+              if ($stack.Length -gt 3000) { $stack = $stack.Substring(0, 3000) + ' ...' }
+              $message
+              $stack
+              Write-Host '::endgroup::'
+            }
+          }
+          $summary
+          $summary | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+          Write-Host '::group::Files produced by the smoke test'
+          if (Test-Path artifacts/win-x64) {
+            Get-ChildItem artifacts/win-x64 -Recurse -File | ForEach-Object { '{0,12:N0}  {1}' -f $_.Length, (Resolve-Path -Relative $_.FullName) }
+          } else { 'artifacts/win-x64 does not exist' }
+          Write-Host '::endgroup::'
+          if ($env:JOB_STATUS -ne 'success') {
+            if (Test-Path artifacts/win-x64/smoke-progress.txt) {
+              Write-Host '::group::smoke-progress.txt (last 80 lines)'
+              Get-Content artifacts/win-x64/smoke-progress.txt -Tail 80
+              Write-Host '::endgroup::'
+            }
+            foreach ($result in 'smoke-result.txt', 'visual-evidence/background-validation.txt', 'visual-evidence/history-validation.txt') {
+              $file = Join-Path artifacts/win-x64 $result
+              if (Test-Path $file) {
+                Write-Host "::group::$result"
+                Get-Content $file
+                Write-Host '::endgroup::'
+              }
+            }
+          }
+      # Artifact storage is exhausted, so uploaded evidence cannot be relied on. The Dashboard, Diagnostics and Settings screenshots (100 %, both themes) and any failure picture
+      # are therefore also written into this job's log as compressed pictures (JPEG, quality 85) that tools/ci-log-images.py turns back into files. Additive: it checks
+      # nothing and removes nothing; a failure here never fails the build.
+      - name: Print the page screenshots into the job log
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          $files = @(Get-ChildItem 'artifacts/win-x64/visual-evidence/*' -Include '*-100pct-*-DashboardPage.png', '*-100pct-*-DiagnosticsPage.png', '*-100pct-*-SettingsPage.png', 'FAILED-*.png' -ErrorAction SilentlyContinue | Sort-Object Name)
+          Write-Host "Page screenshots: $($files.Count)"
+          $codec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' }
+          $parameters = New-Object System.Drawing.Imaging.EncoderParameters(1)
+          $parameters.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, [long]85)
+          foreach ($file in $files) {
+            $image = [System.Drawing.Image]::FromFile($file.FullName)
+            $stream = New-Object System.IO.MemoryStream
+            $image.Save($stream, $codec, $parameters)
+            $width = $image.Width; $height = $image.Height
+            $image.Dispose()
+            $text = [Convert]::ToBase64String($stream.ToArray())
+            Write-Host "::group::SCREENSHOT $($file.BaseName).jpg ${width}x${height} ($($stream.Length) bytes)"
+            for ($i = 0; $i -lt $text.Length; $i += 4000) { Write-Host ('IMG ' + $text.Substring($i, [Math]::Min(4000, $text.Length - $i))) }
+            Write-Host '::endgroup::'
+          }
+      - name: Upload test and smoke evidence
+        id: upload_evidence
+        if: always()
+        # Routine evidence is a convenience; the job log above is the record. If the account's artifact storage is exhausted this upload fails,
+        # and that must not turn a passing validation red. The portable EXE upload below deliberately has no such exception.
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: validation-results
@@ -127,10 +246,30 @@ jobs:
             artifacts/win-x64/smoke-result.txt
             artifacts/win-x64/smoke-progress.txt
             artifacts/win-x64/visual-evidence/
+          retention-days: 1
           if-no-files-found: warn
-      - name: Upload portable application
+      - name: Report a failed evidence upload
+        if: always() && steps.upload_evidence.outcome == 'failure'
+        shell: pwsh
+        run: |
+          '::warning title=validation-results was not uploaded::Check the account''s Actions artifact storage. The results of this run are in the log of this job.'
+      - name: Prepare release-candidate checksum
+        if: github.event_name == 'workflow_dispatch' && inputs.upload_portable
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/candidate | Out-Null
+          Copy-Item artifacts/win-x64/EucLens.exe artifacts/candidate/EucLens.exe
+          $hash = (Get-FileHash artifacts/candidate/EucLens.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  EucLens.exe" | Set-Content -Encoding ascii artifacts/candidate/EucLens.exe.sha256
+          "Release candidate $env:GITHUB_SHA: SHA-256 $hash" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+      # The portable EXE is about 86 MB per upload. It is uploaded only when a person dispatches the workflow, and only after every step above passed.
+      - name: Upload portable application (manual runs only)
+        if: github.event_name == 'workflow_dispatch' && inputs.upload_portable
         uses: actions/upload-artifact@v7
         with:
           name: EucLens-win-x64
-          path: artifacts/win-x64/EucLens.exe
+          path: |
+            artifacts/candidate/EucLens.exe
+            artifacts/candidate/EucLens.exe.sha256
+          retention-days: 3
           if-no-files-found: error

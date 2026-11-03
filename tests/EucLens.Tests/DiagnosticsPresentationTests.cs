@@ -285,8 +285,9 @@ public sealed class DiagnosticsPresentationTests
         Assert.Contains(connection.Measurements, m => m is { Label: "RTT P95", Value: "30 ms", Threshold: "≥ 150 ms warning" });
         Assert.Contains(connection.Measurements, m => m is { Label: "Packet loss (uplink) mean", Value: "0 %" });
         Assert.Contains(connection.Details, d => d.StartsWith("Jitter and estimated bandwidth units unverified", StringComparison.Ordinal));
-        // Low FPS is only judged for active workloads, so no FPS threshold is shown for Idle.
-        Assert.Contains(s.Vm.Domains.Single(d => d.DomainKey == DiagnosticDomain.Graphics).Measurements, m => m is { Label: "FPS P50", Threshold: "" });
+        // Low FPS is only judged while Blast dirty frames show the screen changing; without that counter the threshold is shown as inactive.
+        Assert.Contains(s.Vm.Domains.Single(d => d.DomainKey == DiagnosticDomain.Graphics).Measurements,
+            m => m.Label == "FPS P50" && m.Threshold == "< 15 FPS warning" && m.Condition.StartsWith("Low-FPS rule inactive", StringComparison.Ordinal));
 
         Assert.Equal("Partial coverage", s.Vm.DataQuality.Level);
         Assert.Equal("2", s.Vm.DataQuality.Rows.Single(r => r.Label.StartsWith("Unverified units", StringComparison.Ordinal)).Value);
@@ -404,14 +405,15 @@ public sealed class DiagnosticsPresentationTests
     public async Task MainViewModelDrivesTheDiagnosticsPresentation()
     {
         await using var demo = new MockMetricsProvider();
-        var vm = new MainViewModel(demo, new DiagnosticIntelligenceEngine(DiagnosticRuleSet.Default()), new SessionRecorder(), new FakeDesktop(), NullLogger<MainViewModel>.Instance);
+        var vm = new MainViewModel(demo, new DiagnosticIntelligenceEngine(DiagnosticRuleSet.Default()), new SessionRecorder(), new FakeDesktop(), NullLogger<MainViewModel>.Instance).WithSynthetic(demo);
         await vm.InitializeAsync(default);
         using (var run = new CancellationTokenSource(TimeSpan.FromMilliseconds(1500))) await vm.RunAsync(run.Token);
         Assert.Same(vm.Diagnostics.Domains, vm.HealthTiles);
         Assert.Equal(vm.ConnectionHealth, vm.Diagnostics.Domains[0].State);
         Assert.Contains(vm.Diagnostics.Cpu.Points, p => p.Value is not null);
         Assert.Contains(vm.Diagnostics.Rtt.Points, p => p.Value is not null);
-        vm.SelectedScenario = vm.Scenarios[1];
+        demo.Configure(RemoteProtocol.CitrixHdx, DemoScenario.HighNetworkLatency, WorkloadContext.Idle);
+        vm.UseSyntheticSource(demo);
         Assert.All(vm.Diagnostics.Trends, t => Assert.Empty(t.Points));
         Assert.Empty(vm.Diagnostics.Findings);
     }
@@ -439,7 +441,7 @@ public sealed class DiagnosticsPresentationTests
     private static DomainHealthItem Tile(Session s, DiagnosticDomain d) => s.Vm.Domains.Single(x => x.DomainKey == d);
 
     [Fact]
-    public void LowFpsThresholdIsShownAsApplicableOnlyWhenTheEngineVerifiesAnActiveWorkload()
+    public void LowFpsThresholdIsShownAsApplicableOnlyWhenDirtyFramesShowScreenActivity()
     {
         // Idle desktop: conditional, hidden, and said to be hidden. Unconditional thresholds are unaffected.
         var idle = new Session();
@@ -448,11 +450,11 @@ public sealed class DiagnosticsPresentationTests
         Assert.True(line.Conditional);
         Assert.False(line.Applies);
         Assert.False(line.Visible);
-        Assert.Contains("conditional: applies during verified active graphics workload; line hidden", idle.Vm.Fps.Reference);
+        Assert.Contains("conditional: applies during Blast dirty frames ≥ 15 per second; line hidden", idle.Vm.Fps.Reference);
         Assert.All(idle.Vm.Rtt.Data.References, r => Assert.True(r.Applies));
         Assert.All(idle.Vm.Cpu.Data.References, r => Assert.True(r.Applies && !r.Conditional));
 
-        // Selecting an active workload is not verification: without dirty frames the line stays hidden.
+        // A workload value (as older recordings carry) is not evidence: without dirty frames the line stays hidden.
         var declared = new Session();
         declared.Run(70, at => Snap(at, fps: 30, workload: WorkloadContext.InteractiveGraphics));
         Assert.False(Assert.Single(declared.Vm.Fps.Data.References).Applies);
@@ -460,24 +462,28 @@ public sealed class DiagnosticsPresentationTests
         Assert.StartsWith("Low-FPS rule inactive", declaredRow.Condition);
         Assert.Equal("< 15 FPS warning", declaredRow.Threshold);
 
-        // A static screen (dirty frames below the activity threshold) is not an active workload either.
+        // A static screen (dirty frames below the activity threshold) does not activate the rule either, nor does content that
+        // changes more slowly than the threshold (typing: 8 changes per second).
         var staticScreen = new Session();
         staticScreen.Run(70, at => Snap(at, fps: 2, dirty: 1, workload: WorkloadContext.InteractiveGraphics));
         Assert.False(Assert.Single(staticScreen.Vm.Fps.Data.References).Applies);
+        var slowContent = new Session();
+        slowContent.Run(70, at => Snap(at, fps: 8, dirty: 8));
+        Assert.False(Assert.Single(slowContent.Vm.Fps.Data.References).Applies);
 
-        // Active workload with a changing screen confirmed by dirty frames: applies, drawn, and says so.
+        // A changing screen confirmed by dirty frames: applies, drawn, and says so, whatever workload value a sample carries.
         var verified = new Session();
-        var report = verified.Run(70, at => Snap(at, fps: 30, dirty: 25, workload: WorkloadContext.InteractiveGraphics));
+        var report = verified.Run(70, at => Snap(at, fps: 30, dirty: 25, workload: WorkloadContext.Idle));
         var active = Assert.Single(verified.Vm.Fps.Data.References);
         Assert.True(active.Applies && active.Visible);
-        Assert.Contains("applies now (verified active graphics workload)", verified.Vm.Fps.Reference);
+        Assert.Contains("applies now (Blast dirty frames ≥ 15 per second)", verified.Vm.Fps.Reference);
         Assert.StartsWith("Low-FPS rule active", Tile(verified, DiagnosticDomain.Graphics).Measurements.Single(m => m.Label == "FPS P50").Condition);
         // Applicability is metadata for FPS only; every other threshold is unconditional.
         Assert.All(report.Inputs!.Where(i => i.Key != DiagnosticMetrics.Fps), i => Assert.Null(i.ThresholdApplies));
         Assert.True(report.Inputs!.Single(i => i.Key == DiagnosticMetrics.Fps).ThresholdApplies);
 
-        // Back to an idle workload: the next sample hides it again.
-        verified.Run(1, at => Snap(at, fps: 30, dirty: 25, workload: WorkloadContext.Idle));
+        // The screen becomes static: once the window shows it, the line is hidden again.
+        verified.Run(70, at => Snap(at, fps: 30, dirty: 1));
         Assert.False(Assert.Single(verified.Vm.Fps.Data.References).Applies);
         Assert.False(verified.Vm.Fps.Data.References[0].Visible);
     }

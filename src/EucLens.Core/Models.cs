@@ -1,10 +1,14 @@
 namespace EucLens.Core;
 
 public enum RemoteProtocol { CitrixHdx, OmnissaBlast, MicrosoftRdp, Unknown }
+/// <summary>Synthetic scenarios of the automated-test data generator. Kept so recordings and exports made by 0.5.0 Demo Mode still open.</summary>
 public enum DemoScenario { Healthy, HighNetworkLatency, LowFps, GpuBottleneck, BandwidthCongestion }
+/// <summary>
+/// The workload a user declared in 0.5.0 and earlier. Kept only so older recordings and exports keep their historical value; EUC Lens no
+/// longer asks for it and no diagnostic rule depends on it (screen activity is measured from Blast dirty frames instead).
+/// </summary>
 public enum WorkloadContext { Idle, Office, InteractiveGraphics, VideoPlayback }
 public enum MetricStatus { Available, Unavailable, Stale, Failed }
-public enum MonitoringMode { RealSession, DemoMode }
 public enum Severity { Info, Warning, Critical }
 public enum HealthStatus { Healthy, Warning, Critical, Unavailable }
 /// <summary>What a measurement describes: the whole machine, this Windows session, or one process.</summary>
@@ -41,8 +45,9 @@ public sealed record GpuMetrics(string Model, Metric Utilization, Metric VramUti
     Metric EncoderUtilization, Metric DecoderUtilization, string DriverVersion,
     string? VramUsedTotal = null, string? AdapterKind = null, bool? HardwareAcceleration = null);
 public sealed record SystemMetrics(Metric CpuUtilization, Metric RamUtilization, Metric DiskActivity);
+/// <param name="Workload">Historical only: the workload declared in a recording made by 0.5.0 or earlier; null for every new sample.</param>
 public sealed record SessionSnapshot(DateTimeOffset Timestamp, SessionInfo Session,
-    WorkloadContext Workload, ConnectionMetrics Connection, GraphicsMetrics Graphics,
+    WorkloadContext? Workload, ConnectionMetrics Connection, GraphicsMetrics Graphics,
     GpuMetrics Gpu, SystemMetrics System, DemoScenario? DemoScenario = null,
     IReadOnlyDictionary<string, Metric>? BlastMetrics = null, string? CollectionStatus = null,
     IReadOnlyList<MetricEntry>? HostMetrics = null, DiagnosticSnapshot? Diagnostics = null);
@@ -60,10 +65,6 @@ public interface IMetricsProvider : IAsyncDisposable
     Task<ProviderAvailability> GetAvailabilityAsync(CancellationToken cancellationToken = default);
     Task InitializeAsync(CancellationToken cancellationToken = default);
     Task<SessionSnapshot> CollectAsync(CancellationToken cancellationToken = default);
-}
-public interface IDemoMetricsProvider : IMetricsProvider
-{
-    void Configure(RemoteProtocol protocol, DemoScenario scenario, WorkloadContext workload);
 }
 
 public sealed record DiagnosticResult(string RuleId, Severity Severity, MetricStatus Status,

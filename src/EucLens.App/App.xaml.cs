@@ -60,7 +60,6 @@ public partial class App : Application
             background = new BackgroundViewModel(monitoring, recorder, desktopServices, store);
             var registrations = new ServiceCollection();
             registrations.AddLogging(builder => builder.AddProvider(new LocalFileLoggerProvider()));
-            registrations.AddSingleton<IDemoMetricsProvider, MockMetricsProvider>();
             registrations.AddSingleton<IBlastCounterReader, WindowsBlastCounterReader>();
             registrations.AddSingleton<IBlastSessionContext, WindowsBlastSessionContext>();
             registrations.AddSingleton<OmnissaBlastProvider>();
@@ -113,6 +112,19 @@ public partial class App : Application
         }
     }
     private readonly List<string> smokeEvidence = [];
+    /// <summary>Synthetic test data for the --smoke-test harness only: created here on demand, never registered in the application's services.</summary>
+    private static MockMetricsProvider? synthetic;
+    /// <summary>
+    /// Smoke harness only: drives the window with synthetic measurements of the given scenario (the sections that need findings, live charts
+    /// and recordings on a runner without a Horizon Agent). Real monitoring rejects synthetic samples; this is the only way they are shown.
+    /// </summary>
+    internal static async Task UseSyntheticDataAsync(MainViewModel vm, DemoScenario scenario = DemoScenario.Healthy)
+    {
+        synthetic ??= new MockMetricsProvider();
+        await synthetic.InitializeAsync();
+        synthetic.Configure(RemoteProtocol.CitrixHdx, scenario, WorkloadContext.Idle);
+        vm.UseSyntheticSource(synthetic);
+    }
     private async Task RunSmokeAsync(MainViewModel vm, BindingErrorListener errors)
     {
         var recorder = services!.GetRequiredService<ISessionRecorder>();
@@ -124,8 +136,8 @@ public partial class App : Application
         static double?[] Points(ChartData chart) => chart.Points.Select(p => p.Value).ToArray();
         try
         {
-            // CI runners have no Horizon Agent: Real Session must keep running and report N/A, never demo values.
-            vm.SelectedMode = vm.Modes.Single(m => m.Value == MonitoringMode.RealSession);
+            // CI runners have no Horizon Agent: Real Session must keep running and report N/A, never synthetic values.
+            Check(vm.ModeLabel == "Real Session", "The application must start in Real Session.");
             vm.StartRecordingCommand.Execute(null);
             // The first real sample includes counter discovery, which is slower on a cold runner: wait for samples, not a fixed time.
             var firstSample = Stopwatch.StartNew();
@@ -134,7 +146,8 @@ public partial class App : Application
             evidence.Add($"Real Session: {vm.SampleCount} samples recorded {firstSample.Elapsed.TotalSeconds:0.0} s after recording started.");
             Check(vm.SampleCount >= 3, "Real Session produced fewer than 3 samples in 30 s.");
             Check(vm.Status.StartsWith("REAL SESSION", StringComparison.Ordinal) || vm.Status.StartsWith("Recording stopped", StringComparison.Ordinal), "Real Session status missing.");
-            Check(vm.ModeBanner.StartsWith("REAL SESSION", StringComparison.Ordinal), "Real Session banner missing.");
+            Check(vm.ModeBanner == "REAL SESSION · Windows metrics only · No Horizon Blast counters for this session" && vm.DataAvailability.StartsWith("Windows metrics only", StringComparison.Ordinal),
+                "Without Blast counters the banner must say Windows metrics only, not claim Blast counters: " + vm.ModeBanner);
             // No Horizon Agent: Blast fields are N/A. Host CPU is protocol-independent and must be measured.
             string Card(string label) => vm.OverviewCards.SingleOrDefault(c => c.Label == label)?.Value
                 ?? throw new InvalidOperationException($"Overview card {label} missing ({vm.OverviewCards.Count} cards, page {vm.SelectedPage.Name}, mode {vm.ModeLabel}). Status: {vm.Status}");
@@ -142,7 +155,7 @@ public partial class App : Application
             Check(Card("CPU") != "N/A" && Card("CPU").EndsWith('%'), "Real CPU utilization was not measured.");
             Check(vm.SystemCards.Any(c => c.Label == "Available RAM" && c.Value.EndsWith("GiB", StringComparison.Ordinal)), "Real available RAM was not measured.");
             Check(vm.ProtocolDisplay == "Not detected" && vm.ProtocolDetail.Contains("Not detected", StringComparison.Ordinal), "Real Session must report the protocol as not detected.");
-            Check(vm.SessionCards.Any(c => c.Label == "Active protocol" && c.Value == "Not detected"), "Session card shows a demo protocol in Real Session.");
+            Check(vm.SessionCards.Any(c => c.Label == "Active protocol" && c.Value == "Not detected"), "Session card shows a protocol that was not detected in Real Session.");
             Check(vm.GpuCards.Count > 0 && vm.GraphicsCards.Any(c => c.Label == "Active monitors"), "GPU/display rows missing.");
             Check(vm.RecordingState.Contains("REAL SESSION", StringComparison.Ordinal) && vm.SampleCount >= 1, "Real Session recording failed.");
             var realRtt = Points(vm.RttChart);
@@ -172,7 +185,7 @@ public partial class App : Application
             Check(!d.Findings.Any(f => f.IsProblem) && d.Filters.Single(f => f.Kind == FindingFilterKind.ActiveProblems).Count == 0, "No warning may be raised from a few seconds of data.");
             Check(d.Trends.Count == 4 && d.Cpu.Points.Any(p => p.Value is not null) && d.Rtt.Points.All(p => p.Value is null) && !d.Rtt.HasData,
                 "Diagnostic trends must show measured CPU and leave unavailable RTT as gaps.");
-            // The low-FPS threshold is conditional: with an idle workload and no verified screen activity it is neither drawn nor called applicable.
+            // The low-FPS threshold is conditional: without measured screen activity (no Blast dirty frames) it is neither drawn nor called applicable.
             Check(d.Fps.Data.References is [{ Conditional: true, Applies: false, Visible: false }] && d.Fps.Reference.Contains("conditional", StringComparison.Ordinal),
                 "The conditional low-FPS threshold must be hidden and labelled conditional when it does not apply: " + d.Fps.Reference);
             Check(d.Domains.Single(x => x.Domain == "Graphics Health").Measurements.Any(m => m.Label == "FPS P50" && m.Condition.StartsWith("Low-FPS rule inactive", StringComparison.Ordinal)),
@@ -237,36 +250,40 @@ public partial class App : Application
                 Check(json.RootElement.EnumerateArray().All(e => e.GetProperty("Diagnostics").GetProperty("Assessments").GetArrayLength() == 3), "Real JSON lacks diagnostic assessments.");
             evidence.Add($"Real Session: {realCsv.Length - 1} samples, Blast N/A, CPU {Card("CPU")}; status: {vm.Status}");
 
-            // Demo Mode: synthetic values, separate recording, live charts populated.
-            vm.SelectedMode = vm.Modes.Single(m => m.Value == MonitoringMode.DemoMode);
-            Check(vm.ModeBanner.StartsWith("DEMO DATA", StringComparison.Ordinal), "Demo banner missing.");
-            Check(vm.ProtocolDisplay.EndsWith("(demo selection)", StringComparison.Ordinal), "Demo protocol is not labelled as a demo selection.");
+            // The production pages have no data-source, demo or workload selector.
+            Check(!vm.GetType().GetProperties().Any(p => p.Name is "Modes" or "SelectedMode" or "Scenarios" or "SelectedScenario" or "Workloads" or "SelectedWorkload" or "Protocols" or "SelectedProtocol"),
+                "The view model still offers a data-source, scenario, protocol or workload selection.");
+
+            // Synthetic test data (harness only): values, a separate recording, live charts populated.
+            await UseSyntheticDataAsync(vm);
+            Check(vm.ModeBanner.StartsWith("SYNTHETIC TEST DATA", StringComparison.Ordinal), "Synthetic banner missing.");
             vm.StartRecordingCommand.Execute(null);
-            Check(recorder.IsRecording && recorder.SampleCount == 0, "New demo recording did not replace the real recording.");
+            Check(recorder.IsRecording && recorder.SampleCount == 0, "New synthetic recording did not replace the real recording.");
             await Task.Delay(2200);
-            Check(vm.OverviewCards.Any(c => c.Value != "N/A" && c.Value != "Unavailable"), "Demo Mode did not produce values.");
-            Check(Points(vm.RttChart).Any(v => v is not null) && Points(vm.FpsChart).Any(v => v is not null), "Demo live charts are empty.");
+            Check(vm.ProtocolDisplay.EndsWith("(synthetic)", StringComparison.Ordinal), "Synthetic protocol is not labelled as synthetic.");
+            Check(vm.OverviewCards.Any(c => c.Value != "N/A" && c.Value != "Unavailable"), "Synthetic data did not produce values.");
+            Check(Points(vm.RttChart).Any(v => v is not null) && Points(vm.FpsChart).Any(v => v is not null), "Synthetic live charts are empty.");
             Check(Points(vm.RecordingChart).Any(v => v is not null), "Recording chart is empty.");
 
-            // Switching mode during a recording must stop it, so demo and real samples never mix.
-            vm.SelectedMode = vm.Modes.Single(m => m.Value == MonitoringMode.RealSession);
-            Check(!recorder.IsRecording && vm.Status.Contains("Recording stopped", StringComparison.Ordinal), "Mode switch did not stop the recording.");
-            Check(Points(vm.RttChart).Length == 0 && vm.OverviewCards.Count == 0, "Mode switch did not clear live data.");
-            Check(recorder.Samples.All(s => s.Session.IsDemo), "Recording mixed real and demo samples.");
-            await recorder.ExportCsvAsync(Path.Combine(directory, "demo.csv"));
-            var demoCsv = await File.ReadAllLinesAsync(Path.Combine(directory, "demo.csv"));
-            Check(demoCsv.Length > 1 && demoCsv.Skip(1).All(l => l.Split(',')[1] == "Demo"), "Demo CSV contains non-demo rows.");
-            evidence.Add($"Demo Mode: {demoCsv.Length - 1} samples; Real→Demo→Real switching stopped recording and cleared live data.");
+            // Returning to real monitoring during a recording must stop it, so synthetic and real samples never mix.
+            vm.UseSyntheticSource(null);
+            Check(!recorder.IsRecording && vm.Status.Contains("Recording stopped", StringComparison.Ordinal), "Changing the data source did not stop the recording.");
+            Check(Points(vm.RttChart).Length == 0 && vm.OverviewCards.Count == 0, "Changing the data source did not clear live data.");
+            Check(recorder.Samples.All(s => s.Session.IsDemo), "Recording mixed real and synthetic samples.");
+            await recorder.ExportCsvAsync(Path.Combine(directory, "synthetic.csv"));
+            var syntheticCsv = await File.ReadAllLinesAsync(Path.Combine(directory, "synthetic.csv"));
+            Check(syntheticCsv.Length > 1 && syntheticCsv.Skip(1).All(l => l.Split(',')[1] == "Demo"), "Synthetic CSV contains rows not marked as synthetic.");
+            evidence.Add($"Synthetic test data: {syntheticCsv.Length - 1} samples; Real→synthetic→Real stopped the recording and cleared live data.");
             await Task.Delay(1500);
-            Check(vm.OverviewCards.Single(c => c.Label == "RTT").Value == "N/A" && vm.ProtocolDisplay == "Not detected", "Real Session after switching back must not show demo values.");
-            vm.SelectedMode = vm.Modes.Single(m => m.Value == MonitoringMode.DemoMode);
+            Check(vm.OverviewCards.Single(c => c.Label == "RTT").Value == "N/A" && vm.ProtocolDisplay == "Not detected", "Real Session after the synthetic section must not show synthetic values.");
+            await UseSyntheticDataAsync(vm);
         }
         finally { Directory.Delete(directory, true); }
         vm.StartRecordingCommand.Execute(null);
         await Task.Delay(2200);
         vm.StopRecordingCommand.Execute(null);
         if (vm.SampleCount < 1 || vm.HealthTiles.Count != 3) throw new InvalidOperationException("Sampling/diagnostics smoke check failed.");
-        // Demo data drives every trend; select a finding so layout captures include the evidence panel.
+        // Synthetic data drives every trend; select a finding so layout captures include the evidence panel.
         if (vm.Diagnostics.Findings.Count > 0) vm.Diagnostics.SelectedFinding = vm.Diagnostics.Findings[0];
         foreach (var page in vm.Pages)
         {
@@ -295,9 +312,9 @@ public partial class App : Application
         Directory.CreateDirectory(directory);
         try
         {
-            await recorder.ExportJsonAsync(Path.Combine(directory, "demo.json"));
-            await recorder.ExportCsvAsync(Path.Combine(directory, "demo.csv"));
-            if (new FileInfo(Path.Combine(directory, "demo.json")).Length == 0) throw new IOException("Empty JSON export.");
+            await recorder.ExportJsonAsync(Path.Combine(directory, "synthetic.json"));
+            await recorder.ExportCsvAsync(Path.Combine(directory, "synthetic.csv"));
+            if (new FileInfo(Path.Combine(directory, "synthetic.json")).Length == 0) throw new IOException("Empty JSON export.");
         }
         catch (Exception ex) { deferred.Add("JSON/CSV export: " + ex.Message); }
         finally { Directory.Delete(directory, true); }
@@ -313,7 +330,7 @@ public partial class App : Application
                 "--- evidence gathered ---" + Environment.NewLine + soak + Environment.NewLine + string.Join(Environment.NewLine, evidence));
         }
         else
-            await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"), "PASS: startup, diagnostics (3 independent domains, Insufficient Data and no conclusion on short observation, evidence coverage vs collector availability, software rendering as neutral information, trends with gaps and a shared window, conditional low-FPS threshold hidden at idle, compact status counts, resizable findings/evidence split with independent scrolling, wheel chaining and keyboard access, filters with counts and empty states, sorting, stable selection with evidence, clipboard, diag export columns), Real Session without Horizon Agent (Blast N/A, real CPU/RAM, recording + JSON/CSV with host columns), protocol display, Advanced Metrics filter/search, NVML-absent initialization, Real↔Demo switching, demo sampling and live charts, all six views, themes, recording, JSON/CSV export, themed charts, navigation/resize layout matrix, WPF client captures, no WPF binding errors. Actual Windows DPI changes require manual acceptance.\n" + soak + "\n" + string.Join("\n", evidence));
+            await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "smoke-result.txt"), "PASS: startup, diagnostics (3 independent domains, Insufficient Data and no conclusion on short observation, evidence coverage vs collector availability, software rendering as neutral information, trends with gaps and a shared window, conditional low-FPS threshold hidden without measured screen activity, compact status counts, resizable findings/evidence split with independent scrolling, wheel chaining and keyboard access, filters with counts and empty states, sorting, stable selection with evidence, clipboard, diag export columns), Real Session without Horizon Agent (Blast N/A, real CPU/RAM, recording + JSON/CSV with host columns), protocol display, Advanced Metrics filter/search, NVML-absent initialization, no data-source, demo or workload selection, Real↔synthetic source change (harness only), synthetic sampling and live charts, all six views, themes, recording, JSON/CSV export, themed charts, navigation/resize layout matrix, WPF client captures, no WPF binding errors. Actual Windows DPI changes require manual acceptance.\n" + soak + "\n" + string.Join("\n", evidence));
         // The run ends the way a user ends it: Exit with a recording in progress. Exit finalizes the recording file first.
         // The recording is created for this purpose alone; its id is captured so the finalization is checked against exactly this recording.
         var folder = Path.Combine(AppContext.BaseDirectory, "visual-evidence");
@@ -336,7 +353,7 @@ public partial class App : Application
     }
     private Guid? exitRecordingId;
     /// <summary>
-    /// Demo high-latency scenario on the Diagnostics page: sustained findings must appear with evidence, the UI thread
+    /// Synthetic high-latency scenario on the Diagnostics page: sustained findings must appear with evidence, the UI thread
     /// must stay responsive with four live charts, and repeated navigation must not grow the managed heap.
     /// </summary>
     private async Task<string> DiagnosticsSoakAsync(MainViewModel vm)
@@ -361,8 +378,7 @@ public partial class App : Application
     private async Task<string> DiagnosticsSoakCoreAsync(MainViewModel vm)
     {
         var d = vm.Diagnostics;
-        vm.SelectedMode = vm.Modes.Single(m => m.Value == MonitoringMode.DemoMode);
-        vm.SelectedScenario = vm.Scenarios.Single(s => s.Value == DemoScenario.HighNetworkLatency);
+        await UseSyntheticDataAsync(vm, DemoScenario.HighNetworkLatency);
         vm.SelectedPage = vm.Pages.Single(p => p is DiagnosticsPage);
         var latencies = new List<double>();
         var clock = Stopwatch.StartNew();
@@ -375,7 +391,7 @@ public partial class App : Application
         }
         var seconds = clock.Elapsed.TotalSeconds;
         if (!d.HasActiveProblems || d.HeadlineState != "Warning" && d.HeadlineState != "Critical")
-            throw new InvalidOperationException($"High-latency demo raised no sustained finding after {seconds:0} s: {d.Headline}");
+            throw new InvalidOperationException($"Synthetic high latency raised no sustained finding after {seconds:0} s: {d.Headline}");
         var rtt = d.Findings.SingleOrDefault(f => f.RuleId == "connection.rtt.sustained") ?? throw new InvalidOperationException("Sustained RTT finding missing.");
         if (!rtt.IsProblem || !rtt.Evidence.Any(e => e.Measurement == "95th percentile (P95)" && e.Threshold.StartsWith("≥ 150 ms", StringComparison.Ordinal)) || rtt.Actions.Count == 0)
             throw new InvalidOperationException("RTT finding lacks P95 evidence with its configured threshold or recommended actions.");
@@ -420,12 +436,12 @@ public partial class App : Application
         latencies.Sort();
         double Percentile(double p) => latencies[Math.Min(latencies.Count - 1, (int)(p * latencies.Count))];
         const double MiB = 1024 * 1024;
-        var result = $"Diagnostics soak (Demo high latency, page open, 4 live charts): findings after {seconds:0} s ({string.Join(", ", d.Findings.Select(f => $"{f.RuleId}:{f.Severity}"))}); " +
+        var result = $"Diagnostics soak (synthetic high latency, page open, 4 live charts): findings after {seconds:0} s ({string.Join(", ", d.Findings.Select(f => $"{f.RuleId}:{f.Severity}"))}); " +
             $"UI dispatcher latency over {latencies.Count} probes median {Percentile(.5):0.0} ms, P95 {Percentile(.95):0.0} ms, max {latencies[^1]:0.0} ms; " +
             $"4 × 12 navigation cycles: managed heap {before / MiB:0.0} → {string.Join(" → ", batches.Select(b => (b.Heap / MiB).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)))} MiB, " +
             $"working set {workingBefore / MiB:0} → {string.Join(" → ", batches.Select(b => (b.WorkingSet / MiB).ToString("0", System.Globalization.CultureInfo.InvariantCulture)))} MiB.";
         // Persist the measurements first: later checks, or the layout matrix, may still fail, and the numbers must survive that.
-        var lines = new List<string> { "Diagnostics soak: Demo high-latency scenario, Diagnostics page, 4 live charts, 4 × 12 Dashboard ↔ Diagnostics navigation cycles",
+        var lines = new List<string> { "Diagnostics soak: synthetic high-latency scenario, Diagnostics page, 4 live charts, 4 × 12 Dashboard ↔ Diagnostics navigation cycles",
             $"Findings after {seconds:0} s: {string.Join(", ", d.Findings.Select(f => $"{f.RuleId}:{f.Severity}"))}",
             $"UI dispatcher latency over {latencies.Count} probes: median {Percentile(.5):0.0} ms, P95 {Percentile(.95):0.0} ms, max {latencies[^1]:0.0} ms (limits: median ≤ 200 ms, max ≤ 2000 ms)",
             string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Baseline: managed heap {before / MiB:0.0} MiB (after a full collection), working set {workingBefore / MiB:0} MiB") };

@@ -2,8 +2,11 @@ using EucLens.Core;
 
 namespace EucLens.Providers;
 
-/// <summary>All identifiers and measurements are synthetic, including OS/GPU information.</summary>
-public sealed class MockMetricsProvider(int seed = 42) : IDemoMetricsProvider
+/// <summary>
+/// Synthetic data for automated tests and the --smoke-test harness only. All identifiers and measurements are synthetic, including OS/GPU
+/// information, and every sample is marked <see cref="SessionInfo.IsDemo"/>. The application never registers it: monitoring rejects such samples.
+/// </summary>
+public sealed class MockMetricsProvider(int seed = 42) : IMetricsProvider
 {
     private readonly Random random = new(seed);
     private readonly object gate = new();

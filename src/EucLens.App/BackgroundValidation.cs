@@ -70,7 +70,7 @@ internal static class BackgroundValidation
         var directory = c.EvidenceDirectory;
         SmokeLog.Write("background validation started");
         await c.Vm.Background.LoadAsync();
-        c.Vm.SelectedMode = c.Vm.Modes.Single(m => m.Value == MonitoringMode.DemoMode);
+        await App.UseSyntheticDataAsync(c.Vm);
         if (c.Monitoring.Coordinator.State != MonitoringState.Running) c.Monitoring.StartMonitoring();
         if (c.Recorder.IsRecording) await c.Recorder.StopAsync();
         c.Vm.SelectedPage = c.Vm.Pages[0];
@@ -483,7 +483,7 @@ internal static class BackgroundValidation
 
     private static async Task Soak(BackgroundSmokeContext c)
     {
-        // Real counters on a Demo-free runner would be the honest background load, but demo data drives the engine and the writer the same way.
+        // Real counters on a runner without a Horizon Agent would be the honest background load, but synthetic data drives the engine and the writer the same way.
         c.Vm.SelectedPage = c.Vm.Pages[0];
         c.Lifetime.Restore(); await Idle(c);
         c.Vm.StartRecordingCommand.Execute(null);
@@ -500,7 +500,7 @@ internal static class BackgroundValidation
         string Line(Measure m) => $"{m.Mode}: CPU {m.CpuPercentOfMachine:0.00} % of the machine ({Environment.ProcessorCount} logical processors), working set {m.WorkingSetStartMiB} → {m.WorkingSetEndMiB} MiB, " +
             $"managed heap {m.HeapStartMiB:0.0} → {m.HeapEndMiB:0.0} MiB, {m.Samples} samples ({m.Ticks} ticks) in {SoakSeconds} s, recording bytes {BackgroundViewModel.FormatBytes(m.Bytes)}, samples lost {m.Lost}, dispatcher latency median {m.LatencyMedianMs:0.0} ms max {m.LatencyMaxMs:0.0} ms";
         var text = new StringBuilder()
-            .AppendLine($"Background monitoring soak: Demo data, recording to disk, {SoakSeconds} s per mode, measured in-process (managed heap after a full GC at both ends).")
+            .AppendLine($"Background monitoring soak: synthetic test data, recording to disk, {SoakSeconds} s per mode, measured in-process (managed heap after a full GC at both ends).")
             .AppendLine(Line(visible)).AppendLine(Line(hidden))
             .AppendLine($"Hidden vs visible: CPU {hidden.CpuPercentOfMachine - visible.CpuPercentOfMachine:+0.00;-0.00} percentage points of the machine; working set {hidden.WorkingSetEndMiB - visible.WorkingSetEndMiB:+0;-0} MiB.")
             .AppendLine("This is a short measured comparison on a shared CI runner, not an eight-hour soak; eight-hour behaviour is covered by the accelerated recording simulation in the unit tests and needs manual confirmation on a real VDI.");

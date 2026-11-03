@@ -20,7 +20,11 @@ public interface IDesktopServices
     /// <summary>Asked when the application is about to end while a recording is running.</summary>
     bool ConfirmStopRecordingAndExit() => true;
 }
-public sealed record Preferences(bool Dark, RemoteProtocol Protocol, DemoScenario Scenario, WorkloadContext Workload, MonitoringMode Mode = MonitoringMode.RealSession);
+/// <summary>
+/// Saved user preferences: the theme only. preferences.json written by 0.5.0 and earlier also holds Protocol, Scenario, Workload and Mode
+/// (Real Session or Demo Mode); those properties are not part of this record, so they are ignored when read and dropped when saved again.
+/// </summary>
+public sealed record Preferences(bool Dark);
 
 /// <summary>Outcome of loading diagnostic thresholds; invalid files fall back to defaults and report why.</summary>
 public sealed record ThresholdLoadResult(DiagnosticThresholds Thresholds, bool FromFile, IReadOnlyList<string> Errors, string Path);

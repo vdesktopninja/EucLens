@@ -11,7 +11,7 @@ EucLens.Core         → .NET libraries only
 ```
 
 `Core` contains immutable session snapshots, explicit metric availability,
-provider lifecycle and demo configuration contracts, diagnostic contracts and
+provider lifecycle contracts, diagnostic contracts and
 an in-memory local recorder with atomic JSON/CSV exports. `Providers` contains
 the seeded mock simulator and four unavailable vendor adapter boundaries.
 `Diagnostics` contains the engine and individually testable rules.
@@ -21,9 +21,11 @@ commands and desktop contracts for export-race regression tests, referencing
 chart DTOs without executing WPF or native rendering.
 There are no vendor SDK dependencies in views or viewmodels.
 
-The app's DI composition root chooses `IDemoMetricsProvider` for this milestone.
-Future production collection should depend on `IMetricsProvider`; demo-specific
-protocol/scenario controls stay specific to the demo workspace. The diagnostic
+The app's DI composition root registers one `IMetricsProvider`, the real session
+(`RealSessionMetricsProvider`). Since 0.5.1 there is no Demo Mode: the seeded
+synthetic generator (`MockMetricsProvider`) is used only by tests and the
+`--smoke-test` harness, through an internal view-model hook, and real monitoring
+rejects samples marked `IsDemo`. The diagnostic
 engine accepts `IEnumerable<IDiagnosticRule>`; new rules require registration,
 not changes to the engine. `ISessionRecorder` permits replacement with a streaming
 implementation later. Desktop services isolate platform dialogs/preferences
@@ -41,8 +43,8 @@ old export cannot mark a new recording as saved; concurrent successful exports
 only advance the current recording’s saved watermark. No synchronous dispatcher wait or `.Result` is used. Calls never overlap.
 Configuration has a generation number; results collected during a configuration
 change are discarded. Protocol changes reset the simulated connected time.
-Live charts reset when protocol, scenario or workload changes; recordings keep
-individually identified samples across changes.
+Live charts reset when the data source changes (only the smoke harness can change it);
+a recording stops at such a change, so synthetic and real samples never mix.
 
 Collection failures log locally, report stale values and set health Unavailable;
 the loop retries. Shutdown cancels and awaits collection, then asynchronously
@@ -61,9 +63,10 @@ The mock provider serializes configuration/collection/disposal with a lock.
 
 A `Metric` has a nullable numeric value, unit and optional missing-data reason.
 Zero is an available measurement; no source means Unavailable. No unavailable
-vendor value is synthesized from a system proxy. `SessionInfo.IsDemo` and the
-persistent UI banner identify synthetic snapshots; JSON exports preserve this
-flag and the optional demo scenario.
+vendor value is synthesized from a system proxy. `SessionInfo.IsDemo` identifies
+synthetic snapshots (tests, the smoke harness, recordings of 0.5.0 Demo Mode); JSON
+exports preserve this flag, the optional demo scenario and, for recordings of 0.5.0
+and earlier, the historical workload (`null` from 0.5.1).
 
 Rules evaluate only when required metrics are available; bandwidth ratios also
 require positive capacity. Rule results carry availability separately from

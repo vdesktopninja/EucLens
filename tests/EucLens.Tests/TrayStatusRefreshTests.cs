@@ -56,7 +56,7 @@ public sealed class TrayStatusRefreshTests
             else rig.Recorder = new SessionRecorder();
             rig.Monitoring = new MonitoringService(new MonitoringCoordinator(interval: TimeSpan.FromMilliseconds(20)), rig.Recorder);
             rig.Vm = new MainViewModel(rig.Provider, new DiagnosticIntelligenceEngine(DiagnosticRuleSet.Default()), rig.Recorder, new Desktop(), NullLogger<MainViewModel>.Instance,
-                monitoring: rig.Monitoring, background: new BackgroundViewModel(rig.Monitoring, rig.Recorder, new Desktop(), storage: rig.Storage));
+                monitoring: rig.Monitoring, background: new BackgroundViewModel(rig.Monitoring, rig.Recorder, new Desktop(), storage: rig.Storage)).WithSynthetic(rig.Provider);
             await rig.Vm.InitializeAsync(default);
             rig.Monitoring.Notifications.Enabled = true; // after initialization, which applies the stored (default: off) settings
             rig.Monitoring.StatusChanged += s => { lock (rig.Changes) rig.Changes.Add(s); };

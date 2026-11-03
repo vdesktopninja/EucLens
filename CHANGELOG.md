@@ -2,6 +2,16 @@
 
 All notable changes to EUC Lens are listed here. The application version is set in one place, `Directory.Build.props`.
 
+## 0.5.1 — Real monitoring only
+
+Status: release candidate, not released. Stable non-AI line (from 0.5.0); none of the 0.6 work. The recording format is unchanged (`euclens.recording/1`). Details and the audit: [docs/STABLE_RELEASE_0.5.1.md](docs/STABLE_RELEASE_0.5.1.md).
+
+- **No Demo Mode.** The data-source, demo protocol and demo scenario selectors are removed. EUC Lens monitors the real session only: Horizon Blast counters where present, protocol-independent Windows metrics everywhere. Preferences saved by earlier versions can no longer select Demo Mode (only the theme is restored), and real monitoring discards any synthetic sample. The synthetic generator is used only by the automated tests and the `--smoke-test` harness.
+- **No workload selection.** The frame-rate rules follow a measurement: low FPS is judged only while Blast dirty frames show the content changing at least as often as the low-FPS threshold (15 per second). A static, idle or slowly changing screen is never a finding, and without the dirty-frame counter low FPS is not judged. No threshold value was added or changed.
+- **Clear indicators.** Dashboard and Settings show the detected protocol and the data availability; the banner says "Windows metrics only" when the session has no Horizon Blast counters, instead of claiming them.
+- **Compatibility.** Recordings and exports of 0.5.0 and earlier open and keep their historical workload and demo values; new samples export `Unavailable` in the unchanged `workload` column.
+- **CI.** Pushes to `release/**` are validated. The portable EXE is uploaded only for manual runs (3 days); the launch check, the credential scan and the job-log summary from the 0.6 line are included.
+
 ## 0.5.0 — Intelligent findings in Session History
 
 Status: release candidate. The recording format is unchanged (`euclens.recording/1`): recordings made by 0.4.3 and 0.4.4 open in 0.5.0 (covered by tests), and 0.5.0 writes the same format. Opening a 0.5.0 recording in an older version was not tested. The existing JSON and CSV exports of the Session Recorder and of the Session History timeline keep their columns and structure.

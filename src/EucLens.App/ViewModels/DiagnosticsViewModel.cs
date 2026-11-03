@@ -149,9 +149,9 @@ public sealed class DiagnosticsViewModel : ObservableObject
         // Full wording in the chart header; a short label on the line itself so it never runs past a narrow plot.
         Rtt.SetReferences(new ReferenceLine("Warning", value.RttWarningMs, $"Warning ≥ {N(value.RttWarningMs)} ms", $"Warning {N(value.RttWarningMs)}"),
             new ReferenceLine("Critical", value.RttCriticalMs, $"Critical ≥ {N(value.RttCriticalMs)} ms", $"Critical {N(value.RttCriticalMs)}"));
-        // Low FPS is judged only during a declared active workload with a changing screen: the line is conditional.
+        // Low FPS is judged only while Blast dirty frames show the content changing at least as often as the threshold: the line is conditional.
         Fps.SetReferences(new ReferenceLine("Warning", value.LowFps, $"Low FPS < {N(value.LowFps)}", $"Low FPS {N(value.LowFps)}",
-            Conditional: true, Condition: "verified active graphics workload"));
+            Conditional: true, Condition: $"Blast dirty frames ≥ {N(value.LowFps)} per second"));
         Cpu.SetReferences(new ReferenceLine("Warning", value.CpuWarningPercent, $"Warning ≥ {N(value.CpuWarningPercent)} %", $"Warning {N(value.CpuWarningPercent)} %"));
         PacketLoss.SetReferences(new ReferenceLine("Warning", value.PacketLossWarningPercent, $"Warning: mean ≥ {N(value.PacketLossWarningPercent)} %", $"Warning {N(value.PacketLossWarningPercent)} %"));
         UpdateTrendAxes();
@@ -228,8 +228,8 @@ public sealed class DiagnosticsViewModel : ObservableObject
         // Only the low-FPS threshold is conditional; the engine says whether it applies right now.
         var condition = i.ThresholdApplies switch
         {
-            true => "Low-FPS rule active: active workload with verified screen activity.",
-            false => "Low-FPS rule inactive: applies only during a verified active graphics workload.",
+            true => "Low-FPS rule active: Blast dirty frames show the content changing at least as often as the threshold.",
+            false => "Low-FPS rule inactive: applies only while Blast dirty frames show the content changing at least as often as the threshold.",
             _ => "",
         };
         return new(label, value, i.Threshold ?? "", SampleNote(i), condition);
@@ -308,7 +308,7 @@ public sealed class DiagnosticsViewModel : ObservableObject
             new("Stale / failed samples", stale + failed == 0 ? "None" : $"{stale} stale · {failed} failed", "", "Excluded from every threshold."),
             new("Unverified units (not evaluated)", unverified.Length == 0 ? "None" : unverified.Length.ToString(CultureInfo.InvariantCulture), "",
                 string.Join(", ", unverified.Select(i => i.Name))),
-            new("Collector metrics with a value", sample.Session.IsDemo ? "Synthetic (Demo Mode)" : raw.Length == 0 ? "N/A"
+            new("Collector metrics with a value", sample.Session.IsDemo ? "Synthetic (test data)" : raw.Length == 0 ? "N/A"
                 : $"{raw.Count(m => m.Status == MetricStatus.Available)} of {raw.Length}", "", "Raw counters in the latest sample (Advanced Metrics). Availability is not diagnostic coverage."),
         ]);
         var t = thresholds;

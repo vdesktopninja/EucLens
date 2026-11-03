@@ -52,7 +52,7 @@ public static class RecordingExport
                     ? $",{(e.Text is null ? V(e.Metric) : Q(e.Text))},{Q(e.Metric.Unit)},{e.Metric.Status},{e.Metric.RawValue?.ToString(CultureInfo.InvariantCulture) ?? ""},{e.Metric.Scope?.ToString() ?? ""},{Q(e.Metric.Source)}"
                     : ",Unavailable,\"\",Unavailable,,,\"\""));
                 await writer.WriteLineAsync(string.Join(",", s.Timestamp.ToString("O"), s.Session.IsDemo ? "Demo" : "RealSession", s.Session.IsDemo,
-                    s.Session.Protocol, s.Session.SessionId, s.Workload, s.DemoScenario?.ToString() ?? "Unavailable", V(s.Connection.RoundTripTime),
+                    s.Session.Protocol, s.Session.SessionId, s.Workload?.ToString() ?? "Unavailable", s.DemoScenario?.ToString() ?? "Unavailable", V(s.Connection.RoundTripTime),
                     V(s.Connection.NetworkLatency), V(s.Connection.AvailableBandwidth), V(s.Connection.BandwidthConsumption),
                     V(s.Connection.PacketLoss), V(s.Graphics.FramesPerSecond), V(s.Graphics.DroppedFramesPercent),
                     Q(s.Graphics.Encoder), Q(s.Graphics.Codec), Q(s.Graphics.Mode), s.Graphics.HardwareEncoding?.ToString() ?? "Unavailable",

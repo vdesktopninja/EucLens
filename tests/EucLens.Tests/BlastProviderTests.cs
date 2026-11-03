@@ -270,20 +270,23 @@ public sealed class BlastProviderTests
             Assert.Equal(31, rtt.GetProperty("RawValue").GetInt64());
             Assert.StartsWith(@"\Horizon Blast Session Counters", rtt.GetProperty("Source").GetString());
             Assert.False(json.RootElement[0].GetProperty("Session").GetProperty("IsDemo").GetBoolean());
+            // The provider declares no workload: none is selected anywhere, and frame-rate rules use the measured screen activity.
+            Assert.Equal("Unavailable", Cell("workload"));
+            Assert.True(!json.RootElement[0].TryGetProperty("Workload", out var workload) || workload.ValueKind == JsonValueKind.Null);
         }
         finally { directory.Delete(true); }
     }
 
     [Fact]
-    public async Task RealModeShowsNotApplicableAndSwitchingModeStopsRecording()
+    public async Task RealSessionShowsNotApplicableAndChangingTheSourceStopsRecording()
     {
         await using var demo = new MockMetricsProvider();
         await using var real = new OmnissaBlastProvider(new FakeReader(), new FakeContext(3, installed: false));
         var recorder = new SessionRecorder();
-        var vm = new MainViewModel(demo, new DiagnosticEngine([new LatencyRule()]), recorder, new FakeDesktop(),
-            NullLogger<MainViewModel>.Instance, real);
+        var vm = new MainViewModel(real, new DiagnosticEngine([new LatencyRule()]), recorder, new FakeDesktop(),
+            NullLogger<MainViewModel>.Instance);
         await vm.InitializeAsync(default);
-        Assert.False(vm.IsDemo);
+        Assert.Equal("Real Session", vm.ModeLabel);
 
         using (var run = new CancellationTokenSource(TimeSpan.FromMilliseconds(400))) await vm.RunAsync(run.Token);
 
@@ -293,12 +296,14 @@ public sealed class BlastProviderTests
         vm.StartRecordingCommand.Execute(null);
         Assert.Contains("REAL SESSION", vm.RecordingState);
 
-        vm.SelectedMode = vm.Modes.Single(m => m.Value == MonitoringMode.DemoMode);
+        // Only automated validation can change the source; a recording never continues across the change.
+        await demo.InitializeAsync();
+        vm.UseSyntheticSource(demo);
 
         Assert.False(recorder.IsRecording);
         Assert.Contains("Recording stopped", vm.Status);
         Assert.Empty(vm.OverviewCards);
-        Assert.StartsWith("DEMO DATA", vm.ModeBanner);
+        Assert.StartsWith("SYNTHETIC TEST DATA", vm.ModeBanner);
     }
 
     private sealed class FakeContext(int session, bool installed = true, bool active = true) : IBlastSessionContext

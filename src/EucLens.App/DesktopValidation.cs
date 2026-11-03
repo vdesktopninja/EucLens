@@ -79,6 +79,7 @@ internal static class DesktopValidation
                     await WaitForChartMeasureAsync(window);
                     CheckCharts(window, page);
                     CheckPanes(window);
+                    CheckNoSourceSelection(window, page);
                     if (page is DiagnosticsPage)
                     {
                         CheckText(window);
@@ -188,6 +189,23 @@ internal static class DesktopValidation
             paint.Color.Green != solid.Color.G || paint.Color.Blue != solid.Color.B)
             throw new InvalidOperationException($"Chart {role} does not match active theme.");
     }
+    /// <summary>
+    /// Production pages offer no data-source, demo protocol, demo scenario or workload selection. Dashboard and Settings show the detected
+    /// protocol and the data availability as text instead.
+    /// </summary>
+    private static void CheckNoSourceSelection(Window window, PageViewModel page)
+    {
+        string[] names = ["Monitoring mode", "Simulated protocol", "Demo scenario", "Workload context", "Diagnostic workload context", "Demo selection"];
+        string[] labels = ["Demo protocol", "Demo scenario", "Workload", "Workload (user-selected)", "Monitoring defaults"];
+        var offending = Descendants<FrameworkElement>(window).FirstOrDefault(e => e.IsVisible
+            && (names.Contains(System.Windows.Automation.AutomationProperties.GetName(e)) || e is TextBlock t && labels.Contains(t.Text)));
+        Require(offending is null, $"{page.Name}: the page offers a selection that must not exist ({offending?.GetType().Name} '{(offending is null ? "" : System.Windows.Automation.AutomationProperties.GetName(offending))}').");
+        if (page is not (DashboardPage or SettingsPage)) return;
+        foreach (var name in new[] { "Detected protocol", "Data availability" })
+            Require(Descendants<TextBlock>(window).Any(t => t.IsVisible && System.Windows.Automation.AutomationProperties.GetName(t) == name && t.Text.Length > 0),
+                $"{page.Name}: the {name.ToLowerInvariant()} indicator is missing.");
+    }
+
     private static void CheckPanes(Window window)
     {
         foreach (var panel in Descendants<Panel>(window).Where(p => p is AdaptiveColumnsPanel or ResponsiveSplitPanel))

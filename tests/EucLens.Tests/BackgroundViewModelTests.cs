@@ -54,7 +54,7 @@ public sealed class BackgroundViewModelTests
             rig.Coordinator = new MonitoringCoordinator(interval: TimeSpan.FromMilliseconds(20));
             rig.Monitoring = new MonitoringService(rig.Coordinator, rig.Recorder);
             rig.Vm = new MainViewModel(rig.Provider, new DiagnosticIntelligenceEngine(DiagnosticRuleSet.Default()), rig.Recorder, rig.Desktop, NullLogger<MainViewModel>.Instance,
-                monitoring: rig.Monitoring, background: new BackgroundViewModel(rig.Monitoring, rig.Recorder, rig.Desktop, storage: rig.Storage));
+                monitoring: rig.Monitoring, background: new BackgroundViewModel(rig.Monitoring, rig.Recorder, rig.Desktop, storage: rig.Storage)).WithSynthetic(rig.Provider);
             await rig.Vm.InitializeAsync(default);
             return rig;
         }

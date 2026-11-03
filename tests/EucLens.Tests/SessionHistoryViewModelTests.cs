@@ -544,7 +544,7 @@ public sealed class SessionHistoryViewModelTests
             var monitoring = new MonitoringService(new MonitoringCoordinator(), recorder);
             var background = new BackgroundViewModel(monitoring, recorder, desktop, store, rec.Storage);
             await using var provider = new MockMetricsProvider();
-            var vm = new MainViewModel(provider, new DiagnosticIntelligenceEngine(DiagnosticRuleSet.Default()), recorder, desktop, NullLogger<MainViewModel>.Instance, monitoring: monitoring, background: background);
+            var vm = new MainViewModel(provider, new DiagnosticIntelligenceEngine(DiagnosticRuleSet.Default()), recorder, desktop, NullLogger<MainViewModel>.Instance, monitoring: monitoring, background: background).WithSynthetic(provider);
             await background.LoadAsync();
             await background.RefreshRecordingsAsync();
 

@@ -98,7 +98,8 @@ public sealed class ViewModelRecordingTests
         var recorder = new SessionRecorder();
         var vm = Create(provider, recorder);
         await vm.InitializeAsync(default);
-        vm.SelectedProtocol = vm.Protocols[1];
+        provider.Configure(RemoteProtocol.OmnissaBlast, DemoScenario.Healthy, WorkloadContext.InteractiveGraphics);
+        vm.UseSyntheticSource(provider);
         vm.StartRecordingCommand.Execute(null);
         using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         vm.PropertyChanged += (_, args) =>
@@ -116,8 +117,8 @@ public sealed class ViewModelRecordingTests
         Assert.Equal(sample.Connection.RoundTripTime.Display, vm.NetworkReadout);
         Assert.Equal(sample.Graphics.FramesPerSecond.Display, vm.GraphicsReadout);
     }
-    private static MainViewModel Create(IDemoMetricsProvider provider, ISessionRecorder recorder) =>
-        new(provider, new DiagnosticEngine([]), recorder, new FakeDesktop(), NullLogger<MainViewModel>.Instance);
+    private static MainViewModel Create(IMetricsProvider provider, ISessionRecorder recorder) =>
+        new MainViewModel(provider, new DiagnosticEngine([]), recorder, new FakeDesktop(), NullLogger<MainViewModel>.Instance).WithSynthetic(provider);
     private sealed class FakeDesktop : IDesktopServices
     {
         public string? SelectExportPath(bool json) => "unused-by-fake";

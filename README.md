@@ -4,9 +4,9 @@ A free, MIT-licensed portable Windows desktop workspace for understanding remote
 desktop session performance. EUC Lens uses original code and design; it does not
 include Remote Display Analyzer code. **Real Session** mode combines Omnissa Horizon
 Blast counters (0.2) with protocol-independent Windows CPU, memory, disk, GPU and
-display measurements (0.3). The original **Demo Mode**, whose identifiers and
-measurements are entirely synthetic, is still available.
-The active data source is always shown in the header banner and sidebar.
+display measurements (0.3). Since 0.5.1 it monitors only the real session it runs in:
+there is no Demo Mode and no workload selection. The header banner shows the data
+availability (Horizon Blast counters + Windows metrics, or Windows metrics only).
 
 ## Current functionality
 
@@ -20,14 +20,13 @@ The active data source is always shown in the header banner and sidebar.
   utilization, encode/decode and dedicated/shared memory from Windows GPU
   counters, optional NVIDIA NVML, and the session's display topology. See
   [System, GPU and display monitoring](docs/SYSTEM_GPU_MONITORING.md).
-- The detected protocol is shown in Real Session ("Not detected" with the reason
-  when no Blast session exists). Demo protocol selection only appears in Demo Mode.
+- The detected protocol is shown on Dashboard and Settings ("Not detected" with the
+  reason when no Blast session exists), next to the data availability.
 - **Advanced Metrics** page: every raw measurement with category filter, search,
   value, unit, scope (machine-wide or this session), status, source and sample time.
-- **Demo Mode**: switch between simulated Citrix HDX, Omnissa Blast and Microsoft
-  RDP sessions. Demo and real samples are never mixed; switching mode clears the
-  live charts and stops an active recording.
-- Healthy, high latency, low FPS, GPU bottleneck and bandwidth congestion scenarios.
+- Frame-rate rules follow the measured screen activity (Blast dirty frames); there is
+  nothing to select. Synthetic data exists only in the automated tests and the
+  `--smoke-test` harness, and real monitoring rejects synthetic samples.
 - One-second asynchronous collection, metric cards, session health and LiveCharts2
   RTT/FPS charts with a rolling 120-sample window.
 - Offline, rule-based **diagnostic intelligence** with independent **Connection**,
@@ -127,17 +126,18 @@ see [validation evidence](docs/VALIDATION.md).
 
 ## Using EUC Lens
 
-1. On Dashboard, choose the data source (Real Session or Demo Mode) and the
-   workload. In Demo Mode, also choose a protocol and scenario. The first sample
-   arrives during startup; updates continue once per second on every page.
-2. Open Diagnostics to inspect the four sample rules. Idle/static content and
-   office workloads do not generate low-FPS alerts merely for low FPS.
-3. Open Session Recorder, start recording, exercise scenarios, then stop and
-   export JSON or CSV. Each sample retains its timestamp, data source, protocol,
-   demo scenario and workload. Real samples also carry every Blast counter's
+1. Start EUC Lens in the session to monitor. Dashboard shows the detected protocol
+   and the data availability; updates continue once per second on every page.
+2. Open Diagnostics. Low FPS is judged only while Blast dirty frames show the content
+   changing at least 15 times per second, so an idle, static or slowly changing
+   screen never raises a low-FPS alert.
+3. Open Session Recorder, start recording, reproduce the problem, then stop and
+   export JSON or CSV. Each sample retains its timestamp, data source and protocol
+   (recordings of 0.5.0 and earlier also keep their demo scenario and workload). Real samples also carry every Blast counter's
    value, unit, status, raw value and counter path. Export during recording saves a stable snapshot of samples so far.
-4. Use Settings to change the theme immediately and save preferences for the
-   next launch, including the data source.
+4. Use Settings to change the theme immediately and save it for the next launch.
+   Settings saved by earlier versions (data source, demo protocol, scenario, workload)
+   are ignored.
 
 ## Storage and limitations
 
@@ -157,7 +157,8 @@ see [validation evidence](docs/VALIDATION.md).
   round-trip format.
 - Diagnostics are single-sample illustrative thresholds, not vendor guidance or
   definitive root-cause analysis. CPU/encoding/network-instability rules and
-  sustained-window evaluation remain planned. Workload context is user-selected.
+  sustained-window evaluation remain planned. Without the Blast dirty-frame counter,
+  low FPS is not judged (see [Diagnostics](docs/DIAGNOSTICS.md)).
 - Published builds are unsigned. DPI, chart rendering, file dialogs and remote
   GPU behavior need the [Windows acceptance checklist](docs/WINDOWS_ACCEPTANCE.md).
 
@@ -169,7 +170,7 @@ see [validation evidence](docs/VALIDATION.md).
 3. Research each remaining vendor's (Citrix, RDP, NVIDIA) documented, supported,
    non-admin measurement sources; implement one adapter at a time.
 4. Add configurable, time-window diagnostics for CPU, encoding, dropped frames
-   and network instability with measured workload context.
+   and network instability with measured screen activity.
 5. Expand packaging/platform coverage, performance benchmarks and release signing.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), [ARCHITECTURE.md](ARCHITECTURE.md) and

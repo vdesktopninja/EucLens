@@ -203,26 +203,62 @@ public sealed class DiagnosticIntelligenceTests
     }
 
     [Fact]
-    public void LowFpsDuringActiveWorkloadWithScreenActivityWarns()
+    public void LowFpsWhileTheContentIsChangingWarns()
     {
-        var f = Active(New().Run(60, new Sample(Fps: 8, Dirty: 25, Workload: WorkloadContext.InteractiveGraphics)), DiagnosticRuleIds.LowFps)!;
+        // The sample's workload value (Idle, as older recordings could carry) plays no part: the measured screen activity decides.
+        var f = Active(New().Run(60, new Sample(Fps: 8, Dirty: 25, Workload: WorkloadContext.Idle)), DiagnosticRuleIds.LowFps)!;
 
         Assert.Equal(Severity.Warning, f.Severity);
-        Assert.Equal("Low frame rate during active graphics workload", f.Title);
+        Assert.Equal("Low frame rate while the content is changing", f.Title);
         Assert.Contains("confirmed by Blast dirty frames", f.Description);
+        Assert.Contains(f.Evidence, e => e.Metric == "Dirty FPS mean" && e.Value == "25 FPS");
+        Assert.DoesNotContain(f.Evidence, e => e.Metric.Contains("Workload", StringComparison.Ordinal));
+        Assert.Contains("Not judged when screen activity cannot be measured", f.DecisionRule);
     }
 
     [Fact]
-    public void LowFpsWithoutActivityEvidenceIsMarkedUncertain()
+    public void LowFpsWithoutActivityEvidenceIsNotJudged()
     {
-        var f = Active(New().Run(60, new Sample(Fps: 8, Workload: WorkloadContext.VideoPlayback)), DiagnosticRuleIds.LowFps)!;
-        Assert.Contains("activity unverified", f.Title);
-        Assert.Contains("uncertain", f.Limitations);
+        // No dirty-frame counter: a slow screen cannot be told from a static one, so nothing is claimed, even for a declared workload.
+        var r = New().Run(60, new Sample(Fps: 8, Workload: WorkloadContext.VideoPlayback));
+        Assert.Null(Active(r, DiagnosticRuleIds.LowFps));
+        Assert.Null(Active(r, DiagnosticRuleIds.CpuBoundGraphics));
+        Assert.Null(Active(r, DiagnosticRuleIds.FpsUnstable));
+        Assert.Contains(r.Hypotheses!, h => h.Statement == "No graphics performance problem can be inferred from low FPS alone."
+            && h.Confidence.StartsWith("Not judged — screen activity cannot be measured", StringComparison.Ordinal));
+        Assert.False(r.Inputs!.Single(i => i.Key == DiagnosticMetrics.Fps).ThresholdApplies);
+    }
+
+    [Fact]
+    public void SlowlyChangingContentIsNotJudgedAgainstTheLowFpsThreshold()
+    {
+        // Typing or scrolling a document: the screen changes 8 times per second and Blast delivers about that. Without a workload
+        // selection this must not read as a frame-rate problem: the content asks for fewer frames than the 15 FPS threshold.
+        var r = New().Run(60, new Sample(Fps: 8, Dirty: 8));
+        Assert.Null(Active(r, DiagnosticRuleIds.LowFps));
+        Assert.Null(Active(r, DiagnosticRuleIds.CpuBoundGraphics));
+        Assert.Equal(HealthState.Healthy, State(r, DiagnosticDomain.Graphics));
+        Assert.Contains(r.Hypotheses!, h => h.Statement == "No graphics performance problem can be inferred from low FPS alone."
+            && h.Confidence.StartsWith("Expected — the content changes fewer times per second than the low-FPS threshold", StringComparison.Ordinal));
+        Assert.False(r.Inputs!.Single(i => i.Key == DiagnosticMetrics.Fps).ThresholdApplies);
+
+        // The same delivery while the content changes 25 times per second is a finding; when the content slows down again it recovers.
+        var h = New();
+        Assert.NotNull(Active(h.Run(60, new Sample(Fps: 8, Dirty: 25)), DiagnosticRuleIds.LowFps));
+        Assert.Null(Active(h.Run(70, new Sample(Fps: 8, Dirty: 8)), DiagnosticRuleIds.LowFps));
     }
 
     [Fact]
     public void StaticScreenDuringDeclaredActiveWorkloadDoesNotWarn() =>
         Assert.Null(Active(New().Run(60, new Sample(Fps: 3, Dirty: 1, Workload: WorkloadContext.InteractiveGraphics)), DiagnosticRuleIds.LowFps));
+
+    [Fact]
+    public void AFindingRaisedWhileTheScreenChangedClosesWhenActivityCanNoLongerBeMeasured()
+    {
+        var h = New();
+        Assert.NotNull(Active(h.Run(60, new Sample(Fps: 8, Dirty: 25)), DiagnosticRuleIds.LowFps));
+        Assert.Null(Active(h.Run(70, new Sample(Fps: 8)), DiagnosticRuleIds.LowFps));
+    }
 
     [Fact]
     public void UndocumentedQueueingCounterIsInformationOnly()
@@ -557,7 +593,7 @@ public sealed class DiagnosticIntelligenceTests
         await using var demo = new MockMetricsProvider();
         var store = new FakeSettings(new ThresholdLoadResult(DiagnosticThresholds.Defaults, true, ["RttWarningMs must be lower than RttCriticalMs."], "test.json"));
         var engine = new DiagnosticIntelligenceEngine(DiagnosticRuleSet.Default());
-        var vm = new MainViewModel(demo, engine, new SessionRecorder(), new FakeDesktop(), NullLogger<MainViewModel>.Instance, null, store);
+        var vm = new MainViewModel(demo, engine, new SessionRecorder(), new FakeDesktop(), NullLogger<MainViewModel>.Instance, store).WithSynthetic(demo);
         await vm.InitializeAsync(default);
         Assert.Contains("Invalid settings", vm.ThresholdStatus);
         Assert.NotEmpty(vm.ThresholdCards);
@@ -566,7 +602,8 @@ public sealed class DiagnosticIntelligenceTests
         Assert.Equal(3, vm.HealthTiles.Count);
         Assert.Equal("Insufficient Data", vm.ConnectionHealth);
         Assert.Equal("Insufficient Data", vm.GuestHealth);
-        Assert.Contains("Video playback", vm.Workloads.Select(w => w.Label));
+        // Diagnostics follow the measurements: there is no workload (or any other) selection that could change a rule.
+        Assert.DoesNotContain(typeof(MainViewModel).GetProperties(), p => p.Name.Contains("Workload", StringComparison.Ordinal));
 
         await vm.RestoreThresholdDefaultsCommand.ExecuteAsync();
         Assert.True(store.Restored);

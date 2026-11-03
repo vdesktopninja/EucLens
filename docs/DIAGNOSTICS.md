@@ -93,8 +93,8 @@ sustained/coverage requirements above.
 | `connection.rtt.unstable` | Connection | RTT interquartile range (P75 − P25) ≥ 50 ms (Warning) | Detects persistently variable delay. The interquartile range ignores spikes in up to 25 % of samples, so brief spikes do not alert. |
 | `connection.packetloss.uplink` | Connection | Mean uplink loss ≥ 1 / 5 % | Sustained loss above ~1 % noticeably affects interactive protocols. **Uplink only**; downstream loss is not inferred. |
 | `connection.reconnects` | Connection | Reconnect counter +1 within 120 s (Warning) | A reconnect is a user-visible interruption. Recovers after 120 s without increase. |
-| `graphics.fps.low` | Graphics | FPS < 15 for ≥ 70 % of the window (Warning) | Only for *Interactive graphics* and *Video playback* workloads, and only when the screen is changing (dirty FPS ≥ 5). Without a dirty-frame counter the finding is marked *activity unverified*. A static screen or idle/office workload never alerts. |
-| `graphics.fps.unstable` | Graphics | FPS coefficient of variation ≥ 0.5 while dirty-FPS variation < 0.25 (Warning) | Frame delivery fluctuates while content changes steadily. |
+| `graphics.fps.low` | Graphics | FPS < 15 for ≥ 70 % of the window (Warning) | Only while Blast dirty frames show the content changing at least as often as the threshold (dirty FPS mean ≥ 15 over the window). Without a dirty-frame counter low FPS is **not judged** (since 0.5.1; see *Screen activity*). A static, idle or slowly changing screen never alerts. |
+| `graphics.fps.unstable` | Graphics | FPS coefficient of variation ≥ 0.5 while dirty-FPS variation < 0.25 (Warning) | Frame delivery fluctuates while content changes steadily. Needs measured screen activity. |
 | `graphics.queueing` | Graphics | Out queueing time ≥ 50,000 µs (**Information only**) | Counter semantics (per-interval or cumulative) are not documented, so this indicator never changes Graphics Health. |
 | `graphics.bottleneck.cpu` / `.gpu` / `.network` | Graphics | Low-FPS condition together with sustained CPU ≥ 90 %, GPU ≥ 90 % (hardware GPU only), or RTT/loss over their warning thresholds | Reported as a *possible* contributor. |
 | `guest.cpu.saturation` | Guest | CPU ≥ 90 / 98 % | Evidence includes the logical processor count. With 2 vCPUs, one busy thread is ~50 %. |
@@ -106,11 +106,24 @@ sustained/coverage requirements above.
 | `dataquality.blast-unavailable` | Data quality | Information | No Blast counters for this session; guest and graphics assessments continue. |
 | `dataquality.excluded-metrics` | Data quality | Information | Jitter and estimated bandwidth have undocumented units and are shown as raw evidence only. Bandwidth saturation is not assessed (no verified capacity metric). UDP/TCP byte counts do not prove the negotiated transport. |
 
-### Workload
+### Screen activity (no workload selection since 0.5.1)
 
-The workload (Idle, Office, Interactive graphics, Video playback) is **user-selected**.
-It does not prove activity. Graphics rules require screen-activity evidence from Blast
-dirty frames where available, and mark conclusions as uncertain otherwise.
+Up to 0.5.0 the user selected a workload (Idle, Office, Interactive graphics, Video playback), and the frame-rate rules
+ran only for a declared active workload. 0.5.1 removes the selection. The frame-rate rules (`graphics.fps.low`,
+`graphics.fps.unstable`, `graphics.bottleneck.*`) now use only a measurement: the Blast dirty-frame counter.
+
+| Measured content change rate (dirty FPS mean over the standard window) | Low FPS and the low-FPS bottleneck rules |
+|---|---|
+| ≥ `LowFps` (15): the content changes at least as often as the threshold | Evaluated with the unchanged thresholds (FPS < 15 for ≥ 70 % of 60 s, and so on). Fewer delivered frames than the content produces cannot be explained by the content. |
+| ≥ `ActivityDirtyFps` (5) and < `LowFps`: slowly changing content (typing, scrolling a document) | Not a problem: the content itself asks for fewer than 15 frames per second; an open finding recovers. |
+| < `ActivityDirtyFps`: the screen is mostly static | Not a problem; an open finding recovers ("low FPS is expected"). |
+| No dirty-frame counter (or too few samples of it) | **Not judged**: nothing is claimed, an open finding closes, and the assessment says "Not judged — screen activity cannot be measured". |
+
+`graphics.fps.unstable` keeps its own condition (dirty FPS ≥ `ActivityDirtyFps`, steady content, fluctuating delivery).
+No threshold value was added or changed: the existing `LowFps` threshold now also states how often the content must change for
+low FPS to be judged, which replaces the workload a user used to declare. The idle and static-screen handling stays conservative:
+low FPS on a static or slowly changing screen is never a finding, and without activity evidence nothing is concluded. Recordings made by 0.5.0 keep their workload value; it is shown
+in exports and never used by a rule. See [STABLE_RELEASE_0.5.1.md](STABLE_RELEASE_0.5.1.md) for the audit and the limitations.
 
 ## Assessments (hypotheses)
 
@@ -118,7 +131,7 @@ dirty frames where available, and mark conclusions as uncertain otherwise.
 |---|---|
 | Connection findings, guest CPU normal | "Network-related connection degradation is suspected." |
 | Low FPS (active) + CPU saturation, RTT normal | "Guest CPU saturation may be contributing to graphics performance degradation." |
-| Low FPS, idle/office workload, CPU and RTT normal | "No graphics performance problem can be inferred from low FPS alone." |
+| Low FPS without content changing at the threshold rate (static or slowly changing screen, or no dirty-frame counter), CPU and RTT normal | "No graphics performance problem can be inferred from low FPS alone." |
 | No hardware GPU, guest and connection healthy | "No GPU-related problem detected. Software rendering is in use." |
 | Connection findings + CPU saturation | "…the available evidence cannot distinguish which is primary." (multiple plausible causes, with steps to tell them apart) |
 | CPU + memory pressure | Possible guest undersizing |
@@ -135,9 +148,9 @@ measurement from any real environment.
 ```
 Connection: Healthy | Coverage Partial | RTT P95 36 ms · packet loss (uplink) mean 0 % · reconnects total 0 — within configured thresholds
             jitter and estimated bandwidth units unverified (shown raw, not evaluated); bandwidth saturation not assessed
-Graphics:   Healthy | FPS P95 3 FPS · dirty FPS P95 1 FPS · CPU P95 16 % — within configured thresholds | workload is user-selected (Idle)
+Graphics:   Healthy | FPS P95 3 FPS · dirty FPS P95 1 FPS · CPU P95 16 % — within configured thresholds | low FPS judged only while Blast dirty frames show the content changing at least as often as the threshold
 Guest:      Healthy | CPU P95 16 % · RAM P95 45 % · available RAM mean 4.4 GiB | software rendering — GPU analysis not applicable
-Assessment: No graphics performance problem can be inferred from low FPS alone. [Expected — workload is Idle and CPU/RTT are normal]
+Assessment: No graphics performance problem can be inferred from low FPS alone. [Expected — Blast dirty frames show a mostly static screen and CPU/RTT are normal]
 Assessment: No GPU-related problem detected. Software rendering is in use. [Supported configuration]
 ```
 
@@ -205,7 +218,7 @@ Presentation rules:
 * **Missing data is a gap.** Unavailable samples are null points, and collection pauses
   longer than `MaximumSampleGapSeconds` break the line. Neither is drawn as zero.
   Dashed reference lines are drawn only at configured thresholds:
-  RTT warning/critical, low FPS (judged for active workloads only), CPU warning and the
+  RTT warning/critical, low FPS (judged only while the content changes at least as often as the threshold), CPU warning and the
   packet-loss warning. Each value axis includes the warning line, so headroom is visible.
   A line above the plotted range is hidden rather than drawn outside the chart.
 * **Software rendering** is stated once per place: an *Informational* finding (Graphics
@@ -266,12 +279,12 @@ Four columns from 400 DIP per chart, two columns otherwise. Chart headers share 
 
 **Conditional thresholds.** Thresholds are either unconditional or conditional.
 * Unconditional (RTT, packet loss, CPU, …): always drawn when configured.
-* Low FPS is conditional. The engine evaluates it only for a declared active workload while Blast dirty frames show a
-  changing screen. The engine reports this through `AssessmentInput.ThresholdApplies` (null for every
-  other input). The Frame-rate chart draws the line only when it is true, and its header states the condition either way:
-  "Low FPS < 15 — applies now (verified active graphics workload)" or "— conditional: applies during verified active graphics
-  workload; line hidden". The Graphics tile says "Low-FPS rule inactive / active".
-* The workload selector alone never makes the line applicable. A hidden conditional line does not stretch the value axis.
+* Low FPS is conditional. The engine evaluates it only while Blast dirty frames show the content changing at least as often
+  as the threshold. The engine reports this through `AssessmentInput.ThresholdApplies` (null for every other input). The
+  Frame-rate chart draws the line only when it is true, and its header states the condition either way: "Low FPS < 15 —
+  applies now (Blast dirty frames ≥ 15 per second)" or "— conditional: applies during Blast dirty frames ≥ 15 per second; line
+  hidden". The Graphics tile says "Low-FPS rule inactive / active".
+* A workload value (older recordings carry one) never makes the line applicable. A hidden conditional line does not stretch the value axis.
   If the engine supplies no applicability, the line stays hidden.
 
 **Findings and evidence.** `ResponsiveSplitPanel` (rules in the WPF-free, unit-tested `SplitLayout`):
@@ -381,8 +394,11 @@ Changes are append-only. Every 0.2/0.3 column and JSON property is unchanged.
 
 * Thresholds are starting points and need tuning against real sessions. CI tests use
   synthetic data and do **not** prove diagnostic accuracy on a real VDI.
-* The workload is user-selected. Without Blast dirty frames, activity cannot be
-  verified, and graphics conclusions are marked uncertain.
+* Screen activity comes only from the Blast dirty-frame counter. Without it (no Horizon Blast counters, or an agent that
+  does not publish it) low FPS is not judged at all, so a real frame-rate problem in such a session is not reported.
+* Low FPS is judged only when the content changes at least 15 times per second. Slowly changing content delivered at an even
+  lower rate (for example 10 changes per second delivered as 3 frames) is not reported. Dirty frames count changed frames,
+  not how much of the screen changed: a small fast animation can count as content change.
 * Several interpretations rest only on counter names, because Omnissa does not
   document them further:
   * dirty frames are treated as screen changes;

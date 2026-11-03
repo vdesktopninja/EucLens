@@ -52,10 +52,12 @@ public static class HypothesisBuilder
                 ["Check whether paging (hard faults/sec) drives CPU use.", "Compare the workload with the VM's vCPU and RAM allocation."]));
 
         var fps = c.Stats(DiagnosticMetrics.Fps, t.StandardWindowSeconds);
-        if (!c.IsActiveWorkload && fps.IsSufficient(t) && fps.P50 < t.LowFps && cpuNormal && (rttNormal || !rttStats.IsSufficient(t)))
+        if (c.FrameDemand != true && fps.IsSufficient(t) && fps.P50 < t.LowFps && cpuNormal && (rttNormal || !rttStats.IsSufficient(t)))
             list.Add(new("idle-low-fps", "No graphics performance problem can be inferred from low FPS alone.",
-                $"Expected — workload is {c.Workload} and CPU/RTT are normal", [],
-                ["Select Interactive graphics or Video playback when testing a graphics workload."]));
+                c.ScreenActivity == false ? "Expected — Blast dirty frames show a mostly static screen and CPU/RTT are normal"
+                    : c.FrameDemand == false ? "Expected — the content changes fewer times per second than the low-FPS threshold and CPU/RTT are normal"
+                    : "Not judged — screen activity cannot be measured (no Blast dirty-frame counter) and CPU/RTT are normal", [],
+                ["Reproduce the graphics problem while recording; low FPS is judged when Blast dirty frames show the content changing at least as often as the threshold."]));
 
         if (c.HardwareGpu == false && State(DiagnosticDomain.Guest) == HealthState.Healthy && State(DiagnosticDomain.Connection) is HealthState.Healthy or HealthState.InsufficientData)
             list.Add(new("software-rendering", "No GPU-related problem detected. Software rendering is in use.", "Supported configuration",

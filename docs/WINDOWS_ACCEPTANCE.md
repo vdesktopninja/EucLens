@@ -14,22 +14,26 @@ These checks have not been performed on the Linux development host.
       reflowing technical sections, full text and operable selectors/recording actions.
       Extended detail may scroll; primary readouts and controls must remain accessible.
 - [ ] Navigate all five pages using mouse and keyboard; no blank/dead controls.
-- [ ] Switch all protocols and five scenarios; verify rows, readouts and trends update at
-      one-second cadence and demo identity is always visible.
-- [ ] Low FPS + interactive workload warns; idle/office content alone does not.
+- [ ] No page offers a data-source, demo protocol, demo scenario or workload selection; Dashboard
+      and Settings show the detected protocol and the data availability (0.5.1).
+- [ ] In a Horizon Blast session the banner reads "Horizon Blast counters + Windows metrics"; in an RDP
+      or console session "Windows metrics only"; rows, readouts and trends update at one-second cadence.
+- [ ] Low FPS while the content changes at least 15 times per second (Blast dirty FPS ≥ 15, e.g. video) warns;
+      an idle screen or typing in a document does not.
 - [ ] Check high-latency, GPU and congestion diagnostic evidence and health colors.
 - [ ] Toggle dark/light theme on Dashboard and Recorder while sampling/recording;
       inspect chart backgrounds, axes, 1-DIP gridlines, 2-DIP strokes, timestamp/unit
       tooltips, text and combo popups. RTT color must match live and recorder charts.
       Check unavailable readouts and history gaps; a missing value must not look like zero.
-- [ ] Record across scenario/protocol changes; stop; check elapsed/sample count.
+- [ ] Record; stop; check elapsed/sample count.
 - [ ] Export JSON/CSV with non-English locale and paths containing spaces;
-      verify timestamps, demo flag, scenario, values and missing-value semantics.
+      verify timestamps, data source, values and missing-value semantics (workload: Unavailable).
 - [ ] Cancel save dialog; test inaccessible destination; UI remains responsive and
       reports failure. Export while recording; saved snapshot remains consistent.
 - [ ] New recording warns before discarding previous samples; close warns about
       unexported data; selecting No returns to the recorder for export.
-- [ ] Save preferences and restart; theme and demo selections are restored.
+- [ ] Save preferences and restart; the theme is restored. A preferences.json from 0.5.0 that
+      selected Demo Mode starts in Real Session.
 - [ ] Corrupt preference JSON; defaults load and warning is logged locally.
 - [ ] Inspect memory/CPU over a long run and after repeated page/theme switches.
 - [ ] Verify chart rendering in Citrix/Horizon/RDP sessions with restricted GPU

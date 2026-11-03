@@ -102,7 +102,7 @@ public sealed class OmnissaBlastProvider : IMetricsProvider
         return new(now,
             new(blastActive ? RemoteProtocol.OmnissaBlast : RemoteProtocol.Unknown, session.SessionId, Environment.UserName, "N/A", Environment.MachineName,
                 Environment.OSVersion.ToString(), "N/A (negotiated transport not exposed)", started, false, detection),
-            WorkloadContext.Idle,
+            null,
             new(metrics["rtt"], Missing("ms", "One-way network latency is not exposed."),
                 Missing("Mbps", "Estimated Bandwidth (Uplink) unit is unverified; see the raw counter."),
                 metrics["imagingOutboundMbps"], metrics["packetLoss"]),

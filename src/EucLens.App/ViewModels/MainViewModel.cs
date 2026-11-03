@@ -7,35 +7,40 @@ namespace EucLens.App.ViewModels;
 
 public sealed class MainViewModel : ObservableObject
 {
-    private readonly IDemoMetricsProvider provider;
-    private readonly IMetricsProvider? realProvider;
-    private Choice<MonitoringMode> selectedMode;
-    private bool recordingIsDemo;
-    private IMetricsProvider ActiveProvider => IsDemo ? provider : realProvider ?? throw new InvalidOperationException("Real provider is not configured.");
-    public IReadOnlyList<Choice<MonitoringMode>> Modes { get; } = [new(MonitoringMode.RealSession, "Real Session"), new(MonitoringMode.DemoMode, "Demo Mode")];
-    public Choice<MonitoringMode> SelectedMode
+    /// <summary>The real session: Horizon Blast counters where present and protocol-independent Windows metrics. The only source in the application.</summary>
+    private readonly IMetricsProvider provider;
+    /// <summary>Synthetic test data installed by automated validation through <see cref="UseSyntheticSource"/>; always null in normal use.</summary>
+    private IMetricsProvider? syntheticSource;
+    private bool recordingIsSynthetic;
+    private IMetricsProvider ActiveProvider => syntheticSource ?? provider;
+    private bool IsSynthetic => syntheticSource is not null;
+    public string ModeLabel => IsSynthetic ? "Synthetic test data" : "Real Session";
+    /// <summary>What the current data is and which collectors provide it; never claims Blast counters the session does not have.</summary>
+    public string ModeBanner => IsSynthetic ? "SYNTHETIC TEST DATA · Automated validation only" : "REAL SESSION · " + DataAvailability;
+    public string DataAvailability => IsSynthetic ? "Synthetic measurements"
+        : current is null ? "Detecting the session…"
+        : current.Session.Protocol == RemoteProtocol.OmnissaBlast ? "Horizon Blast counters + Windows metrics"
+        : "Windows metrics only · No Horizon Blast counters for this session";
+    public string ModeDescription => IsSynthetic ? "Synthetic measurements for automated validation." : "Blast: this Windows session. CPU, RAM, disk, GPU: whole machine. Missing measurements display N/A.";
+    /// <summary>Only the protocol detected in the session's own data is shown; nothing is selected or assumed.</summary>
+    public string ProtocolDisplay => current is null ? "Detecting…" : ProtocolLabel(current.Session.Protocol) + (current.Session.IsDemo ? " (synthetic)" : "");
+    public string ProtocolDetail => IsSynthetic ? "Synthetic protocol of the automated-validation data." : current?.Session.ProtocolDetection ?? "Waiting for the first sample.";
+    /// <summary>
+    /// Automated validation only (the --smoke-test harness and unit tests): replaces the measurement source with synthetic test data, or
+    /// restores real monitoring with null. No page, preference or command-line option of normal use reaches it. The caller initializes the
+    /// source. A different source stops a recording, so synthetic and real samples are never mixed; any call clears the live data and the
+    /// sustained diagnostics.
+    /// </summary>
+    internal void UseSyntheticSource(IMetricsProvider? source)
     {
-        get => selectedMode;
-        set
-        {
-            if (!Set(ref selectedMode, value)) return;
-            // A recording never mixes demo and real samples.
-            var stopped = recorder.IsRecording;
-            recorder.Stop(RecordingEndReason.ModeSwitched); Configure(); RefreshRecorder();
-            Raise(nameof(IsDemo)); Raise(nameof(IsReal)); Raise(nameof(ModeLabel)); Raise(nameof(ModeBanner)); Raise(nameof(ModeDescription));
-            Raise(nameof(ProtocolDisplay)); Raise(nameof(ProtocolDetail));
-            if (stopped) Status = $"Recording stopped because monitoring switched to {value.Label}. Export to keep it.";
-        }
+        var changed = !ReferenceEquals(syntheticSource, source);
+        var stopped = changed && recorder.IsRecording;
+        syntheticSource = source;
+        if (changed) recorder.Stop(RecordingEndReason.ModeSwitched);
+        Configure(); RefreshRecorder();
+        Raise(nameof(ModeLabel)); Raise(nameof(ModeBanner)); Raise(nameof(DataAvailability)); Raise(nameof(ModeDescription)); Raise(nameof(ProtocolDisplay)); Raise(nameof(ProtocolDetail));
+        if (stopped) Status = "Recording stopped because the data source changed. Export to keep it.";
     }
-    public bool IsDemo => SelectedMode.Value == MonitoringMode.DemoMode;
-    public bool IsReal => !IsDemo;
-    public string ModeLabel => SelectedMode.Label;
-    public string ModeBanner => IsDemo ? "DEMO DATA · Synthetic measurements" : "REAL SESSION · Horizon Blast counters + Windows host metrics";
-    public string ModeDescription => IsDemo ? "Synthetic session metrics." : "Blast: this Windows session. CPU, RAM, disk, GPU: whole machine. Missing measurements display N/A.";
-    /// <summary>Real Session shows only the detected protocol; the demo selector never stands in for it.</summary>
-    public string ProtocolDisplay => IsDemo ? $"{SelectedProtocol.Label} (demo selection)"
-        : current is null ? "Detecting…" : ProtocolLabel(current.Session.Protocol);
-    public string ProtocolDetail => IsDemo ? "Simulated protocol chosen in Demo Mode." : current?.Session.ProtocolDetection ?? "Waiting for the first sample.";
     private readonly IDiagnosticEngine diagnostics;
     private readonly IDiagnosticSettingsStore? diagnosticSettings;
     /// <summary>Serializes background evaluation with Reset/Configure so mode switches never mix histories.</summary>
@@ -56,9 +61,6 @@ public sealed class MainViewModel : ObservableObject
     private string advancedSearch = "";
     private string advancedStatus = "Waiting for the first sample.";
     private PageViewModel selectedPage;
-    private Choice<RemoteProtocol> selectedProtocol;
-    private Choice<DemoScenario> selectedScenario;
-    private Choice<WorkloadContext> selectedWorkload;
     private bool ready;
     private bool presenting = true;
     private bool gapPending;
@@ -73,9 +75,10 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>Session History: saved recordings, incident timeline and historical charts. Independent of the live view and of monitoring.</summary>
     public SessionHistoryViewModel History { get; }
     public MonitoringService Monitoring => monitoring;
-    public IReadOnlyList<Choice<RemoteProtocol>> Protocols { get; } = [new(RemoteProtocol.CitrixHdx, "Citrix HDX"), new(RemoteProtocol.OmnissaBlast, "Omnissa Blast"), new(RemoteProtocol.MicrosoftRdp, "Microsoft RDP")];
-    public IReadOnlyList<Choice<DemoScenario>> Scenarios { get; } = [new(DemoScenario.Healthy, "Healthy session"), new(DemoScenario.HighNetworkLatency, "High network latency"), new(DemoScenario.LowFps, "Low FPS"), new(DemoScenario.GpuBottleneck, "GPU bottleneck"), new(DemoScenario.BandwidthCongestion, "Bandwidth congestion")];
-    public IReadOnlyList<Choice<WorkloadContext>> Workloads { get; } = [new(WorkloadContext.Idle, "Idle / static content"), new(WorkloadContext.Office, "Office productivity"), new(WorkloadContext.InteractiveGraphics, "Interactive graphics"), new(WorkloadContext.VideoPlayback, "Video playback")];
+    private static readonly IReadOnlyDictionary<RemoteProtocol, string> ProtocolLabels = new Dictionary<RemoteProtocol, string>
+    {
+        [RemoteProtocol.CitrixHdx] = "Citrix HDX", [RemoteProtocol.OmnissaBlast] = "Omnissa Blast", [RemoteProtocol.MicrosoftRdp] = "Microsoft RDP",
+    };
     public IReadOnlyList<PageViewModel> Pages { get; }
     public PageViewModel SelectedPage
     {
@@ -91,9 +94,6 @@ public sealed class MainViewModel : ObservableObject
             else if (value is RecorderPage) _ = Background.RefreshRecordingsAsync();
         }
     }
-    public Choice<RemoteProtocol> SelectedProtocol { get => selectedProtocol; set { if (Set(ref selectedProtocol, value)) Configure(); } }
-    public Choice<DemoScenario> SelectedScenario { get => selectedScenario; set { if (Set(ref selectedScenario, value)) Configure(); } }
-    public Choice<WorkloadContext> SelectedWorkload { get => selectedWorkload; set { if (Set(ref selectedWorkload, value)) Configure(); } }
     public bool IsDark { get => dark; set { if (Set(ref dark, value)) desktop.ApplyTheme(value); } }
     public string Status { get => status; private set => Set(ref status, value); }
     public string SessionIdentity => current is null ? "Awaiting session sample" : $"{ProtocolLabel(current.Session.Protocol)} | {current.Session.Transport} | Session {current.Session.SessionId}";
@@ -115,7 +115,7 @@ public sealed class MainViewModel : ObservableObject
     public AsyncCommand ReloadThresholdsCommand { get; }
     public string SessionDuration => current is null ? "Unavailable" : FormatDuration(current.Timestamp - current.Session.ConnectedAt);
     public string UpdatedAt => current is null ? "Awaiting first sample" : $"Last sample {current.Timestamp.ToLocalTime():HH:mm:ss} · 1 second interval";
-    public string RecordingState => $"{(recorder.IsRecording ? "RECORDING" : recorder.SampleCount > 0 ? "STOPPED" : "READY")} · {((recorder.SampleCount > 0 || recorder.IsRecording ? recordingIsDemo : IsDemo) ? "DEMO DATA" : "REAL SESSION")}";
+    public string RecordingState => $"{(recorder.IsRecording ? "RECORDING" : recorder.SampleCount > 0 ? "STOPPED" : "READY")} · {((recorder.SampleCount > 0 || recorder.IsRecording ? recordingIsSynthetic : IsSynthetic) ? "SYNTHETIC TEST DATA" : "REAL SESSION")}";
     public string RecordingDuration => FormatDuration(recorder.Duration);
     public int SampleCount => recorder.SampleCount;
     public string RecordLimit => recorder.IsPersistent
@@ -148,13 +148,12 @@ public sealed class MainViewModel : ObservableObject
     public AsyncCommand ExportJsonCommand { get; }
     public AsyncCommand ExportCsvCommand { get; }
     public AsyncCommand SavePreferencesCommand { get; }
-    public MainViewModel(IDemoMetricsProvider provider, IDiagnosticEngine diagnostics, ISessionRecorder recorder,
-        IDesktopServices desktop, ILogger<MainViewModel> logger, IMetricsProvider? realProvider = null, IDiagnosticSettingsStore? diagnosticSettings = null,
+    public MainViewModel(IMetricsProvider provider, IDiagnosticEngine diagnostics, ISessionRecorder recorder,
+        IDesktopServices desktop, ILogger<MainViewModel> logger, IDiagnosticSettingsStore? diagnosticSettings = null,
         MonitoringService? monitoring = null, BackgroundViewModel? background = null)
     {
         this.diagnosticSettings = diagnosticSettings;
         Diagnostics = new(desktop);
-        this.realProvider = realProvider; selectedMode = Modes[realProvider is null ? 1 : 0];
         this.provider = provider; this.diagnostics = diagnostics; this.recorder = recorder; this.desktop = desktop; this.logger = logger;
         this.monitoring = monitoring ?? new MonitoringService(new MonitoringCoordinator(), recorder);
         Background = background ?? new BackgroundViewModel(this.monitoring, recorder, desktop, logger: logger);
@@ -162,7 +161,6 @@ public sealed class MainViewModel : ObservableObject
         recorder.Ended += reason => Post(() => OnRecordingEnded(reason));
         this.monitoring.StatusChanged += _ => Post(RefreshRecorder);
         Background.IncidentCompleted += result => Status = result.Message;
-        selectedProtocol = Protocols[0]; selectedScenario = Scenarios[0]; selectedWorkload = Workloads[realProvider is null ? 2 : 0];
         selectedAdvancedCategory = AdvancedCategories[0];
         Pages = [new DashboardPage(this), new DiagnosticsPage(this), new RecorderPage(this), new SessionHistoryPage(this), new SystemPage(this), new AdvancedPage(this), new SettingsPage(this)];
         selectedPage = Pages[0];
@@ -186,16 +184,9 @@ public sealed class MainViewModel : ObservableObject
         try
         {
             var preferences = await desktop.LoadPreferencesAsync();
-            if (preferences is not null)
-            {
-                IsDark = preferences.Dark;
-                selectedProtocol = Protocols.Single(p => p.Value == preferences.Protocol);
-                selectedScenario = Scenarios.Single(p => p.Value == preferences.Scenario);
-                selectedWorkload = Workloads.Single(p => p.Value == preferences.Workload);
-                selectedMode = Modes.Single(m => m.Value == (realProvider is null ? MonitoringMode.DemoMode : preferences.Mode));
-                Raise(nameof(SelectedProtocol)); Raise(nameof(SelectedScenario)); Raise(nameof(SelectedWorkload));
-                Raise(nameof(SelectedMode)); Raise(nameof(IsDemo)); Raise(nameof(IsReal)); Raise(nameof(ProtocolDisplay)); Raise(nameof(ProtocolDetail)); Raise(nameof(ModeLabel)); Raise(nameof(ModeBanner)); Raise(nameof(ModeDescription));
-            }
+            // Only the theme is a preference. Files from 0.5.0 and earlier may also hold a data source, demo protocol, scenario and workload:
+            // those values are ignored, so nothing saved can start synthetic data or change a diagnostic rule.
+            if (preferences is not null) IsDark = preferences.Dark;
         }
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
         {
@@ -203,7 +194,6 @@ public sealed class MainViewModel : ObservableObject
             Status = "Preferences could not be loaded; using defaults.";
         }
         await provider.InitializeAsync(token);
-        if (realProvider is not null) await realProvider.InitializeAsync(token);
         await ApplyThresholdsAsync(restore: false);
         ready = true; Configure(); RefreshRecorder();
     }
@@ -239,7 +229,7 @@ public sealed class MainViewModel : ObservableObject
         yield return new("Recovery (hysteresis)", $"{N(t.RecoveryMarginPercent)} % below warning for {N(t.RecoveryWindowSeconds)} s", $"Findings without data expire after {N(t.StaleFindingSeconds)} s.");
         yield return new("Blast RTT warning / critical", $"{N(t.RttWarningMs)} / {N(t.RttCriticalMs)} ms", "Round-trip, not one-way latency.");
         yield return new("Uplink packet loss warning / critical", $"{N(t.PacketLossWarningPercent)} / {N(t.PacketLossCriticalPercent)} %", "Mean over the standard window.");
-        yield return new("Low FPS (active workloads)", $"< {N(t.LowFps)} FPS", $"Screen activity: dirty FPS ≥ {N(t.ActivityDirtyFps)}.");
+        yield return new("Low FPS (while the content is changing)", $"< {N(t.LowFps)} FPS", $"Judged only when Blast dirty FPS ≥ {N(t.LowFps)}; not judged without that counter.");
         yield return new("Guest CPU warning / critical", $"{N(t.CpuWarningPercent)} / {N(t.CpuCriticalPercent)} %", "Machine-wide guest CPU.");
         yield return new("Guest RAM warning / critical", $"{N(t.MemoryWarningPercent)} / {N(t.MemoryCriticalPercent)} %", $"Or available ≤ {N(t.AvailableRamWarningGiB)} / {N(t.AvailableRamCriticalGiB)} GiB.");
         yield return new("GPU / VRAM / encoder warning", $"{N(t.GpuWarningPercent)} / {N(t.VramWarningPercent)} / {N(t.EncoderWarningPercent)} %", "Hardware GPU only.");
@@ -247,13 +237,12 @@ public sealed class MainViewModel : ObservableObject
     private void Configure()
     {
         if (!ready) return;
-        provider.Configure(selectedProtocol.Value, selectedScenario.Value, selectedWorkload.Value);
-        // Sustained rules must not carry evidence across modes or scenarios; an in-flight evaluation is discarded.
+        // Sustained rules must not carry evidence across data sources; an in-flight evaluation is discarded.
         lock (diagnosticsGate) { configurationVersion++; diagnostics.Reset(); }
         Raise(nameof(ProtocolDisplay)); Raise(nameof(ProtocolDetail));
-        // Old samples remain in recordings with their own protocol/workload; live charts start fresh.
+        // Old samples remain in recordings with their own protocol; live charts start fresh.
         ClearLive();
-        Status = IsDemo ? $"DEMO DATA · {SelectedProtocol.Label} · {SelectedScenario.Label}" : "REAL SESSION · Discovering Blast counters and host collectors…";
+        Status = IsSynthetic ? "SYNTHETIC TEST DATA · Automated validation" : "REAL SESSION · Discovering Blast counters and host collectors…";
     }
     /// <summary>
     /// The monitoring loop belongs to the <see cref="MonitoringCoordinator"/>: one loop per process, independent of any window. This
@@ -267,12 +256,13 @@ public sealed class MainViewModel : ObservableObject
         {
             var version = configurationVersion;
             var active = ActiveProvider;
-            var workload = SelectedWorkload.Value;
+            var synthetic = IsSynthetic;
             // Collection and diagnostic evaluation both run off the UI thread.
             var (sample, report) = await Task.Run(async () =>
             {
                 var s = await active.CollectAsync(token);
-                if (!s.Session.IsDemo) s = s with { Workload = workload };
+                // Real monitoring never accepts a synthetic sample, whatever produced it: it is neither shown, evaluated nor recorded.
+                if (s.Session.IsDemo && !synthetic) throw new InvalidDataException("A synthetic sample reached real monitoring and was discarded.");
                 DiagnosticReport? r = null;
                 lock (diagnosticsGate) { if (version == configurationVersion) r = diagnostics.Evaluate(s); }
                 return (s, r);
@@ -355,7 +345,7 @@ public sealed class MainViewModel : ObservableObject
         MetricCard H(string name, string id) => E(id) is { } e ? e.Text is null ? C(name, e.Metric) : new(name, e.Text, $"{e.Metric.Status} · {e.Metric.Source}") : T(name, null);
         Replace(OverviewCards, [C("RTT", s.Connection.RoundTripTime), C("FPS", s.Graphics.FramesPerSecond), C("BANDWIDTH", s.Connection.BandwidthConsumption), C("GPU", s.Gpu.Utilization), C("CPU", s.System.CpuUtilization)]);
         Replace(ConnectionCards, [T("Transport", s.Session.Transport), C("Session RTT", s.Connection.RoundTripTime), C("Network latency", s.Connection.NetworkLatency), C("Available bandwidth", s.Connection.AvailableBandwidth), C("Current bandwidth", s.Connection.BandwidthConsumption), C("Packet loss", s.Connection.PacketLoss), T("Connection quality", ConnectionQuality)]);
-        var graphics = new List<MetricCard> { C("Frames per second", s.Graphics.FramesPerSecond), C("Dropped frames", s.Graphics.DroppedFramesPercent), T("Encoder", s.Graphics.Encoder), T("Codec", s.Graphics.Codec), T("Graphics mode", s.Graphics.Mode), T("Hardware encoding", s.Graphics.HardwareEncoding is { } hw ? hw ? "Enabled (demo)" : "Disabled (demo)" : null), T("Display resolution", s.Graphics.Resolution) };
+        var graphics = new List<MetricCard> { C("Frames per second", s.Graphics.FramesPerSecond), C("Dropped frames", s.Graphics.DroppedFramesPercent), T("Encoder", s.Graphics.Encoder), T("Codec", s.Graphics.Codec), T("Graphics mode", s.Graphics.Mode), T("Hardware encoding", s.Graphics.HardwareEncoding is { } hw ? (hw ? "Enabled" : "Disabled") + (s.Session.IsDemo ? " (synthetic)" : "") : null), T("Display resolution", s.Graphics.Resolution) };
         if (host is not null) graphics.AddRange([H("Active monitors", "display.monitorCount"), H("Primary display scaling", "display.primaryScalePercent")]);
         Replace(GraphicsCards, graphics);
         var gpu = new List<MetricCard>();
@@ -406,7 +396,7 @@ public sealed class MainViewModel : ObservableObject
         CpuChart.Add(s.Timestamp.LocalDateTime, ChartValue(s.System.CpuUtilization));
         if (recording) RecordingChart.Add(s.Timestamp.LocalDateTime, ChartValue(s.Connection.RoundTripTime));
         RaiseHealth(); Raise(nameof(SessionDuration)); Raise(nameof(UpdatedAt));
-        Raise(nameof(SessionIdentity)); Raise(nameof(NetworkReadout)); Raise(nameof(GraphicsReadout)); Raise(nameof(ProtocolDisplay)); Raise(nameof(ProtocolDetail));
+        Raise(nameof(SessionIdentity)); Raise(nameof(NetworkReadout)); Raise(nameof(GraphicsReadout)); Raise(nameof(ProtocolDisplay)); Raise(nameof(ProtocolDetail)); Raise(nameof(ModeBanner)); Raise(nameof(DataAvailability));
         if (SelectedPage is AdvancedPage) RebuildAdvanced();
         RefreshRecorder();
     }
@@ -422,7 +412,7 @@ public sealed class MainViewModel : ObservableObject
         connectionState = State(DiagnosticDomain.Connection); graphicsState = State(DiagnosticDomain.Graphics); guestState = State(DiagnosticDomain.Guest);
     }
     private string ProtocolLabel(RemoteProtocol protocol) => protocol == RemoteProtocol.Unknown ? "Not detected"
-        : Protocols.FirstOrDefault(p => p.Value == protocol)?.Label ?? protocol.ToString();
+        : ProtocolLabels.GetValueOrDefault(protocol, protocol.ToString());
     private static string ScopeLabel(MetricScope scope) => scope switch
     {
         MetricScope.Machine => "Machine-wide", MetricScope.Session => "This session", _ => "Process"
@@ -440,7 +430,7 @@ public sealed class MainViewModel : ObservableObject
         if (s is null || s.Session.IsDemo)
         {
             AdvancedRows.Clear();
-            AdvancedStatus = IsDemo ? "Advanced metrics list real collector output; Demo Mode has none." : "Waiting for the first sample.";
+            AdvancedStatus = IsSynthetic ? "Advanced metrics list real collector output; synthetic test data has none." : "Waiting for the first sample.";
             return;
         }
         static string Value(Metric m) => m.Value is { } v ? v.ToString(Math.Abs(v) >= 1000 ? "#,0.#" : "0.###", System.Globalization.CultureInfo.CurrentCulture) : "N/A";
@@ -470,10 +460,10 @@ public sealed class MainViewModel : ObservableObject
  health = HealthStatus.Unavailable; connectionState = graphicsState = guestState = InsufficientData;
         Diagnostics.Clear();
         RttChart.Clear(); FpsChart.Clear(); CpuChart.Clear(); AdvancedRows.Clear();
-        AdvancedStatus = IsDemo ? "Advanced metrics list real collector output; Demo Mode has none." : "Waiting for the first sample.";
+        AdvancedStatus = IsSynthetic ? "Advanced metrics list real collector output; synthetic test data has none." : "Waiting for the first sample.";
         OverviewCards.Clear(); ConnectionCards.Clear(); GraphicsCards.Clear(); GpuCards.Clear(); SystemCards.Clear(); SessionCards.Clear();
         RaiseHealth();
-        foreach (var name in new[] { nameof(ProtocolDisplay), nameof(ProtocolDetail), nameof(ConnectionQuality), nameof(SessionDuration), nameof(UpdatedAt), nameof(SessionIdentity), nameof(NetworkReadout), nameof(GraphicsReadout) }) Raise(name);
+        foreach (var name in new[] { nameof(ProtocolDisplay), nameof(ProtocolDetail), nameof(ModeBanner), nameof(DataAvailability), nameof(ConnectionQuality), nameof(SessionDuration), nameof(UpdatedAt), nameof(SessionIdentity), nameof(NetworkReadout), nameof(GraphicsReadout) }) Raise(name);
     }
     private static void Replace<T>(ObservableCollection<T> target, IEnumerable<T> values)
     {
@@ -487,7 +477,7 @@ public sealed class MainViewModel : ObservableObject
         // A persisted recording never replaces an earlier one (it is a new file), so only in-memory history needs the confirmation.
         if (!recorder.IsPersistent && recorder.SampleCount > 0 && !desktop.ConfirmNewRecording()) return;
         if (monitoring.Coordinator.State != MonitoringState.Running) { Status = "Recording needs monitoring: start or resume monitoring first."; return; }
-        try { recordingIsDemo = IsDemo; recorder.Start(IsDemo); }
+        try { recordingIsSynthetic = IsSynthetic; recorder.Start(IsSynthetic); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             logger.LogWarning(ex, "Recording could not be started.");
@@ -529,8 +519,8 @@ public sealed class MainViewModel : ObservableObject
     {
         try
         {
-            await desktop.SavePreferencesAsync(new(IsDark, SelectedProtocol.Value, SelectedScenario.Value, SelectedWorkload.Value, SelectedMode.Value));
-            Status = "Theme and monitoring preferences saved locally.";
+            await desktop.SavePreferencesAsync(new(IsDark));
+            Status = "Theme preference saved locally.";
         }
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
         { logger.LogWarning(ex, "Preferences save failed."); Status = $"Could not save preferences: {ex.Message}"; }

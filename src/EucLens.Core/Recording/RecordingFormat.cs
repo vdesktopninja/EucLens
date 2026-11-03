@@ -158,7 +158,8 @@ public static partial class RecordingFormat
     /// <summary>A sample without its session (written separately) and without values derived from other fields.</summary>
     internal sealed class SampleBody
     {
-        public WorkloadContext Workload { get; set; }
+        /// <summary>Historical: set in recordings made by 0.5.0 and earlier, null afterwards.</summary>
+        public WorkloadContext? Workload { get; set; }
         public ConnectionMetrics Connection { get; set; } = null!;
         public GraphicsMetrics Graphics { get; set; } = null!;
         public GpuMetrics Gpu { get; set; } = null!;

@@ -105,8 +105,10 @@ threshold. A short spike does not produce a warning.
 | Encoder utilization | ≥ 85 % |
 | Combined graphics bottleneck | *Interactive graphics* workload, FPS < 20 sustained, and CPU or GPU sustained over threshold |
 
-The original single-sample GPU rule applies to Demo Mode only. Sustained windows are
-cleared when the mode, demo scenario or workload changes.
+These 0.3 host rules (`HostRules.cs`) and the single-sample rules (`DiagnosticEngine.cs`) are no longer used by
+the application: since 0.4 the live diagnostics are the domain rules described in [DIAGNOSTICS.md](DIAGNOSTICS.md),
+and since 0.5.1 there is no Demo Mode or workload selection. They remain only as tested library code; without a
+workload value the combined graphics bottleneck rule reports "not assessed".
 
 ## Export schema changes (0.3)
 

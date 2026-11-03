@@ -286,15 +286,15 @@ public sealed class RecordingDurabilityTests
     [Fact]
     public async Task NewRecordingsCarryTheApplicationVersionAndOldOnesStillOpen()
     {
-        Assert.Equal("0.5.0", AppVersion.Current);
+        Assert.Equal("0.5.1", AppVersion.Current);
         var (writer, storage, _, recorder, _) = Create();
         await RecordWithConfirmedIncidentAsync(recorder, writer);
         await recorder.StopAsync();
         var part = storage.Names(Dir).Single(n => n.EndsWith(".jsonl", StringComparison.Ordinal));
         using (var header = JsonDocument.Parse(HistoryFixture.ReadText(storage, Path.Combine(Dir, part)).Split('\n')[0]))
-            Assert.Equal("0.5.0", header.RootElement.GetProperty("app").GetString());
+            Assert.Equal("0.5.1", header.RootElement.GetProperty("app").GetString());
         var history = HistoryFixture.Load(storage, RecordingFormat.ShortIdOf(part));
-        Assert.Equal("0.5.0", history.Info.AppVersion);
+        Assert.Equal("0.5.1", history.Info.AppVersion);
         Assert.Equal("euclens.recording/1", RecordingFormat.Schema);
 
         // A recording made by 0.4.3: stamped 0.4.3, no incident fields anywhere.

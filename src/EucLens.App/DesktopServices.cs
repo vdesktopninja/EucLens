@@ -88,9 +88,7 @@ public sealed class DesktopServices : IDesktopServices
     {
         var path = Path.Combine(DataDirectory, "preferences.json");
         if (!File.Exists(path)) return null;
-        var result = JsonSerializer.Deserialize<Preferences>(await File.ReadAllTextAsync(path));
-        if (result is not null && (!Enum.IsDefined(result.Protocol) || !Enum.IsDefined(result.Scenario) || !Enum.IsDefined(result.Workload)))
-            throw new InvalidDataException("Unknown demo preference value.");
-        return result;
+        // Properties of earlier versions (data source, demo protocol and scenario, workload) are ignored: see Preferences.
+        return JsonSerializer.Deserialize<Preferences>(await File.ReadAllTextAsync(path));
     }
 }

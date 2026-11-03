@@ -228,14 +228,21 @@ public sealed class ReconnectRule : IDomainRule
 
 internal static class Graphics
 {
-    /// <summary>Low frame rate sustained during a declared active workload. Null when not evaluable.</summary>
+    public const string ActivityNotMeasurable =
+        "Screen activity cannot be measured (no Blast dirty-frame counter), so low FPS is not judged: a static screen legitimately sends few frames.";
+
+    /// <summary>
+    /// Low frame rate sustained while Blast dirty frames show the content changing at least as often as the low-FPS threshold. Null when
+    /// not evaluable: too few FPS samples, or no dirty-frame measurement to tell a static or slowly changing screen from a slow delivery.
+    /// </summary>
     public static (bool? Low, WindowStats Stats, string? Reason) LowFps(DiagnosticContext c)
     {
         var t = c.Thresholds;
         var s = c.Stats(DiagnosticMetrics.Fps, t.StandardWindowSeconds);
-        if (!c.IsActiveWorkload) return (null, s, $"Workload is {c.Workload}; low FPS is expected for static content.");
         if (!s.IsSufficient(t)) return (null, s, Fmt.Insufficient(s, t));
+        if (c.ScreenActivity is null) return (null, s, ActivityNotMeasurable);
         if (c.ScreenActivity == false) return (false, s, Fmt.S($"Dirty FPS below {Fmt.N(t.ActivityDirtyFps)}: the screen is mostly static, so low FPS is expected."));
+        if (c.FrameDemand == false) return (false, s, Fmt.S($"Dirty FPS below {Fmt.N(t.LowFps)}: the content changes fewer than {Fmt.N(t.LowFps)} times per second, so fewer delivered frames are expected."));
         return (c.Share(DiagnosticMetrics.Fps, t.StandardWindowSeconds, v => v < t.LowFps) >= t.SustainedFraction, s, null);
     }
 
@@ -243,8 +250,26 @@ internal static class Graphics
     {
         true => "Screen activity confirmed by Blast dirty frames.",
         false => "No screen activity in Blast dirty frames.",
-        _ => "Screen activity could not be verified (no dirty-frame counter); the workload is user-selected, so this conclusion is uncertain.",
+        _ => "Screen activity could not be verified (no dirty-frame counter).",
     };
+
+    /// <summary>
+    /// The outcome when <see cref="LowFps"/> cannot judge: without a dirty-frame measurement the rule does not apply (nothing is claimed, as
+    /// for an idle screen); with too few samples the data is insufficient.
+    /// </summary>
+    public static RuleOutcome NotEvaluable(DiagnosticContext c, WindowStats fps, string reason) =>
+        c.ScreenActivity is null && fps.IsSufficient(c.Thresholds) ? RuleOutcome.NotApplicable(reason) : RuleOutcome.Insufficient(reason);
+
+    public static DiagnosticEvidence DirtyFpsEvidence(DiagnosticContext c)
+    {
+        var t = c.Thresholds;
+        var dirty = c.Stats(DiagnosticMetrics.DirtyFps, t.StandardWindowSeconds);
+        return new("Dirty FPS mean", dirty.Mean is null ? "N/A (counter unavailable)" : $"{Fmt.N(dirty.Mean)} FPS",
+            "how often the content changed", Fmt.S($"≥ {Fmt.N(t.LowFps)} FPS = content changes at least as often as the low-FPS threshold"));
+    }
+
+    /// <summary>The frame-rate condition no longer holds because the screen became static or the content slowed down.</summary>
+    public static bool ContentSlowed(DiagnosticContext c) => c.ScreenActivity == false || c.FrameDemand == false;
 
     public static bool Sustained(DiagnosticContext c, string key, double threshold)
     {
@@ -269,24 +294,19 @@ public sealed class LowFpsRule : IDomainRule
     {
         var t = c.Thresholds;
         var (low, s, reason) = Graphics.LowFps(c);
-        if (!c.IsActiveWorkload) return RuleOutcome.NotApplicable(reason!);
-        if (low is null) return RuleOutcome.Insufficient(reason!);
-        if (low == false) return Graphics.Recovered(c) || c.ScreenActivity == false ? RuleOutcome.Recovered(reason ?? "Frame rate recovered.") : RuleOutcome.Normal;
-        var uncertain = c.ScreenActivity is null;
+        if (low is null) return Graphics.NotEvaluable(c, s, reason!);
+        if (low == false) return Graphics.Recovered(c) || Graphics.ContentSlowed(c) ? RuleOutcome.Recovered(reason ?? "Frame rate recovered.") : RuleOutcome.Normal;
         var evidence = Fmt.Window(s, "FPS");
         evidence.Insert(0, new($"Time below {Fmt.N(t.LowFps)} FPS", Fmt.Pct(c.Share(DiagnosticMetrics.Fps, t.StandardWindowSeconds, v => v < t.LowFps)),
             Threshold: Fmt.Sustained(t)));
-        evidence.Add(new("Workload (user-selected)", c.Workload.ToString()));
-        var dirty = c.Stats(DiagnosticMetrics.DirtyFps, t.StandardWindowSeconds);
-        evidence.Add(new("Dirty FPS mean", dirty.Mean is null ? "N/A (counter unavailable)" : $"{Fmt.N(dirty.Mean)} FPS",
-            "screen activity indicator", Fmt.S($"≥ {Fmt.N(t.ActivityDirtyFps)} FPS = screen changing")));
-        return RuleOutcome.Raise(Severity.Warning, new(uncertain ? "Low frame rate during declared active workload (activity unverified)" : "Low frame rate during active graphics workload",
+        evidence.Add(Graphics.DirtyFpsEvidence(c));
+        return RuleOutcome.Raise(Severity.Warning, new("Low frame rate while the content is changing",
             Fmt.S($"Delivered FPS stayed below {Fmt.N(t.LowFps)} for most of {s.WindowSeconds:0} s (P50 {Fmt.N(s.P50)} FPS). {Graphics.ActivityNote(c)}"),
             s.WindowSeconds, s.ValidSamples, s.TotalSamples, evidence,
-            Fmt.S($"Warning when the workload is Interactive graphics or Video playback, the screen is changing (dirty FPS ≥ {Fmt.N(t.ActivityDirtyFps)}, or not measurable), and FPS < {Fmt.N(t.LowFps)} for ≥ {t.SustainedFraction:P0} of a {t.StandardWindowSeconds:0} s window. Recovers when the FPS P50 ≥ {Fmt.N(t.LowFps * (1 + t.RecoveryMarginPercent / 100))} over {t.RecoveryWindowSeconds:0} s or the screen becomes static."),
-            ["Guest CPU or GPU saturation limiting encoding", "Network constraints causing the encoder to reduce frame rate", "Blast frame-rate policy limits", "Content that changes slowly despite the selected workload"],
+            Fmt.S($"Warning when Blast dirty frames show the content changing at least as often as the threshold (dirty FPS mean ≥ {Fmt.N(t.LowFps)} over {t.StandardWindowSeconds:0} s) and FPS < {Fmt.N(t.LowFps)} for ≥ {t.SustainedFraction:P0} of a {t.StandardWindowSeconds:0} s window. Not judged when screen activity cannot be measured. Recovers when the FPS P50 ≥ {Fmt.N(t.LowFps * (1 + t.RecoveryMarginPercent / 100))} over {t.RecoveryWindowSeconds:0} s, or when the content changes fewer than {Fmt.N(t.LowFps)} times per second."),
+            ["Guest CPU or GPU saturation limiting encoding", "Network constraints causing the encoder to reduce frame rate", "Blast frame-rate policy limits"],
             ["Check the graphics bottleneck findings and VDI Guest Health.", "Compare RTT and packet loss in the same window.", "Review Blast policy settings for maximum frame rate.", "Confirm the user was actively working with graphics during this period."],
-            "Low FPS alone does not prove a problem; Blast sends fewer frames when content does not change. " + Graphics.ActivityNote(c)));
+            "Low FPS alone does not prove a problem; Blast sends fewer frames when content does not change. How often the content changes is taken from the Blast dirty-frame counter, which counts changed frames, not how much of the screen changed. Content changing more slowly than the threshold is not judged, so a slow delivery of slowly changing content is not reported. " + Graphics.ActivityNote(c)));
     }
 }
 
@@ -298,7 +318,6 @@ public sealed class FrameDeliveryInstabilityRule : IDomainRule
     public RuleOutcome Evaluate(DiagnosticContext c)
     {
         var t = c.Thresholds;
-        if (!c.IsActiveWorkload) return RuleOutcome.NotApplicable("Not an active graphics workload.");
         if (c.ScreenActivity is not true) return c.ScreenActivity is null ? RuleOutcome.Insufficient("Dirty-frame counter unavailable.") : RuleOutcome.Recovered("Screen is static.");
         var fps = c.Stats(DiagnosticMetrics.Fps, t.StandardWindowSeconds);
         var dirty = c.Stats(DiagnosticMetrics.DirtyFps, t.StandardWindowSeconds);
@@ -354,10 +373,9 @@ public abstract class FrameRateBottleneckRule : IDomainRule
     {
         if (NotApplicable(c) is { } na) return RuleOutcome.NotApplicable(na);
         var (low, fps, reason) = Graphics.LowFps(c);
-        if (!c.IsActiveWorkload) return RuleOutcome.NotApplicable(reason!);
-        if (low is null) return RuleOutcome.Insufficient(reason!);
+        if (low is null) return Graphics.NotEvaluable(c, fps, reason!);
         if (low == true && Pressure(c)) return RuleOutcome.Raise(Severity.Warning, Content(c, fps));
-        return Graphics.Recovered(c) || PressureRecovered(c) || low == false && c.ScreenActivity == false
+        return Graphics.Recovered(c) || PressureRecovered(c) || low == false && Graphics.ContentSlowed(c)
             ? RuleOutcome.Recovered("Low frame rate and resource pressure no longer coincide.") : RuleOutcome.Normal;
     }
 
@@ -366,7 +384,7 @@ public abstract class FrameRateBottleneckRule : IDomainRule
         var t = c.Thresholds;
         var list = new List<DiagnosticEvidence>
         {
-            new("FPS P50", $"{Fmt.N(fps.P50)} FPS", Threshold: Fmt.S($"< {Fmt.N(t.LowFps)} FPS for {Fmt.Sustained(t)}")), new("Workload (user-selected)", c.Workload.ToString())
+            new("FPS P50", $"{Fmt.N(fps.P50)} FPS", Threshold: Fmt.S($"< {Fmt.N(t.LowFps)} FPS for {Fmt.Sustained(t)}")), Graphics.DirtyFpsEvidence(c)
         };
         foreach (var (key, name, unit, threshold) in metrics)
         {
@@ -393,7 +411,7 @@ public sealed class CpuBoundGraphicsRule : FrameRateBottleneckRule
     {
         var t = c.Thresholds;
         return new("Guest CPU saturation may be limiting frame rate",
-            Fmt.S($"Low FPS during an active workload coincides with sustained guest CPU ≥ {Fmt.N(t.CpuWarningPercent)} %. Blast software encoding uses guest CPU, so CPU saturation may be contributing. {Graphics.ActivityNote(c)}"),
+            Fmt.S($"Low FPS while the content is changing coincides with sustained guest CPU ≥ {Fmt.N(t.CpuWarningPercent)} %. Blast software encoding uses guest CPU, so CPU saturation may be contributing. {Graphics.ActivityNote(c)}"),
             t.StandardWindowSeconds, fps.ValidSamples, fps.TotalSamples,
             Evidence(c, fps, (DiagnosticMetrics.Cpu, "Guest CPU", "%", Fmt.S($"≥ {Fmt.N(t.CpuWarningPercent)} % for {Fmt.Sustained(t)}")), (DiagnosticMetrics.Rtt, "Blast RTT", "ms", null)),
             Fmt.S($"Low-FPS condition (see graphics.fps.low) and CPU ≥ {Fmt.N(t.CpuWarningPercent)} % for ≥ {t.SustainedFraction:P0} of {t.StandardWindowSeconds:0} s."),
@@ -418,7 +436,7 @@ public sealed class GpuBoundGraphicsRule : FrameRateBottleneckRule
     {
         var t = c.Thresholds;
         return new("GPU saturation may be limiting frame rate",
-            Fmt.S($"Low FPS during an active workload coincides with sustained GPU utilization ≥ {Fmt.N(t.GpuWarningPercent)} % (busiest engine). {Graphics.ActivityNote(c)}"),
+            Fmt.S($"Low FPS while the content is changing coincides with sustained GPU utilization ≥ {Fmt.N(t.GpuWarningPercent)} % (busiest engine). {Graphics.ActivityNote(c)}"),
             t.StandardWindowSeconds, fps.ValidSamples, fps.TotalSamples,
             Evidence(c, fps, (DiagnosticMetrics.Gpu, "GPU", "%", Fmt.S($"≥ {Fmt.N(t.GpuWarningPercent)} % for {Fmt.Sustained(t)}")), (DiagnosticMetrics.Encoder, "Video encoder", "%", null)),
             Fmt.S($"Low-FPS condition and GPU ≥ {Fmt.N(t.GpuWarningPercent)} % for ≥ {t.SustainedFraction:P0} of {t.StandardWindowSeconds:0} s."),
@@ -450,7 +468,7 @@ public sealed class NetworkGraphicsRule : FrameRateBottleneckRule
     {
         var t = c.Thresholds;
         return new("Network conditions may be limiting frame rate",
-            Fmt.S($"Low FPS during an active workload coincides with elevated RTT or uplink packet loss. Blast adapts frame rate to network conditions, so the network may be contributing. {Graphics.ActivityNote(c)}"),
+            Fmt.S($"Low FPS while the content is changing coincides with elevated RTT or uplink packet loss. Blast adapts frame rate to network conditions, so the network may be contributing. {Graphics.ActivityNote(c)}"),
             t.StandardWindowSeconds, fps.ValidSamples, fps.TotalSamples,
             Evidence(c, fps, (DiagnosticMetrics.Rtt, "Blast RTT", "ms", Fmt.S($"≥ {Fmt.N(t.RttWarningMs)} ms for {Fmt.Sustained(t)}")),
                 (DiagnosticMetrics.PacketLoss, "Uplink packet loss", "%", Fmt.S($"mean ≥ {Fmt.N(t.PacketLossWarningPercent)} %")), (DiagnosticMetrics.ImagingOutMbps, "Imaging outbound", "Mbps", null)),

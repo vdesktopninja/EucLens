@@ -27,9 +27,10 @@ the user to *Performance Monitor Users*).
 | Failed | Read threw (access denied, instance vanished, non-finite value) | N/A + error |
 
 Diagnostics never evaluate thresholds against Stale, Failed or Unavailable data.
-The low-FPS rule only fires for the *Interactive graphics* workload; Real Session
-defaults to *Idle / static content*, so an idle desktop showing 0–2 FPS raises no
-warning.
+The low-FPS rule fires only while the Blast dirty-frame counter shows the content
+changing at least 15 times per second (since 0.5.1; there is no workload selection),
+so an idle desktop showing 0–2 FPS, or typing in a document, raises no warning.
+Without the dirty-frame counter low FPS is not judged.
 
 ## Metrics and units
 

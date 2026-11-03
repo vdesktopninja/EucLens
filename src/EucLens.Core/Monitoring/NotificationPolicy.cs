@@ -77,7 +77,7 @@ public sealed class NotificationPolicy(TimeProvider clock, NotificationOptions? 
     {
         var r when r.StartsWith("connection.rtt", StringComparison.Ordinal) => "Sustained high round-trip time",
         var r when r.StartsWith("connection.packetloss", StringComparison.Ordinal) => "Sustained packet loss",
-        var r when r.StartsWith("graphics.fps", StringComparison.Ordinal) || r.Contains("lowfps", StringComparison.Ordinal) => "Low frame rate during an active workload",
+        var r when r.StartsWith("graphics.fps", StringComparison.Ordinal) || r.Contains("lowfps", StringComparison.Ordinal) => "Low frame rate while the content is changing",
         var r when r.StartsWith("guest.", StringComparison.Ordinal) || r.StartsWith("host.", StringComparison.Ordinal) => "Guest resource pressure",
         var r when r.StartsWith("gpu.", StringComparison.Ordinal) => "GPU resource pressure",
         _ => "A diagnostic problem was detected"

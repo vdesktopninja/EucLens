@@ -74,14 +74,13 @@
   </DataTemplate>
  </UserControl.Resources>
  <StackPanel DataContext="{Binding Monitor.Diagnostics}">
-  <!-- Header: what is analysed, over which window, for which declared workload. -->
+  <!-- Header: what is analysed and over which window. -->
   <Grid Margin="0,0,0,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
    <StackPanel Margin="0,0,16,0">
     <TextBlock Text="Diagnostics" Style="{StaticResource Heading}" Margin="0,0,0,2" />
     <TextBlock Style="{StaticResource ReadingMuted}"><Run Text="Rule-based analysis of measured values · " /><Run Text="{Binding Observation, Mode=OneWay}" /><Run Text=" · correlations are possible contributors, not proven causes. Thresholds: Settings." /></TextBlock>
    </StackPanel>
    <WrapPanel Grid.Column="1" VerticalAlignment="Bottom">
-    <StackPanel><TextBlock Text="Workload (user-selected)" Style="{StaticResource Meta}" /><ComboBox Width="200" ItemsSource="{Binding DataContext.Monitor.Workloads, RelativeSource={RelativeSource AncestorType=UserControl}}" SelectedItem="{Binding DataContext.Monitor.SelectedWorkload, RelativeSource={RelativeSource AncestorType=UserControl}}" DisplayMemberPath="Label" AutomationProperties.Name="Diagnostic workload context" /></StackPanel>
     <Button Content="Copy summary" Command="{Binding CopySummaryCommand}" VerticalAlignment="Bottom" Margin="0,4,0,0" AutomationProperties.Name="Copy diagnostic summary to the clipboard" />
    </WrapPanel>
   </Grid>

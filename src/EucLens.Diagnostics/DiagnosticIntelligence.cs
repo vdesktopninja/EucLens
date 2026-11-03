@@ -11,8 +11,6 @@ public sealed class DiagnosticContext(SessionSnapshot snapshot, MetricsHistory h
     public DiagnosticThresholds Thresholds { get; } = thresholds;
     /// <summary>Monotonic elapsed seconds; independent of wall-clock changes and metric timestamps.</summary>
     public double Now { get; } = now;
-    public WorkloadContext Workload => Snapshot.Workload;
-    public bool IsActiveWorkload => Workload is WorkloadContext.InteractiveGraphics or WorkloadContext.VideoPlayback;
     /// <summary>True: hardware GPU; false: software rendering (supported); null: unknown.</summary>
     public bool? HardwareGpu => Snapshot.Gpu.HardwareAcceleration;
     public int? LogicalProcessors => Snapshot.HostMetrics?.FirstOrDefault(e => e.Id == "cpu.logicalProcessors")?.Metric.Value is { } v ? (int)v : null;
@@ -28,13 +26,30 @@ public sealed class DiagnosticContext(SessionSnapshot snapshot, MetricsHistory h
     public double Share(string key, double window, Func<double, bool> predicate) =>
         History.Has(key) ? History[key].ShareOfCoveredTime(Now, window, Thresholds.MaximumSampleGapSeconds, predicate) : 0;
 
-    /// <summary>Screen-activity evidence from Blast dirty frames; null when the counter is not available.</summary>
+    /// <summary>
+    /// Screen-activity evidence from Blast dirty frames; null when the counter is not available. Frame-rate rules use only measurements,
+    /// never a declared workload: a static screen legitimately sends few frames.
+    /// </summary>
     public bool? ScreenActivity
     {
         get
         {
             var dirty = Stats(DiagnosticMetrics.DirtyFps, Thresholds.StandardWindowSeconds);
             return dirty.IsSufficient(Thresholds) ? dirty.Mean >= Thresholds.ActivityDirtyFps : null;
+        }
+    }
+
+    /// <summary>
+    /// True when Blast dirty frames show the content changing at least as often as the low-FPS threshold (dirty FPS mean ≥ LowFps), so
+    /// fewer delivered frames than that threshold cannot be explained by the content itself; null when the counter is not available.
+    /// Slower-changing content (typing, scrolling a document) delivers few frames by nature and is not judged against the threshold.
+    /// </summary>
+    public bool? FrameDemand
+    {
+        get
+        {
+            var dirty = Stats(DiagnosticMetrics.DirtyFps, Thresholds.StandardWindowSeconds);
+            return dirty.IsSufficient(Thresholds) ? dirty.Mean >= Thresholds.LowFps : null;
         }
     }
 }
@@ -277,7 +292,7 @@ public static class HealthEvaluator
         [
             (DiagnosticDomain.Connection, [DiagnosticMetrics.Rtt], [DiagnosticMetrics.PacketLoss, DiagnosticMetrics.Reconnects], connectionNotes),
             (DiagnosticDomain.Graphics, [DiagnosticMetrics.Fps], [DiagnosticMetrics.DirtyFps, DiagnosticMetrics.QueueingUs, DiagnosticMetrics.Cpu],
-                [$"workload is user-selected ({c.Workload})"]),
+                ["low FPS judged only while Blast dirty frames show the content changing at least as often as the threshold"]),
             (DiagnosticDomain.Guest, [DiagnosticMetrics.Cpu, DiagnosticMetrics.Ram], [DiagnosticMetrics.AvailableRamGiB, DiagnosticMetrics.DiskActive, .. gpuOptional], guestNotes),
         ];
     }
@@ -301,9 +316,8 @@ public static class HealthEvaluator
             var (statistic, value) = Statistic(s);
             var state = s.IsSufficient(t) ? InputState.Evaluated : c.History.Has(key) && s.TotalSamples > 0 && s.ValidSamples + s.StaleSamples + s.FailedSamples > 0
                 ? InputState.Insufficient : InputState.NotCollected;
-            // Low FPS is judged only for a declared active workload while the screen is not static; it is shown as
-            // applicable only when dirty frames confirm activity, never from the workload selection alone.
-            bool? applies = key == DiagnosticMetrics.Fps ? c.IsActiveWorkload && c.ScreenActivity == true : null;
+            // Low FPS is judged only while Blast dirty frames show the content changing at least as often as the threshold.
+            bool? applies = key == DiagnosticMetrics.Fps ? c.FrameDemand == true : null;
             list.Add(new(domain, key, Names.GetValueOrDefault(key, key), isRequired, state, statistic, value, Unit(key), Threshold(c, key),
                 s.ValidSamples, s.TotalSamples, s.StaleSamples, s.FailedSamples, s.Coverage, window, s.LatestReason, applies));
         }
@@ -326,8 +340,8 @@ public static class HealthEvaluator
             DiagnosticMetrics.Rtt => S($"≥ {t.RttWarningMs:0.##} ms warning"),
             DiagnosticMetrics.PacketLoss => S($"mean ≥ {t.PacketLossWarningPercent:0.##} % warning"),
             DiagnosticMetrics.Reconnects => S($"+{t.ReconnectWarningCount} in {t.LongWindowSeconds:0} s"),
-            // Low FPS is only judged during declared active workloads.
-            DiagnosticMetrics.Fps => c.IsActiveWorkload ? S($"< {t.LowFps:0.##} FPS warning") : null,
+            // Low FPS is only judged while the content changes at least as often as the threshold; whether that holds is stated separately (ThresholdApplies).
+            DiagnosticMetrics.Fps => S($"< {t.LowFps:0.##} FPS warning"),
             DiagnosticMetrics.DirtyFps => S($"≥ {t.ActivityDirtyFps:0.##} FPS = screen changing"),
             DiagnosticMetrics.QueueingUs => S($"≥ {t.QueueingWarningMicroseconds:0} µs (information only)"),
             DiagnosticMetrics.Cpu => S($"≥ {t.CpuWarningPercent:0.##} % warning"),

@@ -574,21 +574,28 @@ public sealed class HostMetricsTests
     // ---------- View model: protocol display, Advanced Metrics, mode switching ----------
 
     [Fact]
-    public async Task ProtocolDisplayNeverShowsDemoSelectionInRealSession()
+    public async Task ProtocolDisplayShowsOnlyTheDetectedProtocol()
     {
         await using var demo = new MockMetricsProvider();
         await using var real = new RealSessionMetricsProvider(new OmnissaBlastProvider(new OneSessionBlastReader(), new ActiveContext()), new FakeHost(), new FakeProbe());
         var vm = Vm(demo, real);
         await vm.InitializeAsync(default);
-        vm.SelectedMode = vm.Modes.Single(m => m.Value == MonitoringMode.DemoMode);
-        vm.SelectedProtocol = vm.Protocols.Single(p => p.Value == RemoteProtocol.CitrixHdx);
-        Assert.Equal("Citrix HDX (demo selection)", vm.ProtocolDisplay);
+        Assert.Equal("Real Session", vm.ModeLabel);
+        await demo.InitializeAsync();
+        demo.Configure(RemoteProtocol.CitrixHdx, DemoScenario.Healthy, WorkloadContext.Idle);
+        vm.UseSyntheticSource(demo);
+        await RunOnce(vm);
+        Assert.Equal("Citrix HDX (synthetic)", vm.ProtocolDisplay);
+        Assert.StartsWith("SYNTHETIC TEST DATA", vm.ModeBanner);
 
-        vm.SelectedMode = vm.Modes.Single(m => m.Value == MonitoringMode.RealSession);
+        vm.UseSyntheticSource(null);
         Assert.Equal("Detecting…", vm.ProtocolDisplay);
+        Assert.Equal("REAL SESSION · Detecting the session…", vm.ModeBanner);
         await RunOnce(vm);
 
         Assert.Equal("Omnissa Blast", vm.ProtocolDisplay);
+        Assert.Equal("REAL SESSION · Horizon Blast counters + Windows metrics", vm.ModeBanner);
+        Assert.Equal("Horizon Blast counters + Windows metrics", vm.DataAvailability);
         Assert.Contains(vm.SessionCards, c => c.Label == "Active protocol" && c.Value == "Omnissa Blast");
         Assert.StartsWith("Omnissa Blast |", vm.SessionIdentity);
         Assert.Equal("42.0 %".Replace(".", System.Globalization.CultureInfo.CurrentCulture.NumberFormat.NumberDecimalSeparator), vm.OverviewCards.Single(c => c.Label == "CPU").Value);
@@ -607,6 +614,9 @@ public sealed class HostMetricsTests
 
         Assert.Equal("Not detected", vm.ProtocolDisplay);
         Assert.Contains("protocol type 2", vm.ProtocolDetail);
+        // A session without Blast counters is monitored with Windows metrics, and the banner says so instead of claiming Blast counters.
+        Assert.Equal("REAL SESSION · Windows metrics only · No Horizon Blast counters for this session", vm.ModeBanner);
+        Assert.NotEqual("N/A", vm.OverviewCards.Single(c => c.Label == "CPU").Value);
         Assert.StartsWith("Not detected |", vm.SessionIdentity);
     }
 
@@ -631,22 +641,24 @@ public sealed class HostMetricsTests
         Assert.All(vm.AdvancedRows, r => Assert.Contains("rtt", r.Name + r.Id + r.Source, StringComparison.OrdinalIgnoreCase));
         Assert.Contains("showing", vm.AdvancedStatus);
 
-        vm.SelectedMode = vm.Modes.Single(m => m.Value == MonitoringMode.DemoMode);
+        await demo.InitializeAsync();
+        vm.UseSyntheticSource(demo);
         Assert.Empty(vm.AdvancedRows);
-        Assert.Contains("Demo Mode has none", vm.AdvancedStatus);
+        Assert.Contains("synthetic test data has none", vm.AdvancedStatus);
     }
 
     [Fact]
-    public async Task ModeSwitchResetsSustainedDiagnostics()
+    public async Task SourceChangeResetsSustainedDiagnostics()
     {
         await using var demo = new MockMetricsProvider();
         await using var real = new RealSessionMetricsProvider(new OmnissaBlastProvider(new OneSessionBlastReader(), new ActiveContext()), new FakeHost(), new FakeProbe());
         var rule = new CountingRule();
-        var vm = new MainViewModel(demo, new DiagnosticEngine([rule]), new SessionRecorder(), new FakeDesktop(), NullLogger<MainViewModel>.Instance, real);
+        var vm = new MainViewModel(real, new DiagnosticEngine([rule]), new SessionRecorder(), new FakeDesktop(), NullLogger<MainViewModel>.Instance);
         await vm.InitializeAsync(default);
         var before = rule.Resets;
 
-        vm.SelectedMode = vm.Modes.Single(m => m.Value == MonitoringMode.DemoMode);
+        await demo.InitializeAsync();
+        vm.UseSyntheticSource(demo);
 
         Assert.Equal(before + 1, rule.Resets);
     }
@@ -700,8 +712,8 @@ public sealed class HostMetricsTests
         await vm.RunAsync(run.Token);
     }
 
-    private static MainViewModel Vm(IDemoMetricsProvider demo, IMetricsProvider real) =>
-        new(demo, new DiagnosticEngine([new LatencyRule(), new SustainedCpuRule(new())]), new SessionRecorder(), new FakeDesktop(), NullLogger<MainViewModel>.Instance, real);
+    private static MainViewModel Vm(MockMetricsProvider demo, IMetricsProvider real) =>
+        new(real, new DiagnosticEngine([new LatencyRule(), new SustainedCpuRule(new())]), new SessionRecorder(), new FakeDesktop(), NullLogger<MainViewModel>.Instance);
 
     private static GpuAdapterInfo Adapter(int index, string name, uint vendor, int dedicatedMiB, bool software = false, bool remote = false, uint luidLow = 0) =>
         new(index, name, vendor, 0x25B6, 0x14A910DE, (ulong)dedicatedMiB * 1024 * 1024, 0, 8UL << 30,
