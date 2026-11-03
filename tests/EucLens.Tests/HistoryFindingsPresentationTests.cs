@@ -10,7 +10,9 @@ namespace EucLens.Tests;
 /// <summary>
 /// The findings experience of Session History: filters and counts, evidence detail, navigation to the real interval and chart, correlation presentation, data quality,
 /// the Unknown-protocol state, and the lifetime of everything (stale results, release, repeated use). Recordings go through the real writer and loader.
+/// Runs alone, like the other memory measurements: the heap-growth test reads the heap of the whole process, which other test classes allocate into while it runs.
 /// </summary>
+[Collection(SerialPerformanceCollection.Name)]
 public sealed class HistoryFindingsPresentationTests
 {
     private static readonly string Dir = HistoryFixture.Dir;
