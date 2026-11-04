@@ -192,15 +192,7 @@ internal static class HistoryUxValidation
                         await Layout(c, item.Scenario.Key, dark, width, height, scale, client);
                         var tag = $"ux-{item.Scenario.Key}-{(dark ? "dark" : "light")}-{width}x{height}-{scale * 100:0}pct";
                         await HistoryValidation.Shot(c, HistoryValidation.View(c), Path.Combine(shots, tag + ".png"));
-                        if (scale == 1d && item.Scenario.Key is "short" or "recurring" && findings.VisibleObservations.Count > 0)
-                        {
-                            findings.SelectedObservation = findings.VisibleObservations.First();
-                            await HistoryValidation.Idle(c); await Task.Delay(250); await DesktopValidation.WaitForChartMeasureAsync(window);
-                            await HistoryValidation.Shot(c, HistoryValidation.View(c), Path.Combine(shots, tag.Replace("ux-", "ux-selected-") + ".png"));
-                            findings.ShowFull();
-                            foreach (var open in findings.FindingRows.Where(r => r.IsGroup && r.IsExpanded).ToArray()) open.IsExpanded = false;   // the next shots show the default state again
-                            await HistoryValidation.Idle(c); await Task.Delay(150);
-                        }
+                        if (scale == 1d) await NamedStates(c, item.Scenario.Key, findings, shots, tag, window);
                     }
                 }
             }
@@ -215,6 +207,34 @@ internal static class HistoryUxValidation
             window.Content = client; window.Width = originalWidth; window.Height = originalHeight;
             c.Vm.IsDark = true;
             c.Vm.SelectedPage = c.Vm.Pages[0];
+        }
+    }
+
+    /// <summary>
+    /// The states the owner reviews, at 100 % only: nothing chosen yet (the plain shot above), a CPU group chosen, one CPU occurrence chosen, and a packet-loss finding chosen. Each ends by
+    /// returning to the whole recording with every group closed, so the next shot starts from the default state.
+    /// </summary>
+    private static async Task NamedStates(HistorySmokeContext c, string scenario, HistoryFindingsViewModel findings, string shots, string tag, Window window)
+    {
+        async Task Settle() { await HistoryValidation.Idle(c); await Task.Delay(250); await DesktopValidation.WaitForChartMeasureAsync(window); }
+        async Task Take(string name) => await HistoryValidation.Shot(c, HistoryValidation.View(c), Path.Combine(shots, tag.Replace("ux-", $"ux-{name}-") + ".png"));
+        async Task Reset()
+        {
+            findings.ShowFull();
+            foreach (var open in findings.FindingRows.Where(r => r.IsGroup && r.IsExpanded).ToArray()) open.IsExpanded = false;
+            await HistoryValidation.Idle(c); await Task.Delay(150);
+        }
+        if (scenario == "recurring" && findings.FindingRows.FirstOrDefault(r => r.IsGroup && r.RuleId == "guest.cpu.saturation") is { } group)
+        {
+            findings.SelectedRow = group; await Settle(); await Take("cpugroup");
+            findings.ToggleGroup("guest.cpu.saturation"); await HistoryValidation.Idle(c);
+            findings.SelectedRow = findings.FindingRows.Where(r => r.IsOccurrence).ElementAt(1); await Settle(); await Take("cpuoccurrence");
+            await Reset();
+        }
+        else if (scenario == "short" && findings.VisibleObservations.FirstOrDefault(o => o.Observation.RuleId == "conn.loss.sustained") is { } loss)
+        {
+            findings.SelectById(loss.Id); await Settle(); await Take("packetloss");
+            await Reset();
         }
     }
 
