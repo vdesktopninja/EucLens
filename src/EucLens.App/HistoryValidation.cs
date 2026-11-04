@@ -44,28 +44,28 @@ internal static class HistoryValidation
         return frame.Length > 400 ? frame[..400] : frame;
     }
 
-    private static void Require(bool condition, string failure) { if (!condition) throw new InvalidOperationException(failure); }
-    private static void Log(HistorySmokeContext c, string line)
+    internal static void Require(bool condition, string failure) { if (!condition) throw new InvalidOperationException(failure); }
+    internal static void Log(HistorySmokeContext c, string line)
     {
         Report.AppendLine(line);
         SmokeLog.Write("history: " + line);
         File.WriteAllText(Path.Combine(c.EvidenceDirectory, "history-validation.txt"), Report.ToString());
     }
 
-    private static Task Idle(HistorySmokeContext c) => c.App.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle).Task;
+    internal static Task Idle(HistorySmokeContext c) => c.App.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle).Task;
 
-    private static async Task WaitFor(Func<bool> condition, string what, int milliseconds = 30_000)
+    internal static async Task WaitFor(Func<bool> condition, string what, int milliseconds = 30_000)
     {
         var until = Environment.TickCount64 + milliseconds;
         while (!condition()) { if (Environment.TickCount64 > until) throw new InvalidOperationException($"Timed out waiting for {what}."); await Task.Delay(50); }
     }
 
-    private static SessionHistoryViewModel History(HistorySmokeContext c) => c.Vm.History;
-    private static SessionHistoryView View(HistorySmokeContext c) => DesktopValidation.Descendants<SessionHistoryView>(c.Window).Single();
+    internal static SessionHistoryViewModel History(HistorySmokeContext c) => c.Vm.History;
+    internal static SessionHistoryView View(HistorySmokeContext c) => DesktopValidation.Descendants<SessionHistoryView>(c.Window).Single();
     private static HistoryChartOverlay Overlay(HistorySmokeContext c) => DesktopValidation.Descendants<HistoryChartOverlay>(View(c)).Single();
     private static HistoryTimelineStrip Strip(HistorySmokeContext c) => DesktopValidation.Descendants<HistoryTimelineStrip>(View(c)).Single();
     /// <summary>Safe while the page is still being created: no view yet means no charts yet.</summary>
-    private static CartesianChart[] Charts(HistorySmokeContext c) =>
+    internal static CartesianChart[] Charts(HistorySmokeContext c) =>
         DesktopValidation.Descendants<SessionHistoryView>(c.Window).FirstOrDefault() is { } view ? DesktopValidation.Descendants<CartesianChart>(view).ToArray() : [];
 
     // ---------- screenshots that wait for the charts to be drawn ----------
@@ -128,7 +128,7 @@ internal static class HistoryValidation
     /// Saves a screenshot only once what is drawn has stopped changing: the same pixels in five consecutive frames and every LiveCharts canvas reporting that it has
     /// nothing left to draw. LiveCharts repaints after the frame in which its axis range changed, so a capture taken right after a range change shows the old range.
     /// </summary>
-    private static async Task<ShotInfo> Shot(HistorySmokeContext c, FrameworkElement visual, string path)
+    internal static async Task<ShotInfo> Shot(HistorySmokeContext c, FrameworkElement visual, string path)
     {
         var sw = Stopwatch.StartNew();
         string? previous = null; var identical = 0; var frames = 0; RenderTargetBitmap? bitmap = null; var canvasesIdle = false; var slowestFrame = 0d;
@@ -153,7 +153,7 @@ internal static class HistoryValidation
         return new(sw.ElapsedMilliseconds, frames, slowestFrame);
     }
 
-    private sealed record ShotInfo(long Milliseconds, int Frames, double SlowestFrameMilliseconds);
+    internal sealed record ShotInfo(long Milliseconds, int Frames, double SlowestFrameMilliseconds);
 
     private static long HeapAfterCollection()
     {
@@ -255,6 +255,7 @@ internal static class HistoryValidation
         await Section(c, failures, "large event list", () => LargeEventList(c));
         await Section(c, failures, "repeated open and leave", () => RepeatedNavigation(c));
         await Section(c, failures, "six hour recording", () => LongRecording(c));
+        await Section(c, failures, "workspace screenshots", () => HistoryUxValidation.RunAsync(c));
         c.Vm.SelectedPage = c.Vm.Pages[0];
         c.Vm.IsDark = true;
         if (failures.Count > 0) throw new InvalidOperationException($"History validation failed in {failures.Count} section(s): {string.Join("; ", failures)}");

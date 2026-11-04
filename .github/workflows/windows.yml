@@ -217,10 +217,12 @@ jobs:
         run: |
           Add-Type -AssemblyName System.Drawing
           $files = @(Get-ChildItem 'artifacts/win-x64/visual-evidence/*' -Include '*-100pct-*-DashboardPage.png', '*-100pct-*-DiagnosticsPage.png', '*-100pct-*-SettingsPage.png', 'FAILED-*.png' -ErrorAction SilentlyContinue | Sort-Object Name)
+          # The Session History workspace: every scenario in both themes at 100 % and, at the narrowest size, with the space of 150 % (simulated space, not a Windows DPI change).
+          $files += @(Get-ChildItem 'artifacts/win-x64/visual-evidence/workspace/*.png' -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*-100pct.png' -or $_.Name -like '*-1366x768-150pct.png' } | Sort-Object Name)
           Write-Host "Page screenshots: $($files.Count)"
           $codec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' }
           $parameters = New-Object System.Drawing.Imaging.EncoderParameters(1)
-          $parameters.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, [long]85)
+          $parameters.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, [long]78)
           foreach ($file in $files) {
             $image = [System.Drawing.Image]::FromFile($file.FullName)
             $stream = New-Object System.IO.MemoryStream
