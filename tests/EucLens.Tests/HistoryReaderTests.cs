@@ -5,6 +5,8 @@ using Xunit;
 namespace EucLens.Tests;
 
 /// <summary>The historical timeline reader: parts, compression, events, interruption, damage, compatibility, cancellation and memory.</summary>
+// Runs alone, like the other memory measurements: its eight-hour test reads the heap of the whole process (24 MiB limit, unchanged), which other test classes allocate into while it runs.
+[Collection(SerialPerformanceCollection.Name)]
 public sealed class HistoryReaderTests
 {
     private static readonly string Dir = HistoryFixture.Dir;
