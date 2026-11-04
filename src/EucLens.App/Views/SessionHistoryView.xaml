@@ -77,7 +77,10 @@
   <DataTemplate x:Key="DetailOccurrenceRow">
    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
     <Path Style="{StaticResource SeverityIcon}" Tag="{Binding SeverityTag}" Margin="0,0,8,0" />
-    <TextBlock Grid.Column="1" Style="{StaticResource Reading}" Typography.NumeralAlignment="Tabular" VerticalAlignment="Center"><Run Text="{Binding Time, Mode=OneWay}" FontWeight="SemiBold" /><Run Text="  " /><Run Text="{Binding SeverityLabel, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}" /></TextBlock>
+    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+     <TextBlock Text="{Binding Time}" Style="{StaticResource Reading}" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" TextWrapping="NoWrap" />
+     <TextBlock Text="{Binding SeverityLabel}" Style="{StaticResource Meta}" Margin="8,0,0,0" VerticalAlignment="Center" TextWrapping="NoWrap" Visibility="{Binding ShowSeverityWord, Converter={StaticResource BoolToVisibility}}" />
+    </StackPanel>
     <TextBlock Grid.Column="2" Text="{Binding Duration}" Style="{StaticResource Reading}" Typography.NumeralAlignment="Tabular" Margin="12,0,0,0" VerticalAlignment="Center" />
     <TextBlock Grid.Column="3" Text="{Binding KeyValue}" Style="{StaticResource ValueText}" TextAlignment="Right" Margin="14,0,0,0" MinWidth="56" VerticalAlignment="Center" />
    </Grid>
@@ -189,11 +192,23 @@
 
     <!-- Master (the list) and details; side by side from 900 DIPs, the details under the list below that. -->
     <ui:MasterDetailPanel Margin="0,8,0,0" AutomationProperties.Name="Findings and finding details">
+     <StackPanel>
      <ListBox x:Name="FindingsList" ItemsSource="{Binding FindingRows}" SelectedItem="{Binding SelectedRow}" Style="{StaticResource TableList}" ItemContainerStyle="{StaticResource FindingLine}" MaxHeight="{x:Static ui:HistoryLayout.FindingsListMaxHeight}" Visibility="{Binding HasVisibleObservations, Converter={StaticResource BoolToVisibility}}" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" VirtualizingPanel.ScrollUnit="Item" ScrollViewer.CanContentScroll="True" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Findings: select one to show its interval in the charts; a group opens with Enter, Right arrow and closes with Left arrow">
       <ListBox.Template><ControlTemplate TargetType="ListBox"><Border Background="{TemplateBinding Background}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0"><ScrollViewer x:Name="FindingsScroll" Focusable="False" CanContentScroll="True" VerticalScrollBarVisibility="{TemplateBinding ScrollViewer.VerticalScrollBarVisibility}" HorizontalScrollBarVisibility="{TemplateBinding ScrollViewer.HorizontalScrollBarVisibility}" ui:WheelChaining.Enabled="True"><ItemsPresenter /></ScrollViewer></Border></ControlTemplate></ListBox.Template>
       <ListBox.ItemsPanel><ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate></ListBox.ItemsPanel>
       <ListBox.ItemTemplate><DataTemplate><ContentControl Content="{Binding}" Style="{StaticResource FindingRowSwitch}" AutomationProperties.Name="{Binding AutomationName}" /></DataTemplate></ListBox.ItemTemplate>
      </ListBox>
+    <!-- What could not be said, by kind: no anomaly, no usable measurement, not applicable, insufficient evidence, incomplete recording. -->
+      <Expander Header="{Binding QualityHeader}" Margin="0,8,0,0" Visibility="{Binding HasQualityGroups, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="Data quality and evaluation details">
+       <ItemsControl ItemsSource="{Binding QualityGroups}" Focusable="False" Margin="0,4,0,0"><ItemsControl.ItemTemplate><DataTemplate>
+        <StackPanel Margin="0,0,0,6" AutomationProperties.Name="{Binding HeadingWithCount}">
+         <TextBlock Text="{Binding HeadingWithCount}" Style="{StaticResource SubLabel}" Margin="0,6,0,0" />
+         <TextBlock Text="{Binding Note}" Style="{StaticResource Meta}" />
+         <ItemsControl ItemsSource="{Binding Lines}" Focusable="False"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Style="{StaticResource Reading}" Margin="0,2,0,0" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+        </StackPanel>
+       </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+      </Expander>
+     </StackPanel>
 
      <!-- Details: the selection, or a preview of the most severe finding; never an empty pane while there is a finding to show. -->
      <Border Background="{DynamicResource ElevatedBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="{StaticResource Hairline}" CornerRadius="{StaticResource PanelRadius}" Padding="12" Visibility="{Binding HasDetail, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="Finding details">
@@ -317,16 +332,7 @@
      <WrapPanel Margin="0,6,0,0"><Button Content="Show in charts" Command="{Binding ShowInChartsCommand}" Style="{StaticResource PrimaryButton}" AutomationProperties.Name="Show correlation in charts" /></WrapPanel>
     </StackPanel></Border>
 
-    <!-- What could not be said, by kind: no anomaly, no usable measurement, not applicable, insufficient evidence, incomplete recording. -->
-    <Expander Header="{Binding QualityHeader}" Margin="0,8,0,0" Visibility="{Binding HasQualityGroups, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="Data quality and evaluation details">
-     <ItemsControl ItemsSource="{Binding QualityGroups}" Focusable="False" Margin="0,4,0,0"><ItemsControl.ItemTemplate><DataTemplate>
-      <StackPanel Margin="0,0,0,6" AutomationProperties.Name="{Binding HeadingWithCount}">
-       <TextBlock Text="{Binding HeadingWithCount}" Style="{StaticResource SubLabel}" Margin="0,6,0,0" />
-       <TextBlock Text="{Binding Note}" Style="{StaticResource Meta}" />
-       <ItemsControl ItemsSource="{Binding Lines}" Focusable="False"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Style="{StaticResource Reading}" Margin="0,2,0,0" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
-      </StackPanel>
-     </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
-    </Expander>
+
    </StackPanel></Border>
    <Border Style="{StaticResource Panel}" AutomationProperties.Name="Time range"><StackPanel>
     <WrapPanel>

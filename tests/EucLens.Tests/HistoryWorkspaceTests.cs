@@ -633,6 +633,18 @@ public sealed class HistoryWorkspaceTests
         Assert.Contains("Binding IsPreviewed", xaml);
     }
 
+    [Fact]
+    public void TheDataQualityDisclosureSitsUnderTheListSoTheListColumnIsNeverABlankArea()
+    {
+        var xaml = Xaml;
+        var list = xaml.IndexOf("x:Name=\"FindingsList\"", StringComparison.Ordinal);
+        var quality = xaml.IndexOf("AutomationProperties.Name=\"Data quality and evaluation details\"", StringComparison.Ordinal);
+        var details = xaml.IndexOf("AutomationProperties.Name=\"Finding details\"", StringComparison.Ordinal);
+        Assert.True(list > 0 && list < quality && quality < details, "the data-quality disclosure must follow the list inside the master column, before the details pane");
+        // and the occurrence lines of the details name a severity only when it differs from the group's
+        Assert.Contains("Visibility=\"{Binding ShowSeverityWord, Converter={StaticResource BoolToVisibility}}\"", xaml);
+    }
+
     // ---------- timeline lanes ----------
 
     private static readonly DateTimeOffset T0 = new(2026, 11, 2, 8, 0, 0, TimeSpan.Zero);
