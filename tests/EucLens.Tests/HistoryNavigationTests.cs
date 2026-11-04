@@ -198,6 +198,9 @@ public sealed class HistoryNavigationTests
         // BringChartIntoView is defined once and called from exactly one place: the handler of ChartsRequest, which only "Show in charts" raises.
         Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(code, "BringChartIntoView\\(").Count);
         Assert.Contains("OnChartsRequested(object? sender, PropertyChangedEventArgs e) => BringChartIntoView();", code);
+        // A list reveals a line by scrolling itself; its bring-into-view request is stopped at the list so that it can never scroll the page.
+        Assert.Contains("list.RequestBringIntoView += (_, e) => e.Handled = true;", code);
+        Assert.Contains("foreach (var list in new[] { FindingsList, DetailOccurrencesList, CorrelationList, ContextList })", code);
         var vm = File.ReadAllText(Path.Combine(repo, "src/EucLens.App/ViewModels/HistoryFindingsViewModel.cs"));
         Assert.Single(System.Text.RegularExpressions.Regex.Matches(vm, "RequestCharts\\(\\);"));                    // raised by ShowInCharts only
         Assert.Single(System.Text.RegularExpressions.Regex.Matches(vm, "navigate\\(target\\)"));                     // the charts are told to move in one place

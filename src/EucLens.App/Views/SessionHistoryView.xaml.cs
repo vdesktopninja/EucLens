@@ -25,6 +25,8 @@ public partial class SessionHistoryView : UserControl
         PerformanceTimeline.FindingStepRequested += (_, e) => History?.Findings.SelectAdjacent(e.Direction);
         foreach (var list in new[] { FindingsList, DetailOccurrencesList, CorrelationList, ContextList })
         {
+            // A list scrolls itself to reveal a line; the request must never go on to the page. Only "Show in charts" scrolls the page.
+            list.RequestBringIntoView += (_, e) => e.Handled = true;
             // A click on a finding brings its chart into view; moving with the arrow keys never moves the page. Escape returns to the whole recording.
             list.PreviewMouseLeftButtonUp += OnFindingClicked;
             list.KeyDown += OnFindingKey;

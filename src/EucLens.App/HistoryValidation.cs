@@ -566,7 +566,7 @@ internal static class HistoryValidation
         var o = row.Observation;
         Require(ReferenceEquals(f.SelectedObservation, row), "Selecting the row did not select the finding.");
         Require(h.ViewStart == h.SessionStart && h.ViewEnd == h.SessionEnd && !h.HasEmphasis && Overlay(c).HighlightStart is null && f.ChartsRequest == requestsBefore && Math.Abs(scrollerBefore.VerticalOffset - offsetBefore) < 0.5,
-            "Selecting a finding moved the charts, emphasized one, highlighted an interval or scrolled the page.");
+            $"Selecting a finding moved the charts, emphasized one, highlighted an interval or scrolled the page: range whole {h.ViewStart == h.SessionStart && h.ViewEnd == h.SessionEnd}, emphasis {h.HasEmphasis}, highlight {Overlay(c).HighlightStart}, charts requests {requestsBefore}→{f.ChartsRequest}, page offset {offsetBefore:0.#}→{scrollerBefore.VerticalOffset:0.#}.");
         f.ShowInChartsCommand.Execute(null);
         await h.Settled; await Idle(c); await DesktopValidation.WaitForChartMeasureAsync(c.Window); await Task.Delay(150);
         Require(h.ViewStart <= o.Start && h.ViewEnd >= o.End && h.ViewStart > h.SessionStart - TimeSpan.FromTicks(1) && h.ViewEnd - h.ViewStart < h.SessionEnd - h.SessionStart, "The charts do not show the finding with context around it.");
