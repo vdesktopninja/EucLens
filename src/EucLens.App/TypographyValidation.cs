@@ -18,9 +18,27 @@ internal static class TypographyValidation
     internal static readonly List<string> Problems = [];
     private static readonly HashSet<string> Seen = [];
 
+    internal static void Reset() { Problems.Clear(); Seen.Clear(); }
+    internal static void Report(string visit, string text) => Problem(visit, text);
+
+    /// <summary>The chain of ancestors of an element (type, name or accessible name), to find it in the XAML.</summary>
+    internal static string Where(DependencyObject element)
+    {
+        var parts = new List<string>();
+        var node = VisualTreeHelper.GetParent(element);
+        for (var depth = 0; node is not null && depth < 6; node = VisualTreeHelper.GetParent(node))
+        {
+            if (node is not FrameworkElement fe) continue;
+            var label = !string.IsNullOrEmpty(fe.Name) ? fe.Name : AutomationProperties.GetName(fe);
+            if (node is Panel || !string.IsNullOrEmpty(label) || node is UserControl) { parts.Add(string.IsNullOrEmpty(label) ? node.GetType().Name : $"{node.GetType().Name} '{label}'"); depth++; }
+        }
+        return "in " + string.Join(" ← ", parts);
+    }
+
     private static void Problem(string visit, string text)
     {
-        if (Seen.Add(text)) Problems.Add($"{visit}: {text}");          // the same defect on every scale is one line, with the first visit that showed it
+        // The same defect at every size and scale is one line, with the first visit that showed it: numbers are ignored when comparing.
+        if (Seen.Add(System.Text.RegularExpressions.Regex.Replace(text, @"\d+(\.\d+)?", "#"))) Problems.Add($"{visit}: {text}");
     }
 
     /// <summary>The resolved font, the token values and the styles that carry them; one report line each. Throws when the font stack does not resolve to a Segoe UI face.</summary>
@@ -73,13 +91,13 @@ internal static class TypographyValidation
                 var natural = DesktopValidation.NaturalWidth(t);
                 if (natural > t.ActualWidth + 1)
                 {
-                    if (t.TextTrimming == TextTrimming.None) Problem(visit, $"'{label}' is clipped: it needs {natural:0} DIPs and has {t.ActualWidth:0}");
+                    if (t.TextTrimming == TextTrimming.None) Problem(visit, $"'{label}' is clipped: it needs {natural:0} DIPs and has {t.ActualWidth:0} ({Where(t)})");
                     else if (!HasFullValue(t)) Problem(visit, $"'{label}' is truncated and its full value is not available (no tooltip or accessible name)");
                 }
             }
-            else if (t.DesiredSize.Height > t.ActualHeight + 1) Problem(visit, $"'{label}' is cut vertically: it needs {t.DesiredSize.Height:0} DIPs and has {t.ActualHeight:0}");
+            else if (t.DesiredSize.Height > t.ActualHeight + 1) Problem(visit, $"'{label}' is cut vertically: it needs {t.DesiredSize.Height:0} DIPs and has {t.ActualHeight:0} ({Where(t)})");
             var bounds = t.TransformToAncestor(root).TransformBounds(new Rect(0, 0, t.ActualWidth, t.ActualHeight));
-            if (bounds.Right > root.ActualWidth + 1 || bounds.Left < -1) Problem(visit, $"'{label}' lies outside the window ({bounds.Left:0}–{bounds.Right:0} of {root.ActualWidth:0})");
+            if (bounds.Right > root.ActualWidth + 1 || bounds.Left < -1) Problem(visit, $"'{label}' lies outside the window ({bounds.Left:0}–{bounds.Right:0} of {root.ActualWidth:0}; {Where(t)})");
         }
         foreach (var siblings in blocks.GroupBy(t => VisualTreeHelper.GetParent(t)).Where(g => g.Key is not null && g.Count() > 1))
         {
@@ -89,7 +107,7 @@ internal static class TypographyValidation
                 for (var j = i + 1; j < rects.Length; j++)
                 {
                     var overlap = Rect.Intersect(rects[i].Rect, rects[j].Rect);
-                    if (!overlap.IsEmpty && overlap.Width > 2 && overlap.Height > 2) Problem(visit, $"'{Short(rects[i].Text)}' and '{Short(rects[j].Text)}' overlap ({overlap.Width:0}×{overlap.Height:0} DIPs)");
+                    if (!overlap.IsEmpty && overlap.Width > 2 && overlap.Height > 2) Problem(visit, $"'{Short(rects[i].Text)}' and '{Short(rects[j].Text)}' overlap ({overlap.Width:0}×{overlap.Height:0} DIPs; {Where(siblings.First())})");
                 }
         }
         if (DesktopValidation.PageHost(window) is { } page && page.ExtentWidth > page.ViewportWidth + 1) Problem(visit, $"the page scrolls sideways (content {page.ExtentWidth:0} DIPs in a viewport of {page.ViewportWidth:0})");

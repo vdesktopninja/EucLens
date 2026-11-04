@@ -25,15 +25,19 @@ One track each for **Connection**, **Graphics** and **VDI Guest**, in the order 
 * The **range the charts show** is outlined across the tracks; dragging selects a range like the strip, Ctrl + wheel zooms, Home resets.
 * The **filters** (severity and area) apply to the timeline and the list alike.
 
-### Selection stays in sync
+### Selecting is not navigating
+
+**Choosing a finding never moves the charts, their range, the highlight or the page.** The rule holds for every route: a line in the list, an occurrence, a group header, a bar on the timeline, Ctrl + Left and Ctrl + Right, the occurrence list of the details, a performance correlation and an availability note. A choice only selects: the line is marked, the bar is outlined on the timeline, a correlation outlines its components, the details follow, and a group of the chosen finding opens. If a line has to be revealed it scrolls inside the list, never the page. The only thing that moves the charts or the page is **Show in charts**.
 
 | Action | What follows |
 |---|---|
-| Click a bar | The finding is selected; its group opens in the list and the line scrolls into view; every chart moves to its interval with context, the interval is highlighted and its extreme marked (exactly what choosing it in the list does). |
-| Choose an occurrence in the list | The bar is outlined on the timeline; the charts follow. |
-| Choose a correlation | The bars of its components are outlined with a dashed line. |
-| Ctrl + Left, Ctrl + Right on the timeline | The previous or next visible finding in time order. |
-| Show full recording, Escape in the list | Selection, outline and highlight are cleared; the charts show the whole recording. |
+| Click a line, an occurrence, a group header or a bar; Ctrl + Left, Ctrl + Right; choose an occurrence in the details | Selected and outlined; the details update; **the charts, their range and the page are untouched** (a range you chose stays). |
+| **Show in charts** (button) | The charts go to the finding's real recorded interval with their usual context (half its length, 15 s to the incident context), its interval and extreme are highlighted, the evidence chart is emphasized, and the page scrolls to the charts. A group shows the span of its occurrences with no highlighted interval; a correlation the span of what it links. Choosing another finding afterwards leaves the charts where this put them until the button is used again. |
+| **Show full recording** (button) | Clears the selection and shows the whole recording, without scrolling the page. |
+| **Escape** in a list | Clears the selection and brings the preview back. A range you chose, an incident or a zoom is kept; only when a finding was shown in the charts do they return to the whole recording (what *Show full recording* does). |
+| *Select and show in charts* in the preview notice | Selects the previewed finding and shows it in the charts: one button, both actions, stated on its label. |
+
+Incident markers, the range controls, the strip, zoom, the preset ranges and the keyboard commands of the charts are separate, intentional navigation and work as before.
 
 ## 3. Recurring findings are grouped
 

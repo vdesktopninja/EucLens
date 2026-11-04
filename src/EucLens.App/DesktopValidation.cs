@@ -28,7 +28,7 @@ internal static class DesktopValidation
         var dpi = VisualTreeHelper.GetDpi(window);
         report.AppendLine($"Host DPI: {dpi.PixelsPerInchX:0} × {dpi.PixelsPerInchY:0}. Other scale cases below simulate available DIP space; they do not change Windows DPI.");
         report.Append(TypographyValidation.CheckResources(window));
-        TypographyValidation.Problems.Clear();
+        TypographyValidation.Reset();
         var navigation = Descendants<ListBox>(window).Single(list => ReferenceEquals(list.ItemsSource, vm.Pages));
         var client = (FrameworkElement)window.Content;
         var chromeWidth = window.ActualWidth - client.ActualWidth;
@@ -85,7 +85,7 @@ internal static class DesktopValidation
                     TypographyValidation.CheckPage(window, visit);
                     if (page is DiagnosticsPage)
                     {
-                        CheckText(window);
+                        CheckText(window, visit);
                         report.AppendLine($"    severity icons: {CheckSeverityIcons(window, vm)}");
                         var keyboard = await CheckDiagnosticsLayoutAsync(window, vm);
                         var emptyState = await CheckEmptyFindingsAsync(window, vm, Descendants<Views.DiagnosticsView>(window).Single());
@@ -133,7 +133,7 @@ internal static class DesktopValidation
         client.Width = originalWidth;
         client.Height = originalHeight;
         window.Content = client;
-        if (TypographyValidation.Problems.Count > 0) throw new InvalidOperationException($"{TypographyValidation.Problems.Count} typography problem(s): {string.Join(" || ", TypographyValidation.Problems.Take(12))}");
+        if (TypographyValidation.Problems.Count > 0) throw new InvalidOperationException($"{TypographyValidation.Problems.Count} typography problem(s): {string.Join(" || ", TypographyValidation.Problems.Take(40))}");
     }
     /// <summary>LiveCharts measures asynchronously after a chart loads; wait (bounded) until every engine has laid out its axes.</summary>
     internal static async Task WaitForChartMeasureAsync(Window window)
@@ -609,7 +609,7 @@ internal static class DesktopValidation
     /// a clone of the TextBlock with the same font, typography (e.g. tabular numerals), formatting and DPI, measured without a
     /// width limit, so it is exactly what WPF itself would draw. A text that is genuinely narrower than that is reported.
     /// </summary>
-    private static void CheckText(Window window)
+    private static void CheckText(Window window, string visit)
     {
         var view = Descendants<Views.DiagnosticsView>(window).Single();
         foreach (var text in Descendants<TextBlock>(view))
@@ -617,8 +617,8 @@ internal static class DesktopValidation
             if (!text.IsVisible || text.TextWrapping != TextWrapping.NoWrap || text.TextTrimming != TextTrimming.None || text.ActualWidth <= 0 || string.IsNullOrEmpty(text.Text)) continue;
             var natural = NaturalWidth(text);
             if (natural > text.ActualWidth + 1)
-                throw new InvalidOperationException($"Diagnostics text is clipped: '{text.Text}' needs {natural:0.0} DIP, has {text.ActualWidth:0.0} DIP " +
-                    $"({text.FontFamily.Source} {text.FontSize:0.#} {text.FontWeight}, numerals {Typography.GetNumeralAlignment(text)}).");
+                TypographyValidation.Report(visit, $"Diagnostics text is clipped: '{text.Text}' needs {natural:0.0} DIP, has {text.ActualWidth:0.0} DIP " +
+                    $"({text.FontFamily.Source} {text.FontSize:0.#} {text.FontWeight}, numerals {Typography.GetNumeralAlignment(text)}; {TypographyValidation.Where(text)})");
         }
     }
 

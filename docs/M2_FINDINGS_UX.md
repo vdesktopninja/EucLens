@@ -47,7 +47,9 @@ Packet loss: P95 4.2% · max 7.1%
 
 ## 4. Navigation
 
-Selecting a finding (mouse, or arrow keys in the list):
+> Since the 0.5.1 refinement, **selecting a finding no longer navigates**. Everything below that this section says happens "on selecting" happens when **Show in charts** is used; see [SESSION_HISTORY_WORKSPACE.md](SESSION_HISTORY_WORKSPACE.md), "Selecting is not navigating".
+
+Showing a finding in the charts (the button; in 0.5.0 selecting it, with the mouse or the arrow keys in the list, did this):
 
 1. The shared range goes to the finding's real interval (recorded UTC instants) with context on both sides: half the finding's length, at least 15 s, at most the incident context the user chose (±1…10 min). The range is clamped into the session as before and all charts, the strip and the overlay follow the same `SetRange`.
 2. The chart whose id equals the primary `MetricEvidence.ChannelId` is **emphasized** (accent border and background, label "Evidence for the selected finding"); other metrics of the observation, such as the Dirty FPS that established display activity, are labelled "Supporting measurement". Only the chart rows' presentation changes; their data, range, LiveCharts objects and subscriptions are untouched (no animation, nothing is created per selection).

@@ -67,6 +67,15 @@ CI cannot judge these; please check them once on a real Windows 11 VDI session:
 9. Choose a CPU group, then one of its occurrences from the compact occurrence list: the key measurement, the duration and the time are large and readable, the charts show that occurrence's own interval, and the four disclosures (evidence, threshold, limitations, technical detail) open and close with the mouse and the keyboard. Compare the technical detail's observation ID with an export of the findings.
 10. Choose a packet-loss finding: the same layout, with its own measurement. At 1366×768 and 1920×1080 the list and the details sit side by side; at 125 % and 150 % scaling the details are under the list; no value is cut off in either theme.
 
+## Selection, navigation and typography (0.5.1) — manual acceptance
+
+1. Session History with findings: click lines, occurrences, a group, a bar on the performance timeline, and use Ctrl+Left and Ctrl+Right. The page does not scroll, the charts keep their range (try after dragging a range of your own), nothing is highlighted on the charts; the bar and the line are marked and the details change.
+2. Click **Show in charts**: the charts go to that finding's interval, its interval is shaded, the evidence chart is emphasized and the page scrolls to the charts. Select another finding: the charts stay until you press the button again. **Show full recording** returns to everything. Escape clears the selection and keeps a range you chose.
+3. Times: the line under the timeline and the findings says whether times are UTC or local time with the offset; a recording that crosses a clock change names both offsets. The tile says *When (local)*.
+4. Typography on every page (Dashboard, Diagnostics, Advanced Metrics, Session Recorder, Session History, System Information, Settings) in both themes at 100 %, 125 % and 150 % display scaling on 1366×768 and 1920×1080: nothing clipped, overlapping or hidden, no sideways scrolling, text comfortable to read, numbers aligned. Windows 11: the font is Segoe UI Variable (check in the smoke result: `Typography: body stack … resolves to …`); Windows 10: Segoe UI.
+5. Tab through a page and the navigation: the focus is always visible (ring or accent border) and moves in reading order; a screen reader announces headings, tiles, lines, groups and the preview.
+6. Windows *Settings → Accessibility → Text size* is not applied by WPF applications (display scaling is). Confirm that is acceptable, or ask for it.
+
 ## Session history and incident timeline (0.4.4) — manual acceptance
 
 1. Start a recording, minimize EUC Lens to the tray, right-click the tray icon: *Mark Performance Issue* is enabled. Click it; a short notification confirms the time. Without a recording the item is disabled and says so. Unplug or fill the recordings location and mark again: the notification says the marker could not be saved (it never says saved).
