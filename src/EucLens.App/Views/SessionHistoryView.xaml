@@ -11,7 +11,7 @@
    <Border Background="{DynamicResource ElevatedBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="{StaticResource Hairline}" CornerRadius="{StaticResource ControlRadius}" Padding="10,6" Margin="0,0,8,8" ToolTip="{Binding ToolTip}" ToolTipService.IsEnabled="{Binding HasToolTip}" AutomationProperties.Name="{Binding AutomationName}">
     <StackPanel>
      <TextBlock Text="{Binding Label}" Style="{StaticResource Meta}" />
-     <StackPanel Orientation="Horizontal"><Path Style="{StaticResource SeverityIcon}" Tag="{Binding Icon}" Margin="0,0,6,0" Visibility="{Binding HasIcon, Converter={StaticResource BoolToVisibility}}" /><TextBlock Text="{Binding Value}" FontSize="{StaticResource StateFontSize}" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" TextWrapping="Wrap" VerticalAlignment="Center" /></StackPanel>
+     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><Path Style="{StaticResource SeverityIcon}" Tag="{Binding Icon}" Margin="0,0,6,0" Visibility="{Binding HasIcon, Converter={StaticResource BoolToVisibility}}" /><TextBlock Grid.Column="1" Text="{Binding Value}" FontSize="{StaticResource ValueFontSize}" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" TextWrapping="Wrap" VerticalAlignment="Center" /></Grid>
      <TextBlock Text="{Binding Detail}" Style="{StaticResource Meta}" Typography.NumeralAlignment="Tabular" Visibility="{Binding HasDetail, Converter={StaticResource BoolToVisibility}}" />
     </StackPanel>
    </Border>
@@ -224,7 +224,7 @@
 
        <!-- One observation. -->
        <StackPanel Visibility="{Binding HasDetailObservation, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="Selected finding evidence">
-        <StackPanel Orientation="Horizontal"><Path Style="{StaticResource SeverityIcon}" Tag="{Binding DetailObservation.SeverityTag}" Margin="0,0,8,0" /><TextBlock FontWeight="SemiBold" FontSize="{StaticResource StateFontSize}" TextWrapping="Wrap"><Run Text="{Binding DetailObservation.Title, Mode=OneWay}" /></TextBlock></StackPanel>
+        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><Path Style="{StaticResource SeverityIcon}" Tag="{Binding DetailObservation.SeverityTag}" Margin="0,0,8,0" /><TextBlock Grid.Column="1" FontWeight="SemiBold" FontSize="{StaticResource StateFontSize}" TextWrapping="Wrap"><Run Text="{Binding DetailObservation.Title, Mode=OneWay}" /></TextBlock></Grid>
         <TextBlock Style="{StaticResource Meta}" Margin="0,2,0,6"><Run Text="{Binding DetailObservation.SeverityLabel, Mode=OneWay}" FontWeight="SemiBold" /><Run Text=" · " /><Run Text="{Binding DetailObservation.Domain, Mode=OneWay}" /></TextBlock>
         <ui:AdaptiveColumnsPanel MinimumColumnWidth="150" MaximumColumns="3" AutomationProperties.Name="Key figures">
          <Border Style="{StaticResource DetailTile}" AutomationProperties.Name="{Binding DetailObservation.KeyAutomation}"><StackPanel><TextBlock Style="{StaticResource Meta}"><Run Text="{Binding DetailObservation.KeyLabel, Mode=OneWay}" /><Run Text=" " /><Run Text="{Binding DetailObservation.KeyMetric, Mode=OneWay}" /></TextBlock><TextBlock Text="{Binding DetailObservation.KeyValue}" FontSize="{StaticResource MetricFontSize}" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" TextWrapping="Wrap" /></StackPanel></Border>
@@ -252,7 +252,7 @@
 
        <!-- A group of occurrences of one rule. -->
        <StackPanel Visibility="{Binding HasDetailGroup, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="Selected group of findings"><StackPanel DataContext="{Binding DetailGroup}">
-        <StackPanel Orientation="Horizontal"><Path Style="{StaticResource SeverityIcon}" Tag="{Binding SeverityTag}" Margin="0,0,8,0" /><TextBlock FontWeight="SemiBold" FontSize="{StaticResource StateFontSize}" TextWrapping="Wrap"><Run Text="{Binding Title, Mode=OneWay}" /></TextBlock></StackPanel>
+        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><Path Style="{StaticResource SeverityIcon}" Tag="{Binding SeverityTag}" Margin="0,0,8,0" /><TextBlock Grid.Column="1" FontWeight="SemiBold" FontSize="{StaticResource StateFontSize}" TextWrapping="Wrap"><Run Text="{Binding Title, Mode=OneWay}" /></TextBlock></Grid>
         <TextBlock Style="{StaticResource Meta}" Margin="0,2,0,6"><Run Text="{Binding SeverityLabel, Mode=OneWay}" FontWeight="SemiBold" /><Run Text=" · " /><Run Text="{Binding CountText, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Domain, Mode=OneWay}" /></TextBlock>
         <ui:AdaptiveColumnsPanel MinimumColumnWidth="150" MaximumColumns="3" AutomationProperties.Name="Key figures">
          <Border Style="{StaticResource DetailTile}" AutomationProperties.Name="{Binding KeyAutomation}"><StackPanel><TextBlock Style="{StaticResource Meta}"><Run Text="{Binding KeyLabel, Mode=OneWay}" /><Run Text=" " /><Run Text="{Binding KeyMetric, Mode=OneWay}" /></TextBlock><TextBlock Text="{Binding KeyValue}" FontSize="{StaticResource MetricFontSize}" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" TextWrapping="Wrap" /></StackPanel></Border>

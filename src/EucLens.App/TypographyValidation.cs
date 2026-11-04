@@ -102,6 +102,12 @@ internal static class TypographyValidation
                 var needed = DesktopValidation.NeededHeight(t, t.ActualWidth + 2);              // two DIPs of tolerance: a text that exactly fills its width must not be measured into a second line by rounding
                 if (needed > t.ActualHeight + 1) Problem(visit, $"'{label}' is cut vertically: it needs {needed:0} DIPs at its width and has {t.ActualHeight:0} ({Where(t)})");
             }
+            // A text must stay inside the card (the nearest bordered or filled ancestor) it is drawn on: a text that runs past it is hidden by its neighbour or clipped.
+            if (Card(t) is { } card && card.ActualWidth > 0)
+            {
+                var inCard = t.TransformToAncestor(card).TransformBounds(new Rect(0, 0, t.ActualWidth, t.ActualHeight));
+                if (inCard.Right > card.ActualWidth + 1) Problem(visit, $"'{label}' runs {inCard.Right - card.ActualWidth:0} DIPs past the right edge of its card ({Where(t)})");
+            }
             var bounds = t.TransformToAncestor(root).TransformBounds(new Rect(0, 0, t.ActualWidth, t.ActualHeight));
             if (bounds.Right > root.ActualWidth + 1 || bounds.Left < -1) Problem(visit, $"'{label}' lies outside the window ({bounds.Left:0}–{bounds.Right:0} of {root.ActualWidth:0}; {Where(t)})");
         }
@@ -117,6 +123,13 @@ internal static class TypographyValidation
                 }
         }
         if (DesktopValidation.PageHost(window) is { } page && page.ExtentWidth > page.ViewportWidth + 1) Problem(visit, $"the page scrolls sideways (content {page.ExtentWidth:0} DIPs in a viewport of {page.ViewportWidth:0})");
+    }
+
+    private static Border? Card(DependencyObject element)
+    {
+        for (var node = VisualTreeHelper.GetParent(element); node is not null; node = VisualTreeHelper.GetParent(node))
+            if (node is Border { ActualWidth: > 0 } border && (border.Background is not null || border.BorderThickness.Left > 0 || border.BorderThickness.Top > 0 || border.BorderThickness.Right > 0) && border.CornerRadius != default) return border;
+        return null;
     }
 
     private static string Short(string text) => text.Length > 32 ? text[..32] + "…" : text;
