@@ -537,7 +537,7 @@ public sealed class DiagnosticsViewModel : ObservableObject
 public sealed class TrendChart : ObservableObject
 {
     /// <summary>Axis and threshold-line label size in DIPs; larger than the dashboard charts for detailed analysis.</summary>
-    public const double LabelSize = 12;
+    public const double LabelSize = 13;
     private const int Capacity = 720;
     private readonly double? maximum;
     private ReferenceLine[] configured = [];

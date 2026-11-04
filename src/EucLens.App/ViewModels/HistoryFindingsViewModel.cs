@@ -28,6 +28,9 @@ public sealed class FindingFilterChoice<T>(T value, string name) : ObservableObj
 public sealed record FindingTarget(DateTimeOffset Start, DateTimeOffset End, DateTimeOffset? Peak, IReadOnlyList<string> PrimaryChannels, IReadOnlyList<string> SupportingChannels,
     DateTimeOffset? HighlightStart, DateTimeOffset? HighlightEnd);
 
+/// <summary>One labelled fact about an observation, built from its structured fields only (counts, times, how it ended): the short, deterministic reading shown without opening anything.</summary>
+public sealed record FindingFact(string Label, string Value);
+
 /// <summary>One metric of an observation as measured inside its interval, formatted for reading (the recorded unit, never a converted one).</summary>
 public sealed record HistoryMetricRow(string Role, string Metric, string Unit, string Minimum, string P50, string P95, string Maximum, string WorstAt, string ValidSamples, string Summary);
 
@@ -40,6 +43,17 @@ public sealed class HistoryObservationDetail
         var worstIsLow = HistoryChannels.Find(o.Primary.ChannelId) is { HigherIsWorse: false };
         Metrics = o.Metrics.Select(m => Row(m, zone)).ToArray();
         var p = o.Primary;
+        // The short reading: only facts that the tiles and the title do not already say (the value, the duration and the interval are in the tiles; the UTC interval is in the technical detail).
+        var facts = new List<FindingFact> { new("Samples", $"{FindingText.Count(o.MatchingSamples)} of {FindingText.Count(o.SampleCount)} valid samples met the criterion · coverage {FindingText.Percent(o.Coverage)}") };
+        if (o.Status == AnalysisStatus.QualifiedObservation) facts.Add(new("Evidence", $"Qualified: {FindingText.Percent(o.Coverage)} of the samples in the interval were usable"));
+        if (p.ValidSamples > 0) facts.Add(new($"Worst value at ({HistoryTime.Word(zone)})", HistoryTime.Format(p.WorstAt, zone)));
+        facts.Add(new("Status", o.Ending switch
+        {
+            ObservationEnd.Recovered when o.RecoveredAt is { } back => $"Recovered: valid values were back within the criterion at {HistoryTime.Format(back, zone)} ({HistoryTime.Word(zone)})",
+            ObservationEnd.ContextEnded => "Ended when display activity stopped; that is not a recovery",
+            _ => "Recovery not confirmed: measurements stopped or were missing after this interval"
+        }));
+        Facts = facts;
         KeyValues = p.ValidSamples == 0 ? "No valid measurement inside this interval."
             : $"{(worstIsLow ? "Lowest" : "Highest")} {FindingText.Value(worstIsLow ? p.Minimum : p.Maximum, p.Unit)} at {HistoryTime.Format(p.WorstAt, zone)} · " +
               $"{FindingText.Count(o.MatchingSamples)} matching of {FindingText.Count(o.SampleCount)} valid samples · coverage {FindingText.Percent(o.Coverage)}";
@@ -90,6 +104,9 @@ public sealed class HistoryObservationDetail
                 : $"{m.Title} ({m.Unit}): min {N(m.Minimum)}, P50 {N(m.P50)}, P95 {N(m.P95)}, max {N(m.Maximum)}; {FindingText.Count(m.ValidSamples)} valid samples");
     }
 
+    /// <summary>The short, structured reading: samples, evidence quality, when the worst value was recorded, and how the finding ended.</summary>
+    public IReadOnlyList<FindingFact> Facts { get; }
+    /// <summary>The engine's deterministic narrative, unchanged; shown under "What was observed — full explanation".</summary>
     public string Explanation { get; }
     public string KeyValues { get; }
     public string Utc { get; }
@@ -164,6 +181,8 @@ public sealed class HistoryObservationItem
     public string KeyAutomation => $"{KeyLabel} {KeyMetric}: {KeyValue}";
     public string AffectedAutomation => $"Duration: {Duration}";
     public string WhenAutomation => $"When: {Time}";
+    /// <summary>"When (local)" or "When (UTC)": the label of the time tile.</summary>
+    public string WhenLabel => $"When ({HistoryTime.Word(zone)})";
     public string Id => Observation.Id;
     public string Title => Observation.Title;
     public string Domain { get; }
@@ -266,9 +285,9 @@ public sealed class HistoryFindingsViewModel : ObservableObject
         SeverityFilters = [new(FindingSeverityFilter.All, "All"), new(FindingSeverityFilter.Critical, "Critical"), new(FindingSeverityFilter.Warning, "Warning"), new(FindingSeverityFilter.Info, "Info")];
         DomainFilters = [new(FindingDomainFilter.All, "All areas"), new(FindingDomainFilter.Connection, "Connection"), new(FindingDomainFilter.Graphics, "Graphics"), new(FindingDomainFilter.Guest, "VDI Guest")];
         severity = SeverityFilters[0]; domain = DomainFilters[0];
-        ShowFullRecordingCommand = new(ShowFull, () => selectedObservation is not null || selectedCorrelation is not null || selectedContext is not null || selectedGroupRule is not null || highlightStart is not null);
-        ShowInChartsCommand = new(RequestCharts, () => HasSelection);
-        SelectPreviewCommand = new(() => { if (previewRow is { } row) { SelectedRow = row; RequestCharts(); } }, () => previewRow is not null);
+        ShowFullRecordingCommand = new(ShowFull, () => selectedObservation is not null || selectedCorrelation is not null || selectedContext is not null || selectedGroupRule is not null || highlightStart is not null || chartsFocused);
+        ShowInChartsCommand = new(ShowInCharts, () => HasSelection && selectionTarget is not null);
+        SelectPreviewCommand = new(() => { if (previewRow is { } row) { SelectedRow = row; ShowInCharts(); } }, () => previewRow is not null);
         ToggleSelectedGroupCommand = new(() => { if (selectedGroupRule is { } rule) ToggleGroup(rule); }, () => selectedGroupRule is not null);
         RefreshCounts();
     }
@@ -361,10 +380,10 @@ public sealed class HistoryFindingsViewModel : ObservableObject
         VisibleObservations.ReplaceAll(all.Where(Passes));
         applying = false;
         // A selected finding that the filter now hides is no longer shown as selected; the charts keep their range.
-        if (selectedObservation is not null && !VisibleObservations.Contains(selectedObservation)) { selectedObservation = null; Raise(nameof(SelectedObservation)); Raise(nameof(HasSelectedObservation)); Raise(nameof(HasSelection)); ClearHighlight(); clearEmphasis(); }
+        if (selectedObservation is not null && !VisibleObservations.Contains(selectedObservation)) { selectedObservation = null; Raise(nameof(SelectedObservation)); Raise(nameof(HasSelectedObservation)); Raise(nameof(HasSelection)); ClearHighlight(); clearEmphasis(); selectionTarget = null; }
         // The list drops its selection when its items are replaced; a finding that is still shown is selected in it again.
         else if (selectedObservation is not null) Raise(nameof(SelectedObservation));
-        if (selectedGroupRule is not null && !VisibleObservations.Any(o => o.Observation.RuleId == selectedGroupRule)) { ClearGroupSelection(); ClearHighlight(); clearEmphasis(); }
+        if (selectedGroupRule is not null && !VisibleObservations.Any(o => o.Observation.RuleId == selectedGroupRule)) { ClearGroupSelection(); ClearHighlight(); clearEmphasis(); selectionTarget = null; }
         RebuildRows();
         Raise(nameof(HasVisibleObservations)); Raise(nameof(FilterNote)); Raise(nameof(EmptyNote));
         RefreshSelectionCommands();
@@ -384,7 +403,7 @@ public sealed class HistoryFindingsViewModel : ObservableObject
             // A selection that comes from the timeline, a correlation or a marker opens its group so the occurrence is on screen in the list.
             Expand(value.Observation.RuleId);
             RaiseSelectionDerived();
-            Go(new(value.Observation.Start, value.Observation.End, value.Observation.Primary.ValidSamples > 0 ? value.Observation.Primary.WorstAt : null,
+            Prepare(new(value.Observation.Start, value.Observation.End, value.Observation.Primary.ValidSamples > 0 ? value.Observation.Primary.WorstAt : null,
                 [value.Observation.Primary.ChannelId], value.Observation.Metrics.Skip(1).Select(m => m.ChannelId).ToArray(), value.Observation.Start, value.Observation.End));
         }
     }
@@ -527,7 +546,10 @@ public sealed class HistoryFindingsViewModel : ObservableObject
         }
     }
     public bool HasDetailOccurrences => DetailOccurrences.Count > 0;
-    public string DetailOccurrencesHeader => $"Occurrences ({DetailOccurrences.Count.ToString(CultureInfo.InvariantCulture)})";
+    public string DetailOccurrencesHeader => $"Occurrences ({DetailOccurrences.Count.ToString(CultureInfo.InvariantCulture)}) · {HistoryTime.Word(zone)} time";
+    /// <summary>One sentence that says whether the shown times are UTC or local time, with the offset; set with the analysis.</summary>
+    public string TimeBasis { get => timeBasis; private set => Set(ref timeBasis, value); }
+    private string timeBasis = "";
 
     /// <summary>The occurrence chosen in the details pane's own list: the selected observation's line there. Choosing one selects that observation exactly as choosing it in the main list does.</summary>
     public HistoryFindingRow? SelectedDetailOccurrence
@@ -563,7 +585,7 @@ public sealed class HistoryFindingsViewModel : ObservableObject
         ClearObservationSelection(); ClearCorrelationSelection();
         selectedGroupRule = ruleId;
         Raise(nameof(SelectedGroup)); Raise(nameof(HasSelectedGroup)); Raise(nameof(HasSelection)); RaiseSelectionDerived();
-        Go(new(members.Min(m => m.Observation.Start), members.Max(m => m.Observation.End), null, [members[0].Observation.Primary.ChannelId], [], null, null));
+        Prepare(new(members.Min(m => m.Observation.Start), members.Max(m => m.Observation.End), null, [members[0].Observation.Primary.ChannelId], [], null, null));
     }
 
     private void ClearGroupSelection()
@@ -623,15 +645,51 @@ public sealed class HistoryFindingsViewModel : ObservableObject
         var primary = parts.Select(p => p.Observation.Primary.ChannelId).Distinct(StringComparer.Ordinal).ToArray();
         var supporting = parts.SelectMany(p => p.Observation.Metrics.Skip(1).Select(m => m.ChannelId)).Distinct(StringComparer.Ordinal).Except(primary).ToArray();
         // The view covers the real span of what is linked. A shared interval exists only for a true common overlap, and only then is it highlighted.
-        Go(new(item.Correlation.Start, item.Correlation.End, null, primary, supporting, item.CommonStart, item.CommonEnd));
+        Prepare(new(item.Correlation.Start, item.Correlation.End, null, primary, supporting, item.CommonStart, item.CommonEnd));
     }
 
-    private void Go(FindingTarget target)
+    /// <summary>
+    /// Remembers where the charts would go for the current selection, and does nothing else. Selecting a finding never moves the charts, the page or the highlight: that is the explicit
+    /// action <see cref="ShowInCharts"/>.
+    /// </summary>
+    private void Prepare(FindingTarget target)
     {
+        selectionTarget = target;
+        RefreshSelectionCommands();
+    }
+
+    private FindingTarget? selectionTarget;
+    private bool chartsFocused;
+
+    /// <summary>
+    /// The explicit navigation: the charts go to the real interval of the selected finding (with their usual context), the interval and the extreme are highlighted, the evidence chart is emphasized,
+    /// and the page is asked to bring the charts into view. A group shows the span of its occurrences, a correlation the span of what it links.
+    /// </summary>
+    public void ShowInCharts()
+    {
+        if (!HasSelection || selectionTarget is not { } target) return;
         highlightStart = target.HighlightStart; highlightEnd = target.HighlightEnd; peakAt = target.Peak;
+        chartsFocused = true;
         RaiseHighlight();
         RefreshSelectionCommands();
         navigate(target);
+        RequestCharts();
+    }
+
+    /// <summary>True after <see cref="ShowInCharts"/> until the whole recording is shown again: the charts are on a finding.</summary>
+    public bool ChartsFocusedOnFinding => chartsFocused;
+
+    /// <summary>
+    /// Escape in a list: the selection is cleared and the preview comes back. The charts are left exactly as they are, unless a finding was shown in them, in which case they return
+    /// to the whole recording (what <see cref="ShowFull"/> does). A range the user chose, an incident or a zoom is never undone by clearing a selection.
+    /// </summary>
+    public void ClearSelection()
+    {
+        if (chartsFocused) { ShowFull(); return; }
+        ClearObservationSelection(); ClearCorrelationSelection(); ClearGroupSelection();
+        selectionTarget = null;
+        Raise(nameof(HasSelection)); RaiseSelectionDerived();
+        RefreshSelectionCommands();
     }
 
     private void ClearObservationSelection() { if (selectedObservation is null) return; selectedObservation = null; Raise(nameof(SelectedObservation)); Raise(nameof(HasSelectedObservation)); RaiseSelectionDerived(); }
@@ -650,7 +708,7 @@ public sealed class HistoryFindingsViewModel : ObservableObject
     public RelayCommand ShowFullRecordingCommand { get; }
     /// <summary>Opens or closes the occurrences of the selected group: the keyboard- and screen-reader-friendly twin of clicking the header.</summary>
     public RelayCommand ToggleSelectedGroupCommand { get; }
-    /// <summary>Asks the page to bring the emphasized chart into view (a button, or a click on a finding). Selecting with the arrow keys never moves the page.</summary>
+    /// <summary>The explicit action: shows the selected finding in the charts (range, highlight, emphasis) and brings them into view. Selecting never does this.</summary>
     public RelayCommand ShowInChartsCommand { get; }
     public int ChartsRequest { get; private set; }
 
@@ -658,6 +716,7 @@ public sealed class HistoryFindingsViewModel : ObservableObject
     public void ShowFull()
     {
         ClearObservationSelection(); ClearCorrelationSelection(); ClearGroupSelection(); ClearHighlight();
+        selectionTarget = null; chartsFocused = false;
         Raise(nameof(HasSelection)); RaiseSelectionDerived();
         RefreshSelectionCommands();
         showFullRecording();
@@ -669,13 +728,13 @@ public sealed class HistoryFindingsViewModel : ObservableObject
 
     public void Clear()
     {
-        selectedObservation = null; selectedCorrelation = null; selectedContext = null; selectedGroupRule = null; highlightStart = highlightEnd = peakAt = null;
+        selectedObservation = null; selectedCorrelation = null; selectedContext = null; selectedGroupRule = null; highlightStart = highlightEnd = peakAt = null; selectionTarget = null; chartsFocused = false;
         all = []; analyzed = false; CurrentAnalysis = null; exportMessage = ""; Raise(nameof(ExportMessage)); Raise(nameof(HasAnalysis)); applying = true; VisibleObservations.ReplaceAll([]); applying = false;
         expandedRules.Clear(); RebuildRows();
         PerformanceCorrelations = []; ContextCorrelations = []; QualityGroups = []; Limitations = [];
         severity = SeverityFilters[0]; domain = DomainFilters[0];
         RefreshCounts();
-        Summary = ""; DataQuality = ""; SnapshotNote = ""; QualityHeader = "Data quality and what could not be evaluated";
+        TimeBasis = ""; Summary = ""; DataQuality = ""; SnapshotNote = ""; QualityHeader = "Data quality and what could not be evaluated";
         RaiseAll();
         Status = Idle;
         RefreshSelectionCommands();
@@ -705,9 +764,10 @@ public sealed class HistoryFindingsViewModel : ObservableObject
         Limitations = analysis.Limitations.ToArray();
         analyzed = true; CurrentAnalysis = analysis; Raise(nameof(HasAnalysis));
         RefreshCounts();
-        selectedObservation = null; selectedCorrelation = null; selectedContext = null; selectedGroupRule = null; highlightStart = highlightEnd = peakAt = null;
+        selectedObservation = null; selectedCorrelation = null; selectedContext = null; selectedGroupRule = null; highlightStart = highlightEnd = peakAt = null; selectionTarget = null; chartsFocused = false;
         applying = true; VisibleObservations.ReplaceAll(all.Where(Passes)); applying = false;
         expandedRules.Clear(); RebuildRows();
+        TimeBasis = HistoryTime.Basis(zone, info.StartedUtc, info.EndedUtc);
         Summary = BuildSummary(analysis.Observations, PerformanceCorrelations.Count, ContextCorrelations.Count);
         DataQuality = BuildDataQuality(info);
         SnapshotNote = BuildSnapshotNote(info, analysis);

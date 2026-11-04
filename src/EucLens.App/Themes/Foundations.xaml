@@ -1,25 +1,30 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:sys="clr-namespace:System;assembly=System.Runtime">
  <!-- All dimensions are WPF device-independent pixels (DIPs). -->
- <FontFamily x:Key="BodyFont">Segoe UI</FontFamily>
+ <!-- Typography. Segoe UI Variable (Windows 11) where it is installed, Segoe UI everywhere else: WPF skips a family name that is not installed and uses the next one, so no font file is bundled
+      or redistributed. The Text optical size serves body text, the Display optical size headings and key values. Every size below is a DIP; no view or style sets a font family or a literal size. -->
+ <FontFamily x:Key="BodyFont">Segoe UI Variable Text, Segoe UI</FontFamily>
+ <FontFamily x:Key="DisplayFont">Segoe UI Variable Display, Segoe UI Variable Text, Segoe UI</FontFamily>
  <FontFamily x:Key="IconFont">Segoe MDL2 Assets</FontFamily>
- <sys:Double x:Key="LabelFontSize">12</sys:Double>
- <!-- Diagnostics reading hierarchy: body 14, key values 15, state 16, technical metadata 12. -->
+ <sys:Double x:Key="LabelFontSize">13</sys:Double>
+ <!-- Reading hierarchy: page title 24, section heading 18, state 18, key values 24 (metric) and 16, finding title 15, body 14, secondary labels 13, tooltips 13. -->
  <sys:Double x:Key="ReadingFontSize">14</sys:Double>
- <sys:Double x:Key="ValueFontSize">15</sys:Double>
- <sys:Double x:Key="StateFontSize">16</sys:Double>
- <sys:Double x:Key="MetaFontSize">12</sys:Double>
+ <sys:Double x:Key="ValueFontSize">16</sys:Double>
+ <sys:Double x:Key="FindingTitleFontSize">15</sys:Double>
+ <sys:Double x:Key="ReadingLineHeight">20</sys:Double>
+ <sys:Double x:Key="StateFontSize">18</sys:Double>
+ <sys:Double x:Key="MetaFontSize">13</sys:Double>
  <sys:Double x:Key="TooltipFontSize">13</sys:Double>
- <sys:Double x:Key="BodyFontSize">13</sys:Double>
- <sys:Double x:Key="SectionFontSize">14</sys:Double>
- <sys:Double x:Key="HeadingFontSize">18</sys:Double>
- <sys:Double x:Key="MetricFontSize">22</sys:Double>
+ <sys:Double x:Key="BodyFontSize">14</sys:Double>
+ <sys:Double x:Key="SectionFontSize">18</sys:Double>
+ <sys:Double x:Key="HeadingFontSize">24</sys:Double>
+ <sys:Double x:Key="MetricFontSize">24</sys:Double>
  <sys:Double x:Key="Space4">4</sys:Double>
  <sys:Double x:Key="Space8">8</sys:Double>
  <sys:Double x:Key="Space12">12</sys:Double>
  <sys:Double x:Key="Space16">16</sys:Double>
  <sys:Double x:Key="Space24">24</sys:Double>
  <sys:Double x:Key="ControlHeight">32</sys:Double>
- <GridLength x:Key="NavigationWidth">184</GridLength>
+ <GridLength x:Key="NavigationWidth">216</GridLength>
  <GridLength x:Key="AdvancedValueWidth">150</GridLength>
  <GridLength x:Key="AdvancedStatusWidth">92</GridLength>
  <GridLength x:Key="AdvancedTimeWidth">96</GridLength>

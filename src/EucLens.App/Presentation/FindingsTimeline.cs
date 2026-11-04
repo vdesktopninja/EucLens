@@ -42,7 +42,7 @@ public sealed class FindingsTimeline : HistoryTimeElement
     public event EventHandler<FindingStepEventArgs>? FindingStepRequested;
 
     // Geometry in DIPs. The label column holds the track names; the axis starts after it.
-    internal const double LabelColumn = 92, RightMargin = 10, AxisBand = 18, TrackGap = 4, GapRowHeight = 14, MinimumBar = 4, BarSpacing = 2, MinimumLane = 6, MaximumLane = 12, MaximumTrackLanesHeight = 52;
+    internal const double LabelColumn = 108, RightMargin = 10, AxisBand = 20, TrackGap = 4, GapRowHeight = 16, MinimumBar = 4, BarSpacing = 2, MinimumLane = 6, MaximumLane = 12, MaximumTrackLanesHeight = 52;
 
     public FindingsTimeline() { MinWidth = 320; Cursor = Cursors.Arrow; }
 
@@ -109,15 +109,15 @@ public sealed class FindingsTimeline : HistoryTimeElement
         {
             var area = new Rect(left, track.Top, right - left, track.Height);
             dc.PushOpacity(0.35); dc.DrawRoundedRectangle(GridBrush, null, area, 3, 3); dc.Pop();
-            var label = Text(HistoryChannels.GroupTitle(track.Domain), 12, TextBrush);
+            var label = Text(HistoryChannels.GroupTitle(track.Domain), 13, TextBrush);
             dc.DrawText(label, new Point(4, track.Top + Math.Max(2, (track.Height - label.Height) / 2)));
-            if (track.Bars.Count > 0) { var count = Text(track.Bars.Count.ToString("N0", System.Globalization.CultureInfo.CurrentCulture), 10, MutedBrush); dc.DrawText(count, new Point(LabelColumn - 8 - count.Width, track.Top + Math.Max(2, (track.Height - count.Height) / 2))); }
+            if (track.Bars.Count > 0) { var count = Text(track.Bars.Count.ToString("N0", System.Globalization.CultureInfo.CurrentCulture), 12, MutedBrush); dc.DrawText(count, new Point(LabelColumn - 8 - count.Width, track.Top + Math.Max(2, (track.Height - count.Height) / 2))); }
             any |= track.Bars.Count > 0;
         }
         if (HasRange)
         {
             // The stretches without samples, in their own row: never mixed with findings.
-            var gapLabel = Text("Gaps", 12, TextBrush);
+            var gapLabel = Text("Gaps", 13, TextBrush);
             dc.DrawText(gapLabel, new Point(4, layout.GapTop + (GapRowHeight - gapLabel.Height) / 2));
             dc.PushOpacity(0.35); dc.DrawRoundedRectangle(GridBrush, null, new Rect(left, layout.GapTop, right - left, GapRowHeight), 3, 3); dc.Pop();
             foreach (var gap in Gaps ?? [])
@@ -152,7 +152,7 @@ public sealed class FindingsTimeline : HistoryTimeElement
             }
         if (!any)
         {
-            var empty = Text("No findings in this recording", 12, MutedBrush);
+            var empty = Text("No findings in this recording", 13, MutedBrush);
             dc.DrawText(empty, new Point(left + 12, layout.Tracks[0].Top + (layout.Tracks[^1].Top + layout.Tracks[^1].Height - layout.Tracks[0].Top - empty.Height) / 2));
         }
         if (DragFrom is { } from && DragTo is { } to)
@@ -168,7 +168,7 @@ public sealed class FindingsTimeline : HistoryTimeElement
         for (var i = 0; i <= count; i++)
         {
             var at = SessionStart + TimeSpan.FromTicks((SessionEnd - SessionStart).Ticks * i / count);
-            var text = Text(Label(at, seconds: (SessionEnd - SessionStart) < TimeSpan.FromHours(2)), 11, MutedBrush);
+            var text = Text(Label(at, seconds: (SessionEnd - SessionStart) < TimeSpan.FromHours(2)), 12, MutedBrush);
             var x = XOf(at);
             dc.DrawText(text, new Point(Math.Clamp(x - text.Width / 2, 0, Math.Max(0, ActualWidth - text.Width)), 0));
         }

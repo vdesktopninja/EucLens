@@ -109,7 +109,7 @@ public sealed class HistoryWorkspaceTests
     }
 
     [Fact]
-    public async Task SelectingAnOccurrenceSelectsThatObservationAndMovesTheChartsToItsRealInterval()
+    public async Task SelectingAnOccurrenceMovesNothingAndShowInChartsMovesTheChartsToItsRealInterval()
     {
         var h = await OpenAsync(Recurring);
         var f = h.Findings;
@@ -119,6 +119,8 @@ public sealed class HistoryWorkspaceTests
         f.SelectedRow = second;
 
         Assert.Same(second.Item, f.SelectedObservation);
+        Assert.Null(f.HighlightStart); Assert.Equal(h.SessionStart, h.ViewStart); Assert.Equal(h.SessionEnd, h.ViewEnd); Assert.False(h.HasEmphasis);   // selected: the charts did not move
+        f.ShowInChartsCommand.Execute(null);
         Assert.Equal(second.Item!.Observation.Start, f.HighlightStart);
         Assert.Equal(second.Item.Observation.End, f.HighlightEnd);
         Assert.Equal(second.Item.Id, f.TimelineSelectedId);
@@ -343,7 +345,7 @@ public sealed class HistoryWorkspaceTests
     public void NoEvidenceThresholdLimitationOrNoteWasRemovedFromThePage()
     {
         var xaml = Xaml;
-        foreach (var kept in new[] { "DetailObservation.Detail.Explanation", "DetailObservation.Detail.KeyValues", "DetailObservation.Detail.Utc", "DetailObservation.Detail.Ending", "DetailObservation.Detail.Metrics",
+        foreach (var kept in new[] { "DetailObservation.Detail.Explanation", "DetailObservation.Detail.KeyValues", "DetailObservation.Detail.Facts", "DetailObservation.Detail.Ending", "DetailObservation.Detail.Metrics",
                      "DetailObservation.Detail.Threshold", "DetailObservation.Detail.Limitations", "DetailObservation.Detail.Events", "Header=\"Measurement evidence\"", "Header=\"Recording details\"",
                      "{Binding SnapshotNote}", "{Binding DataQuality}", "{Binding Status}", "{Binding FilterNote}", "{Binding EmptyNote}", "{Binding ExportMessage}", "Monitor.History.PartialNote", "Monitor.History.IssueLines",
                      "Monitor.History.UnavailableNote", "Monitor.History.ZoneNote", "Monitor.History.Facts", "PerformanceCorrelations", "ContextCorrelations", "ActiveCorrelation.Explanation", "QualityGroups",
@@ -498,7 +500,7 @@ public sealed class HistoryWorkspaceTests
         var f = h.Findings;
         f.SelectedRow = f.FindingRows.Single(r => r.IsGroup && r.RuleId == "guest.cpu.saturation");
         var occurrences = f.DetailOccurrences;
-        Assert.Equal(3, occurrences.Count); Assert.True(f.HasDetailOccurrences); Assert.Equal("Occurrences (3)", f.DetailOccurrencesHeader);
+        Assert.Equal(3, occurrences.Count); Assert.True(f.HasDetailOccurrences); Assert.Equal("Occurrences (3) · UTC time", f.DetailOccurrencesHeader);
         var cpu = f.Observations.Where(o => o.Observation.RuleId == "guest.cpu.saturation").OrderBy(o => o.Observation.Start).ToArray();
         Assert.Equal(cpu.Select(o => o.Id), occurrences.Select(o => o.Item!.Id));                     // the original observations, in time order
         Assert.All(occurrences, o => Assert.Same(f.Observations.Single(x => x.Id == o.Item!.Id), o.Item));
@@ -507,6 +509,8 @@ public sealed class HistoryWorkspaceTests
         f.SelectedDetailOccurrence = occurrences[1];
 
         Assert.Same(cpu[1], f.SelectedObservation);
+        Assert.Null(f.HighlightStart); Assert.Equal(h.SessionStart, h.ViewStart);                    // choosing it moves nothing
+        f.ShowInChartsCommand.Execute(null);
         Assert.Equal(cpu[1].Observation.Start, f.HighlightStart); Assert.Equal(cpu[1].Observation.End, f.HighlightEnd);
         Assert.Equal(cpu[1].Id, f.TimelineSelectedId);
         Assert.Equal(cpu[1].Id, f.SelectedDetailOccurrence!.Item!.Id);

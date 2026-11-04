@@ -282,12 +282,14 @@ public sealed class SessionHistoryViewModel : ObservableObject
     public bool HasEmphasis => Charts.Any(c => c.Emphasis != ChartEmphasis.None);
     public TimeZoneInfo Zone => zone;
     /// <summary>Validation seam: shows a recording in another time zone (for example one that crosses a clock change). Applies to the next recording opened.</summary>
-    internal void UseTimeZone(TimeZoneInfo value) { zone = value; Findings.SetTimeZone(value); Raise(nameof(Zone)); Raise(nameof(ZoneNote)); }
+    internal void UseTimeZone(TimeZoneInfo value) { zone = value; Findings.SetTimeZone(value); Raise(nameof(Zone)); Raise(nameof(ZoneNote)); Raise(nameof(TimeBasis)); }
     /// <summary>The most samples loaded; the limit is explained on the page when it is reached. Lowered only by the validation.</summary>
     internal int SampleLimit { get; set; } = HistoryLoader.MaximumSamples;
     /// <summary>True when only the beginning of the recording was analyzed.</summary>
     public bool IsPartial => history?.Info.IsPartial == true;
     public string PartialNote { get; private set; } = "";
+    /// <summary>What the shown times are, as one sentence: UTC, or local time with its offset (both offsets when the clocks changed during the recording).</summary>
+    public string TimeBasis => history is { } h ? HistoryTime.Basis(zone, h.Info.StartedUtc, h.Info.EndedUtc) : "";
     public string ZoneNote => $"Times are shown in {zone.DisplayName.Split(')').Last().Trim()} (UTC{HistoryTime.FormatOffset(zone.GetUtcOffset(DateTimeOffset.UtcNow))}); recordings store UTC.";
 
     // ---------- overview ----------
@@ -1027,7 +1029,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
     {
         Raise(nameof(HasHistory)); Raise(nameof(ShowPlaceholder)); Raise(nameof(SessionStart)); Raise(nameof(SessionEnd)); Raise(nameof(Markers)); Raise(nameof(Gaps));
         Raise(nameof(UnavailableNote)); Raise(nameof(HasUnavailableNote)); Raise(nameof(EventsHeading)); Raise(nameof(HasIssues)); Raise(nameof(StateLabel)); Raise(nameof(StateIcon)); Raise(nameof(StateNote));
-        Raise(nameof(ZoneNote)); Raise(nameof(HasSelectedIncident)); Raise(nameof(IsPartial));
+        Raise(nameof(ZoneNote)); Raise(nameof(TimeBasis)); Raise(nameof(HasSelectedIncident)); Raise(nameof(IsPartial));
         RaiseSteps();
     }
 }

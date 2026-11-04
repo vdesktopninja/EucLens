@@ -175,8 +175,8 @@ public sealed class MemoryRetentionTests(ITestOutputHelper output)
         {
             var (analysis, info) = analyses[run % analyses.Length];
             f.Show(analysis, info);
-            foreach (var row in f.Observations) f.SelectedObservation = row;
-            foreach (var correlation in f.PerformanceCorrelations) f.SelectedCorrelation = correlation;
+            foreach (var row in f.Observations) { f.SelectedObservation = row; f.ShowInCharts(); }
+            foreach (var correlation in f.PerformanceCorrelations) { f.SelectedCorrelation = correlation; f.ShowInCharts(); }
             foreach (var option in f.SeverityFilters) f.SelectedSeverity = option;
             f.SelectedSeverity = f.SeverityFilters[0];
             f.ShowFull();

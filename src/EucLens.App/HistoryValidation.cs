@@ -556,14 +556,19 @@ internal static class HistoryValidation
         severity.SelectedItem = f.SeverityFilters[0]; await Idle(c);
         Require(f.VisibleObservations.Count == f.Observations.Count && list.Items.Count == f.FindingRows.Count, "Clearing the filter did not show every finding again.");
 
-        // Selecting a finding through the list: every chart goes to its real interval, the evidence chart is emphasized, the peak is marked.
+        // Selecting a finding through the list only selects it. "Show in charts" is what moves every chart to its real interval, emphasizes the evidence chart and marks the peak.
         var row = f.VisibleObservations.First(o => o.Observation.Primary.ChannelId == "rtt");
         // The line of the finding: a rule that fired more than once is a closed group first, opened with the header's own gesture.
         if (!f.FindingRows.Any(r => ReferenceEquals(r.Item, row))) { f.ToggleGroup(row.Observation.RuleId); await Idle(c); }
+        var scrollerBefore = (ScrollViewer)PageViewport(view); var offsetBefore = scrollerBefore.VerticalOffset; var requestsBefore = f.ChartsRequest;
         list.SelectedItem = f.FindingRows.First(r => ReferenceEquals(r.Item, row));
         await h.Settled; await Idle(c); await DesktopValidation.WaitForChartMeasureAsync(c.Window); await Task.Delay(150);
         var o = row.Observation;
         Require(ReferenceEquals(f.SelectedObservation, row), "Selecting the row did not select the finding.");
+        Require(h.ViewStart == h.SessionStart && h.ViewEnd == h.SessionEnd && !h.HasEmphasis && Overlay(c).HighlightStart is null && f.ChartsRequest == requestsBefore && Math.Abs(scrollerBefore.VerticalOffset - offsetBefore) < 0.5,
+            "Selecting a finding moved the charts, emphasized one, highlighted an interval or scrolled the page.");
+        f.ShowInChartsCommand.Execute(null);
+        await h.Settled; await Idle(c); await DesktopValidation.WaitForChartMeasureAsync(c.Window); await Task.Delay(150);
         Require(h.ViewStart <= o.Start && h.ViewEnd >= o.End && h.ViewStart > h.SessionStart - TimeSpan.FromTicks(1) && h.ViewEnd - h.ViewStart < h.SessionEnd - h.SessionStart, "The charts do not show the finding with context around it.");
         foreach (var chart in Charts(c))
         {
@@ -652,6 +657,7 @@ internal static class HistoryValidation
         var host = new Canvas { DataContext = c.Vm };
         window.Content = null; host.Children.Add(client); window.Content = host;
         var results = new List<string>();
+        var navigationWidth = ((GridLength)window.FindResource("NavigationWidth")).Value;
         try
         {
             foreach (var dark in new[] { false, true })
@@ -683,7 +689,7 @@ internal static class HistoryValidation
                 var severity = (ListBox)DesktopValidation.Descendants<ListBox>(view).First(l => System.Windows.Automation.AutomationProperties.GetName(l) == "Severity filter");
                 Require(DesktopValidation.Descendants<ListBoxItem>(severity).Count() == 4 && severity.ActualWidth <= panel.ActualWidth + 1, $"{label}: the severity filter does not fit.");
                 Require(h.Charts.Count > 0 && DesktopValidation.Descendants<ListBox>(view).Any(l => l.ActualHeight <= HistoryLayout.FindingsListMaxHeight + 1 && System.Windows.Automation.AutomationProperties.GetName(l).StartsWith("Findings", StringComparison.Ordinal)), $"{label}: the findings list is not bounded.");
-                Require(viewport.ActualWidth <= requested.Width - 184 + 1 && viewport.ActualWidth >= requested.Width - 184 - 60, $"{label}: the page viewport ({viewport.ActualWidth:0}) does not follow the requested client width {requested.Width:0} (navigation 184).");
+                Require(viewport.ActualWidth <= requested.Width - navigationWidth + 1 && viewport.ActualWidth >= requested.Width - navigationWidth - 60, $"{label}: the page viewport ({viewport.ActualWidth:0}) does not follow the requested client width {requested.Width:0} (navigation {navigationWidth:0}).");
                 results.Add($"{label}: client {client.ActualWidth:0}×{client.ActualHeight:0}, page viewport {viewport.ActualWidth:0}×{viewport.ActualHeight:0}, findings panel {panel.ActualWidth:0}×{panel.ActualHeight:0} DIPs; {blocks.Length} texts inside; 3 buttons within the panel");
                 if (!dark && (width, scale) is (1366, 1d) or (2560, 1.5d)) await Shot(c, panel, Path.Combine(c.EvidenceDirectory, $"history-findings-matrix-{width}x{height}-{scale * 100:0}pct-{(dark ? "dark" : "light")}.png"));
             }

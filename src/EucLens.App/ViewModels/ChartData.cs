@@ -19,7 +19,7 @@ public sealed record ReferenceLine(string Level, double Value, string Label, str
 /// so each chart view builds its own series, axes and sections from this data (see Presentation.ChartObjects).
 /// </summary>
 public sealed class ChartData(string name, string unit, int capacity, string? axisName = null, double? yMin = 0, double? yMax = null,
-    double yMinStep = 1, double xStepSeconds = 20, double smoothness = 0, double labelSize = 11) : ObservableObject
+    double yMinStep = 1, double xStepSeconds = 20, double smoothness = 0, double labelSize = 12) : ObservableObject
 {
     private double? xMin, xMax, yMaxLimit = yMax;
     private IReadOnlyList<ReferenceLine> references = [];

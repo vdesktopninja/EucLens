@@ -27,6 +27,8 @@ internal static class DesktopValidation
         var report = new StringBuilder();
         var dpi = VisualTreeHelper.GetDpi(window);
         report.AppendLine($"Host DPI: {dpi.PixelsPerInchX:0} × {dpi.PixelsPerInchY:0}. Other scale cases below simulate available DIP space; they do not change Windows DPI.");
+        report.Append(TypographyValidation.CheckResources(window));
+        TypographyValidation.Problems.Clear();
         var navigation = Descendants<ListBox>(window).Single(list => ReferenceEquals(list.ItemsSource, vm.Pages));
         var client = (FrameworkElement)window.Content;
         var chromeWidth = window.ActualWidth - client.ActualWidth;
@@ -80,6 +82,7 @@ internal static class DesktopValidation
                     CheckCharts(window, page);
                     CheckPanes(window);
                     CheckNoSourceSelection(window, page);
+                    TypographyValidation.CheckPage(window, visit);
                     if (page is DiagnosticsPage)
                     {
                         CheckText(window);
@@ -124,11 +127,13 @@ internal static class DesktopValidation
                 }
             }
         }
+        report.AppendLine(TypographyValidation.Problems.Count == 0 ? "PASS: typography: no text below 13 DIPs, clipped, truncated without a full value, cut, overlapping or outside the window, and no page scrolls sideways, on every page, size, scale and theme of the matrix" : $"FAIL: typography: {TypographyValidation.Problems.Count} problem(s)\n  " + string.Join("\n  ", TypographyValidation.Problems));
         await File.WriteAllTextAsync(Path.Combine(directory, "layout-results.txt"), report.ToString());
         viewportHost.Children.Remove(client);
         client.Width = originalWidth;
         client.Height = originalHeight;
         window.Content = client;
+        if (TypographyValidation.Problems.Count > 0) throw new InvalidOperationException($"{TypographyValidation.Problems.Count} typography problem(s): {string.Join(" || ", TypographyValidation.Problems.Take(12))}");
     }
     /// <summary>LiveCharts measures asynchronously after a chart loads; wait (bounded) until every engine has laid out its axes.</summary>
     internal static async Task WaitForChartMeasureAsync(Window window)
@@ -621,7 +626,7 @@ internal static class DesktopValidation
         .Where(f => f.FieldType == typeof(DependencyProperty)).ToArray();
 
     /// <summary>Width of the text as a TextBlock with identical text properties would measure it without any width limit.</summary>
-    private static double NaturalWidth(TextBlock text)
+    internal static double NaturalWidth(TextBlock text)
     {
         var clone = new TextBlock
         {
@@ -644,7 +649,7 @@ internal static class DesktopValidation
     }
 
     /// <summary>The scroll viewer that hosts the current page (the one whose content is the page view model's view).</summary>
-    private static ScrollViewer? PageHost(Window window) => Descendants<ScrollViewer>(window).FirstOrDefault(v => v.Content is ContentControl { Content: PageViewModel });
+    internal static ScrollViewer? PageHost(Window window) => Descendants<ScrollViewer>(window).FirstOrDefault(v => v.Content is ContentControl { Content: PageViewModel });
 
     internal static void Capture(Window window, FrameworkElement visual, string path)
     {

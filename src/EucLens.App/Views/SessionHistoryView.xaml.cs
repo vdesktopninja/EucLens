@@ -20,8 +20,9 @@ public partial class SessionHistoryView : UserControl
         Overlay.HoverChanged += OnHover;
         // The performance timeline shares the range gestures of the strip; a click on a finding selects it, Ctrl+Left and Ctrl+Right step through them.
         PerformanceTimeline.RangeRequested += OnRange; PerformanceTimeline.NavigationRequested += OnNavigate;
-        PerformanceTimeline.FindingActivated += (_, e) => { if (History?.Findings.SelectById(e.Id) == true) BringChartIntoView(); };
-        PerformanceTimeline.FindingStepRequested += (_, e) => { if (History?.Findings.SelectAdjacent(e.Direction) == true) BringChartIntoView(); };
+        // Choosing a finding only selects it: the charts, their range and the page stay where they are. "Show in charts" is the explicit navigation.
+        PerformanceTimeline.FindingActivated += (_, e) => History?.Findings.SelectById(e.Id);
+        PerformanceTimeline.FindingStepRequested += (_, e) => History?.Findings.SelectAdjacent(e.Direction);
         foreach (var list in new[] { FindingsList, DetailOccurrencesList, CorrelationList, ContextList })
         {
             // A click on a finding brings its chart into view; moving with the arrow keys never moves the page. Escape returns to the whole recording.
@@ -98,9 +99,8 @@ public partial class SessionHistoryView : UserControl
         // The chevron button of a group line has its own command; toggling here as well would undo it.
         for (DependencyObject? node = source; node is not null && !ReferenceEquals(node, item); node = node is System.Windows.Media.Visual or System.Windows.Media.Media3D.Visual3D ? System.Windows.Media.VisualTreeHelper.GetParent(node) : LogicalTreeHelper.GetParent(node))
             if (node is System.Windows.Controls.Button) return;
-        // A click on a group's line opens or closes it (the line is selected by the same click); a click elsewhere brings the finding's chart into view.
+        // A click on a group's line opens or closes it (the line is selected by the same click). Any other click only selects: it never brings the charts into view.
         if (ReferenceEquals(list, FindingsList) && item.Content is HistoryFindingRow { IsGroup: true } group) History?.Findings.ToggleGroup(group.RuleId);
-        else BringChartIntoView();
     }
 
     /// <summary>On the findings list: Right opens and Left closes the selected group, Enter and Space do either. Moving with Up and Down only selects, so it never opens a group.</summary>
@@ -116,7 +116,7 @@ public partial class SessionHistoryView : UserControl
     private void OnFindingKey(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Escape || History is not { } history) return;
-        history.Findings.ShowFull();
+        history.Findings.ClearSelection();
         e.Handled = true;
     }
 

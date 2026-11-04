@@ -228,7 +228,8 @@ internal static class HistoryUxValidation
         {
             findings.SelectedRow = group; await Settle(); await Take("cpugroup");
             findings.ToggleGroup("guest.cpu.saturation"); await HistoryValidation.Idle(c);
-            findings.SelectedRow = findings.FindingRows.Where(r => r.IsOccurrence).ElementAt(1); await Settle(); await Take("cpuoccurrence");
+            findings.SelectedRow = findings.FindingRows.Where(r => r.IsOccurrence).ElementAt(1); await Settle(); await Take("cpuoccurrence");   // selected: the charts still show the whole recording
+            findings.ShowInChartsCommand.Execute(null); await Settle(); await Take("showincharts");                                           // the explicit action: the charts are on the occurrence
             await Reset();
         }
         else if (scenario == "short" && findings.VisibleObservations.FirstOrDefault(o => o.Observation.RuleId == "conn.loss.sustained") is { } loss)
@@ -334,6 +335,7 @@ internal static class HistoryUxValidation
         var target = f.Observations.Where(o => o.Observation.RuleId == "guest.cpu.saturation").OrderBy(o => o.Observation.Start).Last();
         var bar = timeline.DrawnBars().Single(b => b.Id == target.Id);
         var at = new Point(bar.Rect.Left + bar.Rect.Width / 2, bar.Rect.Top + bar.Rect.Height / 2);
+        var scroller = (ScrollViewer)HistoryValidation.PageViewport(view); var offset0 = scroller.VerticalOffset; var requests0 = f.ChartsRequest;
         timeline.PointerSource = _ => at;
         timeline.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = UIElement.MouseLeftButtonDownEvent });
         timeline.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
@@ -342,15 +344,28 @@ internal static class HistoryUxValidation
         HistoryValidation.Require(ReferenceEquals(f.SelectedObservation, target), "A click on the timeline bar did not select the finding.");
         HistoryValidation.Require(f.FindingRows.Any(r => r.IsGroup && r.RuleId == "guest.cpu.saturation" && r.IsExpanded), "The group of the clicked finding did not open.");
         HistoryValidation.Require(ReferenceEquals(list.SelectedItem, f.SelectedRow) && f.SelectedRow?.Item == target, "The list does not show the finding selected on the timeline.");
-        HistoryValidation.Require(timeline.SelectedId == target.Id && h.ViewStart <= target.Observation.Start && h.ViewEnd >= target.Observation.End, "The timeline selection or the charts do not follow the click.");
         var overlay = DesktopValidation.Descendants<HistoryChartOverlay>(view).Single();
-        HistoryValidation.Require(overlay.HighlightStart == target.Observation.Start && overlay.HighlightEnd == target.Observation.End, "The charts do not highlight the clicked finding's own interval.");
+        HistoryValidation.Require(timeline.SelectedId == target.Id, "The clicked bar is not outlined on the timeline.");
+        HistoryValidation.Require(h.ViewStart == h.SessionStart && h.ViewEnd == h.SessionEnd && !h.HasEmphasis && overlay.HighlightStart is null && f.ChartsRequest == requests0 && Math.Abs(scroller.VerticalOffset - offset0) < 0.5,
+            $"A click on a timeline bar moved the charts, emphasized one, highlighted an interval or scrolled the page (offset {offset0:0} → {scroller.VerticalOffset:0}).");
+        // The explicit action: the real button moves the charts to the finding's own interval and brings them into view.
+        var showButton = DesktopValidation.Descendants<Button>(view).First(b => System.Windows.Automation.AutomationProperties.GetName(b) == "Show in charts");
+        ((System.Windows.Automation.Provider.IInvokeProvider)new System.Windows.Automation.Peers.ButtonAutomationPeer(showButton).GetPattern(System.Windows.Automation.Peers.PatternInterface.Invoke)!).Invoke();
+        await h.Settled; await HistoryValidation.Idle(c); await Task.Delay(300); await HistoryValidation.Idle(c);
+        HistoryValidation.Require(h.ViewStart <= target.Observation.Start && h.ViewEnd >= target.Observation.End && h.ViewEnd - h.ViewStart < h.SessionEnd - h.SessionStart, "'Show in charts' did not move the charts to the finding.");
+        HistoryValidation.Require(overlay.HighlightStart == target.Observation.Start && overlay.HighlightEnd == target.Observation.End, "'Show in charts' did not highlight the finding's own interval on the charts.");
+        var primaryChart = view.ChartListControl.ItemContainerGenerator.ContainerFromItem(h.Charts.First(r => r.IsPrimary)) as FrameworkElement;
+        var viewport0 = (FrameworkElement)scroller;
+        HistoryValidation.Require(primaryChart is not null && primaryChart.TranslatePoint(new Point(0, 0), viewport0).Y < viewport0.ActualHeight && primaryChart.TranslatePoint(new Point(0, primaryChart.ActualHeight), viewport0).Y > 0, "'Show in charts' did not bring the evidence chart into view.");
+        scroller.ScrollToTop(); await HistoryValidation.Idle(c);
 
         // Ctrl+Left steps to the previous finding in time order.
         var ordered = f.VisibleObservations.OrderBy(o => o.Observation.Start).ThenBy(o => o.Observation.End).ThenBy(o => o.Id, StringComparer.Ordinal).ToArray();
         var index = Array.IndexOf(ordered, target);
+        var rangeBefore = (h.ViewStart, h.ViewEnd); var offsetStep = scroller.VerticalOffset; var requestsStep = f.ChartsRequest;
         timeline.Focus(); PressKey(timeline, Key.Left, ModifierKeys.Control); await HistoryValidation.Idle(c);
         HistoryValidation.Require(index > 0 && ReferenceEquals(f.SelectedObservation, ordered[index - 1]), "Ctrl+Left on the timeline did not select the previous finding.");
+        HistoryValidation.Require(rangeBefore == (h.ViewStart, h.ViewEnd) && f.ChartsRequest == requestsStep && Math.Abs(scroller.VerticalOffset - offsetStep) < 0.5, "Stepping with the keyboard changed the zoom or scrolled the page.");
 
         // The group header from the keyboard: choosing it selects the group and opens nothing, Right opens it, Left closes it, Enter toggles.
         f.ShowFull(); await HistoryValidation.Idle(c);
@@ -413,9 +428,14 @@ internal static class HistoryUxValidation
         f.SelectedRow = f.FindingRows.Single(r => r.IsGroup && r.RuleId == "guest.cpu.saturation"); await h.Settled; await HistoryValidation.Idle(c);
         var detailList = view.DetailOccurrencesListControl;
         HistoryValidation.Require(detailList.IsVisible && detailList.Items.Count == 3 && detailList.ActualHeight <= HistoryLayout.OccurrenceListMaxHeight + 1, $"The group's occurrence list shows {detailList.Items.Count} lines at {detailList.ActualHeight:0} DIPs.");
+        f.ShowFull(); await HistoryValidation.Idle(c);
+        f.SelectedRow = f.FindingRows.Single(r => r.IsGroup && r.RuleId == "guest.cpu.saturation"); await h.Settled; await HistoryValidation.Idle(c);
+        var rangeGroup = (h.ViewStart, h.ViewEnd);
         detailList.SelectedItem = f.DetailOccurrences[1]; await h.Settled; await HistoryValidation.Idle(c); await Task.Delay(150);
         var chosen = f.DetailOccurrences[1].Item!;
-        HistoryValidation.Require(ReferenceEquals(f.SelectedObservation, chosen) && timeline.SelectedId == chosen.Id && overlay.HighlightStart == chosen.Observation.Start && overlay.HighlightEnd == chosen.Observation.End, "An occurrence chosen in the details list is not selected, outlined on the timeline and highlighted on the charts.");
+        HistoryValidation.Require(ReferenceEquals(f.SelectedObservation, chosen) && timeline.SelectedId == chosen.Id && rangeGroup == (h.ViewStart, h.ViewEnd) && overlay.HighlightStart is null, "An occurrence chosen in the details list is not selected and outlined on the timeline, or it moved the charts.");
+        f.ShowInChartsCommand.Execute(null); await h.Settled; await HistoryValidation.Idle(c); await Task.Delay(200);
+        HistoryValidation.Require(overlay.HighlightStart == chosen.Observation.Start && overlay.HighlightEnd == chosen.Observation.End, "'Show in charts' does not highlight the occurrence's own interval on the charts.");
         HistoryValidation.Require(detailList.Items.Count == 3 && ReferenceEquals(detailList.SelectedItem, f.SelectedDetailOccurrence), "The occurrence list lost its lines or its selection when one occurrence was shown.");
         foreach (var name in new[] { "Measurement evidence", "Threshold and baseline", "Technical detail", "Recording limitations and nearby events" })
         {
@@ -431,6 +451,14 @@ internal static class HistoryUxValidation
             expander.IsExpanded = false;
         }
         f.ShowFull(); await HistoryValidation.Idle(c);
-        HistoryValidation.Log(c, Problems.Count == 0 ? "PASS: workspace interactions: a click on a timeline bar selects the finding, opens its group, scrolls the list and moves the charts to its own interval; Ctrl+Left steps back; a header chosen from the keyboard selects the group without opening it, Right, Left and Enter and the chevron button open and close it, a click on the line toggles it; every occurrence is selectable on its own; the preview selects nothing and moves nothing until its button is used; the occurrence list and the four disclosures work" : "NOTE: workspace interactions finished with problems (reported with the layout)");
+
+        // Escape in the list clears the selection and leaves a range the user chose alone; after "Show in charts" it returns the charts to the whole recording.
+        var manualA = h.SessionStart.AddMinutes(4); var manualB = h.SessionStart.AddMinutes(9);
+        h.SetRange(manualA, manualB); await h.Settled; await HistoryValidation.Idle(c);
+        f.SelectedRow = f.FindingRows.First(r => !r.IsGroup); await HistoryValidation.Idle(c);
+        list.Focus(); PressKey(list, Key.Escape); await HistoryValidation.Idle(c);
+        HistoryValidation.Require(!f.HasSelection && f.IsPreview && h.ViewStart == manualA && h.ViewEnd == manualB, "Escape undid a range the user had chosen.");
+        h.ResetZoom(); await HistoryValidation.Idle(c);
+        HistoryValidation.Log(c, Problems.Count == 0 ? "PASS: workspace interactions: a click on a timeline bar selects the finding, opens its group, scrolls the list and moves the charts to its own interval; Ctrl+Left steps back; a header chosen from the keyboard selects the group without opening it, Right, Left and Enter and the chevron button open and close it, a click on the line toggles it; every occurrence is selectable on its own; choosing a finding by a click, a bar, Ctrl+Left or the occurrence list never moves the charts or the page and \"Show in charts\" does; Escape keeps a range the user chose; the preview selects nothing and moves nothing until its button is used; the occurrence list and the four disclosures work" : "NOTE: workspace interactions finished with problems (reported with the layout)");
     }
 }

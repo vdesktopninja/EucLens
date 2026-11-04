@@ -554,7 +554,7 @@ public sealed class DiagnosticsPresentationTests
         Assert.Equal(TrendChart.LabelSize, view.YAxes[0].TextSize);
         Assert.All(view.Sections.Cast<RectangularSection>(), x => Assert.Equal(TrendChart.LabelSize, x.LabelSize));
         var dashboard = new ChartObjects(new ChartData("RTT", "ms", 10));
-        Assert.Equal(11, dashboard.XAxes[0].TextSize);
+        Assert.Equal(12, dashboard.XAxes[0].TextSize);
     }
 
     // ---------- static checks of the XAML (WPF itself is validated on Windows) ----------

@@ -77,6 +77,8 @@ public sealed class HistoryFindingRow : ObservableObject
     public string KeyAutomation => $"{KeyLabel} {KeyMetric}: {KeyValue}";
     public string AffectedAutomation => $"{AffectedLabel}: {AffectedValue}";
     public string WhenAutomation => IsGroup ? $"First to last: {Time}" : $"When: {Time}";
+    /// <summary>The label of the time tile: "First to last (local)" on a group, set from the first occurrence.</summary>
+    public string WhenLabel { get; internal set; } = "When";
     /// <summary>True for the line whose finding the details pane shows as a preview while nothing is selected: drawn with a quiet marker, never as a selection.</summary>
     public bool IsPreviewed { get => previewed; internal set => Set(ref previewed, value); }
 
@@ -141,7 +143,7 @@ internal static class FindingGrouping
         var qualified = ordered.Count(o => o.Observation.Status == AnalysisStatus.QualifiedObservation);
         return new(FindingRowKind.Group, first.Observation.RuleId, first.Title, worst.SeverityTag, first.Domain, key, first.KeyLabel, first.KeyMetric,
             first.StartLabel + "–" + last.EndLabel, "", FindingText.Plural(ordered.Count, "occurrence", "occurrences"),
-            "Total affected " + FindingText.Span(affected), qualified > 0 ? $"{FindingText.Count(qualified)} of {FindingText.Count(ordered.Count)} qualified" : "", null, ordered, open, setExpanded);
+            "Total affected " + FindingText.Span(affected), qualified > 0 ? $"{FindingText.Count(qualified)} of {FindingText.Count(ordered.Count)} qualified" : "", null, ordered, open, setExpanded) { WhenLabel = first.WhenLabel.Replace("When", "First to last", StringComparison.Ordinal) };
     }
 
     /// <summary>The length of the union of the intervals: time covered by two overlapping occurrences counts once.</summary>

@@ -170,6 +170,8 @@ public sealed class HistoryFindingsPresentationTests
         var loss = Row(h, "conn.loss.sustained");
         h.Findings.SelectedObservation = loss;
         await h.Settled;
+        Assert.Equal(h.SessionStart, h.ViewStart); Assert.Equal(h.SessionEnd, h.ViewEnd);   // selected: nothing moved
+        h.Findings.ShowInChartsCommand.Execute(null);
         var o = loss.Observation;
         Assert.Equal(At(330), o.Start); Assert.Equal(At(399), o.End);                    // recorded UTC instants
         var pad = TimeSpan.FromSeconds(34.5);                                            // half the 69 s finding: between 15 s and the 2 min context
@@ -199,12 +201,16 @@ public sealed class HistoryFindingsPresentationTests
     {
         var (h, _) = await OpenAsync(Busy);
         h.Findings.SelectedObservation = Row(h, "conn.loss.sustained");
+        Assert.False(h.HasEmphasis);                                                       // selecting emphasizes nothing
+        h.Findings.ShowInChartsCommand.Execute(null);
         Assert.Equal(["packetLoss"], h.Charts.Where(c => c.IsPrimary).Select(c => c.Id));
         Assert.DoesNotContain(h.Charts, c => c.IsSupporting);
         Assert.Equal("Evidence for the selected finding", h.Charts.Single(c => c.IsPrimary).EmphasisLabel);
         Assert.Contains("Evidence for the selected finding", h.Charts.Single(c => c.IsPrimary).AutomationName);
         Assert.True(h.HasEmphasis);
-        h.Findings.SelectedObservation = Row(h, "gfx.fps.low");                           // another finding moves the emphasis; it never accumulates
+        h.Findings.SelectedObservation = Row(h, "gfx.fps.low");                           // another finding moves the emphasis only when it is shown; it never accumulates
+        Assert.Equal(["packetLoss"], h.Charts.Where(c => c.IsPrimary).Select(c => c.Id));   // still the previous one until then
+        h.Findings.ShowInChartsCommand.Execute(null);
         Assert.Equal(["fps"], h.Charts.Where(c => c.IsPrimary).Select(c => c.Id));
         Assert.Equal(["dirtyFps"], h.Charts.Where(c => c.IsSupporting).Select(c => c.Id));  // the activity measurement that made the frame rate meaningful
         Assert.All(h.Charts.Where(c => !c.IsEmphasized), c => Assert.Equal("", c.EmphasisLabel));
@@ -217,6 +223,8 @@ public sealed class HistoryFindingsPresentationTests
         var loss = Row(h, "conn.loss.sustained");
         h.Findings.SelectedObservation = loss;
         await h.Settled;
+        Assert.Null(h.Findings.PeakAt);                                                    // the extreme is marked when the finding is shown in the charts
+        h.Findings.ShowInChartsCommand.Execute(null);
         var worst = loss.Observation.Primary.WorstAt;
         var recorded = h.Loaded!.Extreme("packetLoss", loss.Observation.Start, loss.Observation.End, highest: true)!.Value;
         Assert.Equal(recorded.At, worst); Assert.Equal(7.1, recorded.Value); Assert.Equal(At(360), worst);
@@ -258,6 +266,8 @@ public sealed class HistoryFindingsPresentationTests
         Assert.False(f.ShowFullRecordingCommand.CanExecute(null));
         f.SelectedObservation = Row(h, "conn.rtt.high");
         Assert.True(f.ShowFullRecordingCommand.CanExecute(null));
+        Assert.Equal(h.SessionStart, h.ViewStart);                                         // selecting never moves the charts
+        f.ShowInChartsCommand.Execute(null);
         Assert.NotEqual(h.SessionStart, h.ViewStart);
         f.ShowFullRecordingCommand.Execute(null);
         await h.Settled;
@@ -284,6 +294,7 @@ public sealed class HistoryFindingsPresentationTests
         var f = h.Findings;
         var row = Row(h, "conn.rtt.high");
         f.SelectedObservation = row;
+        f.ShowInChartsCommand.Execute(null);
         var raised = 0;
         f.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(HistoryFindingsViewModel.SelectedObservation)) raised++; };
         f.SelectedDomain = f.DomainFilters.Single(c => c.Value == FindingDomainFilter.Connection);       // the list replaces its items and would lose the selection
@@ -316,6 +327,8 @@ public sealed class HistoryFindingsPresentationTests
         Assert.Equal("Round-trip time + Packet loss", item.Summary);
         f.SelectedCorrelation = item;
         await h.Settled;
+        Assert.Null(f.HighlightStart); Assert.Equal(h.SessionStart, h.ViewStart);          // selected: nothing shaded, nothing moved
+        f.ShowInChartsCommand.Execute(null);
         Assert.Equal(item.Correlation.CommonOverlapStart, f.HighlightStart); Assert.Equal(item.Correlation.CommonOverlapEnd, f.HighlightEnd);
         Assert.Equal(At(330), f.HighlightStart); Assert.Equal(At(399), f.HighlightEnd);
         Assert.Null(f.PeakAt);
@@ -339,6 +352,8 @@ public sealed class HistoryFindingsPresentationTests
         Assert.Equal(2, chained.Links.Count); Assert.All(chained.Links, l => Assert.Contains("overlap", l));
         f.SelectedCorrelation = chained;
         await h.Settled;
+        Assert.Equal(h.SessionStart, h.ViewStart);                                         // selected: nothing moved
+        f.ShowInChartsCommand.Execute(null);
         Assert.Null(f.HighlightStart); Assert.Null(f.HighlightEnd);                       // nothing is shaded as shared
         Assert.True(h.ViewStart < At(300) && h.ViewEnd > At(519));                        // the real span of everything linked
         Assert.Equal(["packetLoss", "rtt"], h.Charts.Where(c => c.IsPrimary).Select(c => c.Id).Order(StringComparer.Ordinal));
@@ -370,6 +385,8 @@ public sealed class HistoryFindingsPresentationTests
         Assert.Contains("1 gap", f.DataQuality);
         f.SelectedContextCorrelation = context;                                          // still selectable and navigable
         Assert.Same(context, f.ActiveCorrelation); Assert.Null(f.SelectedCorrelation);
+        Assert.Equal(h.SessionStart, h.ViewStart);                                       // selected: nothing moved
+        f.ShowInChartsCommand.Execute(null);
         Assert.True(h.ViewStart <= At(300));
         Assert.True(h.Charts.Single(c => c.Id == "rtt").IsPrimary);
     }
@@ -586,6 +603,8 @@ public sealed class HistoryFindingsPresentationTests
         var h = CreateHistory(storage);
         await h.OpenAsync(Summary(storage, first.ShortId)); await h.Settled;
         h.Findings.SelectedObservation = Row(h, "conn.rtt.high");
+        Assert.False(h.HasEmphasis);
+        h.Findings.ShowInChartsCommand.Execute(null);
         Assert.True(h.HasEmphasis);
 
         var opening = h.OpenAsync(Summary(storage, second.ShortId));                       // Release runs synchronously
@@ -642,8 +661,11 @@ public sealed class HistoryFindingsPresentationTests
         Assert.NotNull(h.SelectedIncident); Assert.Equal(incident.Id, h.SelectedIncident!.Incident.Id);
         Assert.True(h.ViewStart <= incident.At && h.ViewEnd >= incident.At);               // the incident centres the view as before
         Assert.NotEmpty(h.SelectedIncident.Summary);
+        var before = (h.ViewStart, h.ViewEnd);
         h.Findings.SelectedObservation = Row(h, "guest.cpu.spike");                        // and a finding can be selected afterwards
         await h.Settled;
+        Assert.Equal(before, (h.ViewStart, h.ViewEnd));                                    // the selection leaves the incident's range as it was
+        h.Findings.ShowInChartsCommand.Execute(null);                                      // the explicit action moves the charts to the finding
         Assert.True(h.ViewStart <= At(900) && h.ViewEnd >= At(939));
     }
 

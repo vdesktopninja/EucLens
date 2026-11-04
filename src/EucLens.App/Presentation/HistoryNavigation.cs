@@ -327,7 +327,7 @@ public abstract class HistoryTimeElement : FrameworkElement
 /// </summary>
 public sealed class HistoryTimelineStrip : HistoryTimeElement
 {
-    private const double LabelBand = 16, GlyphBand = 26;
+    private const double LabelBand = 18, GlyphBand = 26;
 
     public HistoryTimelineStrip() { Height = LabelBand + GlyphBand + 6; MinWidth = 200; Cursor = Cursors.Hand; }
 
@@ -378,7 +378,7 @@ public sealed class HistoryTimelineStrip : HistoryTimeElement
         for (var i = 0; i <= count; i++)
         {
             var at = SessionStart + TimeSpan.FromTicks((SessionEnd - SessionStart).Ticks * i / count);
-            var text = Text(Label(at, seconds: (SessionEnd - SessionStart) < TimeSpan.FromHours(2)), 11, MutedBrush);
+            var text = Text(Label(at, seconds: (SessionEnd - SessionStart) < TimeSpan.FromHours(2)), 12, MutedBrush);
             var x = XOf(at);
             var origin = Math.Clamp(x - text.Width / 2, 0, Math.Max(0, ActualWidth - text.Width));
             dc.DrawText(text, new Point(origin, 0));

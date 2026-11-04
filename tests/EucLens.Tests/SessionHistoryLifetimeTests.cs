@@ -111,6 +111,8 @@ public sealed class SessionHistoryLifetimeTests(ITestOutputHelper output)
                 Assert.Null(f.SelectedObservation); Assert.False(h.HasEmphasis);
                 var target = f.Observations.First(o => o.Observation.RuleId == (expectRtt ? "conn.rtt.high" : "guest.cpu.saturation"));
                 f.SelectedObservation = target; await h.Settled;
+                Assert.False(h.HasEmphasis);                                                                    // selecting moves nothing
+                f.ShowInChartsCommand.Execute(null);
                 Assert.Equal([target.Observation.Primary.ChannelId], h.Charts.Where(c => c.IsPrimary).Select(c => c.Id));   // the right chart, from this recording
                 Assert.True(h.ViewStart >= h.SessionStart && h.ViewEnd <= h.SessionEnd && h.ViewStart <= target.Observation.Start && h.ViewEnd >= target.Observation.End);
                 generations.Add(Capture(h));

@@ -207,7 +207,7 @@ jobs:
               }
             }
           }
-      # Artifact storage is exhausted, so uploaded evidence cannot be relied on. The Dashboard, Diagnostics and Settings screenshots (100 %, both themes) and any failure picture
+      # Artifact storage is exhausted, so uploaded evidence cannot be relied on. Every page's screenshot (100 %, both themes, 1366×768 and 1920×1080) and any failure picture
       # are therefore also written into this job's log as compressed pictures (JPEG, quality 85) that tools/ci-log-images.py turns back into files. Additive: it checks
       # nothing and removes nothing; a failure here never fails the build.
       - name: Print the page screenshots into the job log
@@ -216,7 +216,7 @@ jobs:
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.Drawing
-          $files = @(Get-ChildItem 'artifacts/win-x64/visual-evidence/*' -Include '*-100pct-*-DashboardPage.png', '*-100pct-*-DiagnosticsPage.png', '*-100pct-*-SettingsPage.png', 'FAILED-*.png' -ErrorAction SilentlyContinue | Sort-Object Name)
+          $files = @(Get-ChildItem 'artifacts/win-x64/visual-evidence/*' -Include '*-100pct-*Page.png', 'FAILED-*.png' -ErrorAction SilentlyContinue | Sort-Object Name)
           # The Session History workspace: every scenario in both themes at 100 % and, at the narrowest size, with the space of 150 % (simulated space, not a Windows DPI change).
           $files += @(Get-ChildItem 'artifacts/win-x64/visual-evidence/workspace/*.png' -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*-100pct.png' -or $_.Name -like '*-1366x768-150pct.png' } | Sort-Object Name)
           Write-Host "Page screenshots: $($files.Count)"
