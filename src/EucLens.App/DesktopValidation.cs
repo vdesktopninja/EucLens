@@ -628,11 +628,27 @@ internal static class DesktopValidation
     /// <summary>Width of the text as a TextBlock with identical text properties would measure it without any width limit.</summary>
     internal static double NaturalWidth(TextBlock text)
     {
+        var clone = Clone(text, TextWrapping.NoWrap);
+        clone.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        return clone.DesiredSize.Width;
+    }
+
+    /// <summary>The height a text needs at the width it actually has: a copy with the same text properties, measured at <paramref name="width"/>.</summary>
+    internal static double NeededHeight(TextBlock text, double width)
+    {
+        var clone = Clone(text, text.TextWrapping);
+        clone.Measure(new Size(width, double.PositiveInfinity));
+        return clone.DesiredSize.Height;
+    }
+
+    private static TextBlock Clone(TextBlock text, TextWrapping wrapping)
+    {
         var clone = new TextBlock
         {
             Text = text.Text, FontFamily = text.FontFamily, FontSize = text.FontSize, FontStyle = text.FontStyle, FontWeight = text.FontWeight,
-            FontStretch = text.FontStretch, FlowDirection = text.FlowDirection, TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.None,
+            FontStretch = text.FontStretch, FlowDirection = text.FlowDirection, TextWrapping = wrapping, TextTrimming = wrapping == TextWrapping.NoWrap ? TextTrimming.None : text.TextTrimming,
             UseLayoutRounding = text.UseLayoutRounding, SnapsToDevicePixels = text.SnapsToDevicePixels,
+            LineHeight = text.LineHeight, LineStackingStrategy = text.LineStackingStrategy, Padding = text.Padding,
         };
         // Every OpenType feature the original sets (tabular numerals and so on), and how its text is formatted and rendered.
         foreach (var field in TypographyProperties)
@@ -644,8 +660,7 @@ internal static class DesktopValidation
         TextOptions.SetTextRenderingMode(clone, TextOptions.GetTextRenderingMode(text));
         // Not attached to a window, so give it the DPI of the original.
         VisualTreeHelper.SetRootDpi(clone, VisualTreeHelper.GetDpi(text));
-        clone.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        return clone.DesiredSize.Width;
+        return clone;
     }
 
     /// <summary>The scroll viewer that hosts the current page (the one whose content is the page view model's view).</summary>

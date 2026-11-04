@@ -79,7 +79,9 @@ internal static class TypographyValidation
     /// <summary>The checks of one page visit (the whole window: navigation, header, page and footer).</summary>
     internal static void CheckPage(Window window, string visit)
     {
-        if (window.Content is not FrameworkElement root) return;
+        // The layout matrix hosts the real client in a canvas that gives it the size under test: positions are checked against that client, not against the canvas.
+        var root = window.Content is Canvas { Children.Count: > 0 } host && host.Children[0] is FrameworkElement hosted ? hosted : window.Content as FrameworkElement;
+        if (root is null) return;
         var blocks = DesktopValidation.Descendants<TextBlock>(root)
             .Where(t => t.IsVisible && t.ActualWidth > 0 && t.ActualHeight > 0 && !string.IsNullOrWhiteSpace(t.Text) && !t.FontFamily.Source.Contains("MDL2", StringComparison.OrdinalIgnoreCase)).ToArray();
         foreach (var t in blocks)
@@ -95,7 +97,11 @@ internal static class TypographyValidation
                     else if (!HasFullValue(t)) Problem(visit, $"'{label}' is truncated and its full value is not available (no tooltip or accessible name)");
                 }
             }
-            else if (t.DesiredSize.Height > t.ActualHeight + 1) Problem(visit, $"'{label}' is cut vertically: it needs {t.DesiredSize.Height:0} DIPs and has {t.ActualHeight:0} ({Where(t)})");
+            else
+            {
+                var needed = DesktopValidation.NeededHeight(t, t.ActualWidth);
+                if (needed > t.ActualHeight + 1) Problem(visit, $"'{label}' is cut vertically: it needs {needed:0} DIPs at its width and has {t.ActualHeight:0} ({Where(t)})");
+            }
             var bounds = t.TransformToAncestor(root).TransformBounds(new Rect(0, 0, t.ActualWidth, t.ActualHeight));
             if (bounds.Right > root.ActualWidth + 1 || bounds.Left < -1) Problem(visit, $"'{label}' lies outside the window ({bounds.Left:0}–{bounds.Right:0} of {root.ActualWidth:0}; {Where(t)})");
         }
