@@ -13,6 +13,8 @@ public static class HistoryLayout
     public const double EventListMaxHeight = 520;
     /// <summary>Height of the findings list's own viewport (DIPs): about eight two-line rows. It scrolls inside, so the page stays short.</summary>
     public const double FindingsListMaxHeight = 440;
+    /// <summary>Height of the compact occurrence list in the findings details (DIPs): about six lines; it scrolls inside.</summary>
+    public const double OccurrenceListMaxHeight = 200;
     /// <summary>Height of the correlation lists' viewport (DIPs).</summary>
     public const double CorrelationListMaxHeight = 170;
     public static readonly Margin PlotMargin = new((float)PlotLeft, (float)PlotTop, (float)PlotRight, (float)PlotBottom);

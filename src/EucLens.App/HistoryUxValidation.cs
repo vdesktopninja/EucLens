@@ -281,6 +281,30 @@ internal static class HistoryUxValidation
             var button = DesktopValidation.Descendants<Button>(view).FirstOrDefault(b => System.Windows.Automation.AutomationProperties.GetName(b) == name);
             Check(button is { IsVisible: true, IsTabStop: true, ActualWidth: >= 40 }, $"{label}: button '{name}' is missing or unusable.");
         }
+        // Master and details: side by side from 900 DIPs of width, the details under the list below; the details pane is there whenever a finding can be shown; no figure is cut.
+        var split = DesktopValidation.Descendants<MasterDetailPanel>(view).Single();
+        var detail = Named(view, "Finding details");
+        if (findings.HasDetail)
+        {
+            Check(detail.IsVisible && detail.ActualWidth >= 380 && detail.ActualHeight >= 90, $"{label}: the details pane is {detail.ActualWidth:0}×{detail.ActualHeight:0} DIPs.");
+            Check(split.IsSideBySide == split.ActualWidth >= 900, $"{label}: the findings are {(split.IsSideBySide ? "side by side" : "stacked")} at a width of {split.ActualWidth:0}.");
+            var at = detail.TranslatePoint(new Point(0, 0), list);
+            if (split.IsSideBySide) Check(at.X >= list.ActualWidth - 1 && list.ActualWidth >= 400, $"{label}: the details are not beside the list (x {at.X:0}, list {list.ActualWidth:0} wide).");
+            else Check(at.Y >= list.ActualHeight - 1, $"{label}: stacked, the details are not below the list (y {at.Y:0}, list {list.ActualHeight:0} tall).");
+            foreach (var figure in DesktopValidation.Descendants<TextBlock>(detail).Where(t => t.IsVisible && t.FontSize >= 20 && t.Text.Length > 0))
+                Check(figure.ActualHeight < figure.FontSize * 2.8 && figure.TranslatePoint(new Point(figure.ActualWidth, 0), detail).X <= detail.ActualWidth + 1, $"{label}: the figure '{figure.Text}' is wrapped over {figure.ActualHeight / figure.FontSize:0.0} lines or cut by the pane.");
+            foreach (var tile in DesktopValidation.Descendants<Border>(detail).Where(b => b.IsVisible && b.Style is not null && b.ActualWidth > 0 && DesktopValidation.Descendants<TextBlock>(b).Any(t => t.FontSize >= 20)))
+                Check(DesktopValidation.Descendants<TextBlock>(tile).All(t => t.TranslatePoint(new Point(t.ActualWidth, 0), tile).X <= tile.ActualWidth + 1), $"{label}: text runs out of a key-figure tile.");
+        }
+        foreach (var row in DesktopValidation.Descendants<ListBoxItem>(list).Where(r => r.IsVisible))
+            Check(DesktopValidation.Descendants<TextBlock>(row).Where(t => t.IsVisible && t.ActualWidth > 0).All(t => t.TranslatePoint(new Point(t.ActualWidth, 0), list).X <= list.ActualWidth + 1), $"{label}: a list line runs out of the list.");
+        // The default state: nothing is chosen, the most severe finding is previewed, the charts show the whole recording.
+        if (!findings.HasSelection && findings.FindingRows.Count > 0)
+        {
+            var history = HistoryValidation.History(c);
+            Check(findings.IsPreview && Named(view, "Preview notice").IsVisible && history.ViewStart == history.SessionStart && history.ViewEnd == history.SessionEnd, $"{label}: nothing is selected but the preview or the whole-recording range is wrong.");
+            Check(!((Button)Named(view, "Show full recording")).IsEnabled, $"{label}: 'Show full recording' is enabled by a preview.");
+        }
         if (scale == 1d)
         {
             var bottom = timeline.TranslatePoint(new Point(0, timeline.ActualHeight), viewport).Y;
@@ -371,6 +395,42 @@ internal static class HistoryUxValidation
         list.SelectedItem = occurrence; await h.Settled; await HistoryValidation.Idle(c);
         HistoryValidation.Require(ReferenceEquals(f.SelectedObservation, occurrence.Item) && timeline.SelectedId == occurrence.Item!.Id, "An occurrence is not selectable on its own.");
         f.ShowFull(); await HistoryValidation.Idle(c);
-        HistoryValidation.Log(c, Problems.Count == 0 ? "PASS: workspace interactions: a click on a timeline bar selects the finding, opens its group, scrolls the list and moves the charts to its own interval; Ctrl+Left steps back; a header chosen from the keyboard selects the group without opening it, Right, Left and Enter and the chevron button open and close it, a click on the line toggles it; every occurrence is selectable on its own" : "NOTE: workspace interactions finished with problems (reported with the layout)");
+
+        // The preview: the pane is never empty, nothing is selected, the charts stay on the whole recording; its button makes it a real selection; Escape returns to the preview.
+        foreach (var open in f.FindingRows.Where(r => r.IsGroup && r.IsExpanded).ToArray()) open.IsExpanded = false;
+        await HistoryValidation.Idle(c);
+        HistoryValidation.Require(f.IsPreview && !f.HasSelection && h.ViewStart == h.SessionStart && h.ViewEnd == h.SessionEnd && Named(view, "Preview notice").IsVisible && Named(view, "Finding details").ActualHeight > 90,
+            "After 'Show full recording' the details pane does not preview a finding on the whole recording.");
+        HistoryValidation.Require(!((Button)Named(view, "Show full recording")).IsEnabled && timeline.SelectedId is null, "A preview enabled 'Show full recording' or selected a bar.");
+        var previewButton = DesktopValidation.Descendants<Button>(view).Single(b => System.Windows.Automation.AutomationProperties.GetName(b) == "Select the previewed finding and show it in the charts");
+        ((System.Windows.Automation.Provider.IInvokeProvider)new System.Windows.Automation.Peers.ButtonAutomationPeer(previewButton).GetPattern(System.Windows.Automation.Peers.PatternInterface.Invoke)!).Invoke();
+        await h.Settled; await HistoryValidation.Idle(c);
+        HistoryValidation.Require(f.HasSelection && !f.IsPreview && !Named(view, "Preview notice").IsVisible && h.ViewEnd - h.ViewStart < h.SessionEnd - h.SessionStart, "The preview button did not select the finding and move the charts.");
+        list.Focus(); PressKey(list, Key.Escape); await h.Settled; await HistoryValidation.Idle(c);
+        HistoryValidation.Require(f.IsPreview && !f.HasSelection && h.ViewStart == h.SessionStart, "Escape did not return to the whole recording and the preview.");
+
+        // The compact occurrence list of a chosen group, and the disclosures of a chosen occurrence.
+        f.SelectedRow = f.FindingRows.Single(r => r.IsGroup && r.RuleId == "guest.cpu.saturation"); await h.Settled; await HistoryValidation.Idle(c);
+        var detailList = view.DetailOccurrencesListControl;
+        HistoryValidation.Require(detailList.IsVisible && detailList.Items.Count == 3 && detailList.ActualHeight <= HistoryLayout.OccurrenceListMaxHeight + 1, $"The group's occurrence list shows {detailList.Items.Count} lines at {detailList.ActualHeight:0} DIPs.");
+        detailList.SelectedItem = f.DetailOccurrences[1]; await h.Settled; await HistoryValidation.Idle(c); await Task.Delay(150);
+        var chosen = f.DetailOccurrences[1].Item!;
+        HistoryValidation.Require(ReferenceEquals(f.SelectedObservation, chosen) && timeline.SelectedId == chosen.Id && overlay.HighlightStart == chosen.Observation.Start && overlay.HighlightEnd == chosen.Observation.End, "An occurrence chosen in the details list is not selected, outlined on the timeline and highlighted on the charts.");
+        HistoryValidation.Require(detailList.Items.Count == 3 && ReferenceEquals(detailList.SelectedItem, f.SelectedDetailOccurrence), "The occurrence list lost its lines or its selection when one occurrence was shown.");
+        foreach (var name in new[] { "Measurement evidence", "Threshold and baseline", "Technical detail", "Recording limitations and nearby events" })
+        {
+            var expander = (Expander)Named(view, name);
+            if (!expander.IsVisible) continue;                                                     // limitations exist only when the observation has some
+            HistoryValidation.Require(!expander.IsExpanded, $"The disclosure '{name}' starts open.");
+            expander.IsExpanded = true; await HistoryValidation.Idle(c);
+            HistoryValidation.Require(DesktopValidation.Descendants<TextBlock>(expander).Any(t => t.IsVisible && t.Text.Length > 0), $"The disclosure '{name}' shows nothing when opened.");
+            if (name == "Technical detail") HistoryValidation.Require(DesktopValidation.Descendants<TextBlock>(expander).Any(t => t.Text == $"Observation ID: {chosen.Id}"), "The technical detail does not show the observation's identifier.");
+            var panel = Named(view, "Performance findings");
+            var outside = DesktopValidation.Descendants<TextBlock>(expander).Where(t => t.IsVisible && t.ActualWidth > 0 && t.TranslatePoint(new Point(t.ActualWidth, 0), panel).X > panel.ActualWidth + 1).Select(t => t.Text).ToArray();
+            HistoryValidation.Require(outside.Length == 0, $"The opened disclosure '{name}' runs out of the panel: {string.Join(" | ", outside.Take(2))}");
+            expander.IsExpanded = false;
+        }
+        f.ShowFull(); await HistoryValidation.Idle(c);
+        HistoryValidation.Log(c, Problems.Count == 0 ? "PASS: workspace interactions: a click on a timeline bar selects the finding, opens its group, scrolls the list and moves the charts to its own interval; Ctrl+Left steps back; a header chosen from the keyboard selects the group without opening it, Right, Left and Enter and the chevron button open and close it, a click on the line toggles it; every occurrence is selectable on its own; the preview selects nothing and moves nothing until its button is used; the occurrence list and the four disclosures work" : "NOTE: workspace interactions finished with problems (reported with the layout)");
     }
 }

@@ -63,6 +63,9 @@ CI cannot judge these; please check them once on a real Windows 11 VDI session:
 5. Severity and Area filters are small and change the list and the timeline together; the four export buttons are in one *Export* area and each writes its file.
 6. 100 %, 125 % and 150 % scaling on 1366×768 and 1920×1080, light and dark, on a real display: nothing clipped, the overview and the timeline readable, every control reachable with the keyboard, a screen reader announces the timeline, the tiles, the group state and each finding line. (The automated scale cases only simulate the available space; this step is the real DPI check.)
 7. Open a recording made by an earlier version: it opens and shows its findings, gaps and incidents.
+8. Performance findings, nothing selected: the details pane previews the most severe finding under a "Preview" notice; the charts and the timeline still show the whole recording and *Show full recording* is disabled. *Select and show in charts* selects it and moves the charts; Escape in the list brings the preview back.
+9. Choose a CPU group, then one of its occurrences from the compact occurrence list: the key measurement, the duration and the time are large and readable, the charts show that occurrence's own interval, and the four disclosures (evidence, threshold, limitations, technical detail) open and close with the mouse and the keyboard. Compare the technical detail's observation ID with an export of the findings.
+10. Choose a packet-loss finding: the same layout, with its own measurement. At 1366×768 and 1920×1080 the list and the details sit side by side; at 125 % and 150 % scaling the details are under the list; no value is cut off in either theme.
 
 ## Session history and incident timeline (0.4.4) — manual acceptance
 

@@ -68,6 +68,32 @@ public sealed class MemoryRetentionTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void ALeakIsStillDetectedWhenSomethingElseReleasesMemoryInTheMiddleOfTheMeasurement()
+    {
+        // Measured: the heap rises about 450 KiB per batch, and between the fourth and fifth batch 7.7 MiB of idle pooled buffers were trimmed. The fall hid the rise from the slope.
+        long Kib(double k) => (long)(k * 1024);
+        var heaps = new[] { Kib(44_820), Kib(44_200), Kib(44_630), Kib(45_080), Kib(45_530), Kib(37_810), Kib(38_050), Kib(38_400), Kib(38_790) };
+        var report = RetentionProbe.Summarize(heaps, 20);
+        Assert.Equal(1, report.Releases);
+        var (leaks, why) = RetentionProbe.Verdict(report);
+        Assert.True(leaks, "a rise hidden by a release in the middle was not detected: " + report);
+        Assert.Contains("release(s)", report.ToString());
+    }
+
+    [Fact]
+    public void AReleaseInTheMiddleDoesNotMakeASteadyHeapALeak()
+    {
+        long Mib(double m) => (long)(m * 1024 * 1024);
+        var steady = RetentionProbe.Summarize([Mib(44.8), Mib(44.9), Mib(44.8), Mib(44.85), Mib(44.8), Mib(37.1), Mib(37.15), Mib(37.1), Mib(37.12)], 20);
+        Assert.Equal(1, steady.Releases);
+        Assert.False(RetentionProbe.Verdict(steady).Leaks, steady.ToString());
+        // and two releases do not turn a real leak into a steady heap
+        var both = RetentionProbe.Summarize([Mib(40), Mib(40.4), Mib(32.5), Mib(32.9), Mib(33.3), Mib(25.4), Mib(25.8), Mib(26.2), Mib(26.6)], 20);
+        Assert.Equal(2, both.Releases);
+        Assert.True(RetentionProbe.Verdict(both).Leaks, both.ToString());
+    }
+
+    [Fact]
     public void ABatchComparisonLikeTheOldTestCouldMissAGrowingLeakThatTheTrendAndTheTotalCatch()
     {
         // heap after each batch: a leak that shows in most batches but happens to be small in two of them

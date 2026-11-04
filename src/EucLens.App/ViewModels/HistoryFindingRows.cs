@@ -20,11 +20,12 @@ public enum FindingRowKind
 public sealed class HistoryFindingRow : ObservableObject
 {
     private readonly Action<string, bool>? setExpanded;
-    private bool expanded;
+    private bool expanded, previewed;
 
     internal HistoryFindingRow(FindingRowKind kind, string ruleId, string title, string severityTag, string domain, string key, string keyLabel, string keyMetric, string time, string duration,
-        string count, string total, string badge, HistoryObservationItem? item, IReadOnlyList<HistoryObservationItem> occurrences, bool isExpanded, Action<string, bool>? setExpanded)
+        string count, string total, string badge, HistoryObservationItem? item, IReadOnlyList<HistoryObservationItem> occurrences, bool isExpanded, Action<string, bool>? setExpanded, string? groupSeverityTag = null)
     {
+        GroupSeverityTag = groupSeverityTag ?? severityTag;
         Kind = kind; RuleId = ruleId; Title = title; SeverityTag = severityTag; Domain = domain; KeyValue = key; KeyLabel = keyLabel; KeyMetric = keyMetric; Time = time; Duration = duration;
         CountText = count; TotalText = total; StatusBadge = badge; Item = item; Occurrences = occurrences; expanded = isExpanded; this.setExpanded = setExpanded;
         SeverityLabel = severityTag;
@@ -66,6 +67,18 @@ public sealed class HistoryFindingRow : ObservableObject
     public bool IsOccurrence => Kind == FindingRowKind.Occurrence;
     public bool IsSingle => Kind == FindingRowKind.Single;
     public bool IsSelectable => Kind != FindingRowKind.Group;
+    /// <summary>For an occurrence: the worst severity of its group, so the line names its own severity only when it differs from the header's.</summary>
+    public string GroupSeverityTag { get; }
+    public bool ShowSeverityWord => !IsOccurrence || SeverityTag != GroupSeverityTag;
+    /// <summary>"Duration" for one finding, "Total affected" for a group (the union of its intervals).</summary>
+    public string AffectedLabel => IsGroup ? "Total affected" : "Duration";
+    public string AffectedValue => IsGroup ? TotalText["Total affected ".Length..] : Duration;
+    /// <summary>Names of the key figures for assistive technology: label and value together.</summary>
+    public string KeyAutomation => $"{KeyLabel} {KeyMetric}: {KeyValue}";
+    public string AffectedAutomation => $"{AffectedLabel}: {AffectedValue}";
+    public string WhenAutomation => IsGroup ? $"First to last: {Time}" : $"When: {Time}";
+    /// <summary>True for the line whose finding the details pane shows as a preview while nothing is selected: drawn with a quiet marker, never as a selection.</summary>
+    public bool IsPreviewed { get => previewed; internal set => Set(ref previewed, value); }
 
     public bool IsExpanded
     {
@@ -98,18 +111,22 @@ internal static class FindingGrouping
             }
             var open = isExpanded(group.Key);
             var lines = new List<HistoryFindingRow> { Header(ordered, worst, open, setExpanded) };
-            if (open) lines.AddRange(ordered.Select(o => Line(FindingRowKind.Occurrence, o)));
+            if (open) lines.AddRange(ordered.Select(o => Line(FindingRowKind.Occurrence, o, worst.SeverityTag)));
             rows.Add((Rank(worst.Observation.Severity), first.Observation.Start, group.Key, lines));
         }
         return rows.OrderBy(r => r.Rank).ThenBy(r => r.Start).ThenBy(r => r.Key, StringComparer.Ordinal).SelectMany(r => r.Lines).ToArray();
     }
 
     /// <summary>The occurrence lines of a group, in time order.</summary>
-    public static IReadOnlyList<HistoryFindingRow> OccurrenceRows(IEnumerable<HistoryObservationItem> items) =>
-        items.OrderBy(i => i.Observation.Start).ThenBy(i => i.Id, StringComparer.Ordinal).Select(i => Line(FindingRowKind.Occurrence, i)).ToArray();
+    public static IReadOnlyList<HistoryFindingRow> OccurrenceRows(IEnumerable<HistoryObservationItem> items)
+    {
+        var ordered = items.OrderBy(i => i.Observation.Start).ThenBy(i => i.Id, StringComparer.Ordinal).ToArray();
+        var worst = ordered.Length == 0 ? null : ordered.MinBy(i => Rank(i.Observation.Severity))!.SeverityTag;
+        return ordered.Select(i => Line(FindingRowKind.Occurrence, i, worst)).ToArray();
+    }
 
-    private static HistoryFindingRow Line(FindingRowKind kind, HistoryObservationItem i) =>
-        new(kind, i.Observation.RuleId, i.Title, i.SeverityTag, i.Domain, i.KeyValue, i.KeyLabel, i.KeyMetric, i.Time, i.Duration, "", "", i.StatusBadge, i, [i], false, null);
+    private static HistoryFindingRow Line(FindingRowKind kind, HistoryObservationItem i, string? groupSeverity = null) =>
+        new(kind, i.Observation.RuleId, i.Title, i.SeverityTag, i.Domain, i.KeyValue, i.KeyLabel, i.KeyMetric, i.Time, i.Duration, "", "", i.StatusBadge, i, [i], false, null, groupSeverity);
 
     private static HistoryFindingRow Header(IReadOnlyList<HistoryObservationItem> ordered, HistoryObservationItem worst, bool open, Action<string, bool>? setExpanded)
     {

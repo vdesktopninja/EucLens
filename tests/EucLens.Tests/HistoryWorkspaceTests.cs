@@ -1,4 +1,5 @@
 using EucLens.App;
+using EucLens.App.Presentation;
 using EucLens.App.ViewModels;
 using EucLens.Core;
 using Xunit;
@@ -310,7 +311,7 @@ public sealed class HistoryWorkspaceTests
     {
         var xaml = Xaml;
         foreach (var binding in new[] { "Monitor.History.Tiles", "Monitor.History.Findings.TimelineBars", "Monitor.History.Findings.TimelineSelectedId", "Monitor.History.Findings.TimelineHighlightIds",
-                     "ItemsSource=\"{Binding FindingRows}\"", "SelectedItem=\"{Binding SelectedRow}\"", "{Binding SelectedGroup}", "Monitor.History.Gaps" })
+                     "ItemsSource=\"{Binding FindingRows}\"", "SelectedItem=\"{Binding SelectedRow}\"", "{Binding DetailGroup}", "{Binding DetailObservation.KeyValue}", "Monitor.History.Gaps" })
             Assert.Contains(binding, xaml);
         Assert.Contains("<ui:FindingsTimeline x:Name=\"PerformanceTimeline\"", xaml);
         // The old list of one line per observation is gone from the page; the lines come from the grouped rows.
@@ -342,8 +343,8 @@ public sealed class HistoryWorkspaceTests
     public void NoEvidenceThresholdLimitationOrNoteWasRemovedFromThePage()
     {
         var xaml = Xaml;
-        foreach (var kept in new[] { "SelectedObservation.Detail.Explanation", "SelectedObservation.Detail.KeyValues", "SelectedObservation.Detail.Utc", "SelectedObservation.Detail.Ending", "SelectedObservation.Detail.Metrics",
-                     "SelectedObservation.Detail.Threshold", "SelectedObservation.Detail.Limitations", "SelectedObservation.Detail.Events", "Header=\"Measurement evidence\"", "Header=\"Recording details\"",
+        foreach (var kept in new[] { "DetailObservation.Detail.Explanation", "DetailObservation.Detail.KeyValues", "DetailObservation.Detail.Utc", "DetailObservation.Detail.Ending", "DetailObservation.Detail.Metrics",
+                     "DetailObservation.Detail.Threshold", "DetailObservation.Detail.Limitations", "DetailObservation.Detail.Events", "Header=\"Measurement evidence\"", "Header=\"Recording details\"",
                      "{Binding SnapshotNote}", "{Binding DataQuality}", "{Binding Status}", "{Binding FilterNote}", "{Binding EmptyNote}", "{Binding ExportMessage}", "Monitor.History.PartialNote", "Monitor.History.IssueLines",
                      "Monitor.History.UnavailableNote", "Monitor.History.ZoneNote", "Monitor.History.Facts", "PerformanceCorrelations", "ContextCorrelations", "ActiveCorrelation.Explanation", "QualityGroups",
                      "Header=\"{Binding QualityHeader}\"", "AutomationProperties.Name=\"Severity filter\"", "AutomationProperties.Name=\"Area filter\"", "Show in charts", "Show full recording", "Monitor.History.Charts",
@@ -395,6 +396,241 @@ public sealed class HistoryWorkspaceTests
         Assert.False(Header(f, "guest.cpu.saturation").IsExpanded);
         Assert.False(f.FindingRows.First(r => r.IsSingle).ToggleCommand.CanExecute(null));          // a single line has nothing to open
         Assert.Contains("AutomationProperties.Name=\"{Binding ToggleName}\"", Xaml);
+    }
+
+    // ---------- master-detail: preview, details, occurrences ----------
+
+    /// <summary>The recurring recording with one critical CPU episode (99.5 % for the whole episode) among warnings, and a critical round-trip episode later.</summary>
+    private static SessionSnapshot Mixed(int i) =>
+        HistoryFindingsPresentationTests.S(i, rtt: i is >= 1000 and < 1090 ? 350 : i is >= 250 and < 330 ? 210 : 30,
+            cpu: i is >= 200 and < 300 ? 99.5 : i is >= 700 and < 800 or >= 1300 and < 1420 ? 92 : 20, fps: i is >= 1500 and < 1600 ? 7 : 30, dirty: i is >= 1500 and < 1600 ? 28 : 20);
+
+    [Fact]
+    public async Task WithNothingSelectedTheMostSevereFindingIsPreviewedAndNothingElseChanges()
+    {
+        var h = await OpenAsync(Recurring);
+        var f = h.Findings;
+        Assert.True(f.IsPreview);
+        Assert.False(f.HasSelection); Assert.Null(f.SelectedObservation); Assert.False(f.HasSelectedGroup);
+        var first = f.FindingRows[0];
+        Assert.True(first.IsPreviewed);
+        Assert.Equal(first.RuleId, (f.DetailGroup?.RuleId ?? f.DetailObservation?.Observation.RuleId));
+        Assert.True(f.HasDetail);
+        // A preview is presentation only: the charts, the timeline, the highlight and the way back stay as they were.
+        Assert.Equal(h.SessionStart, h.ViewStart); Assert.Equal(h.SessionEnd, h.ViewEnd);
+        Assert.False(h.HasEmphasis);
+        Assert.Null(f.TimelineSelectedId); Assert.Null(f.HighlightStart); Assert.Null(f.PeakAt); Assert.Empty(f.TimelineHighlightIds);
+        Assert.False(f.ShowFullRecordingCommand.CanExecute(null));
+        Assert.Equal(1, f.FindingRows.Count(r => r.IsPreviewed));
+        Assert.Contains("Nothing is selected", f.PreviewNotice);
+    }
+
+    [Fact]
+    public async Task ThePreviewIsTheMostSevereFindingNotTheEarliestOne()
+    {
+        var h = await OpenAsync(Mixed);
+        var f = h.Findings;
+        var worst = f.Observations.Where(o => o.Observation.Severity == Severity.Critical).ToArray();
+        Assert.NotEmpty(worst);
+        Assert.Equal("Critical", f.FindingRows[0].SeverityTag);
+        Assert.Contains(f.DetailGroup?.RuleId ?? f.DetailObservation!.Observation.RuleId, worst.Select(o => o.Observation.RuleId));
+    }
+
+    [Fact]
+    public async Task SelectingThePreviewIsARealSelectionThatNavigatesAndClearingBringsThePreviewBack()
+    {
+        var h = await OpenAsync(Recurring);
+        var f = h.Findings;
+        var requests = f.ChartsRequest;
+        Assert.True(f.SelectPreviewCommand.CanExecute(null));
+
+        f.SelectPreviewCommand.Execute(null);
+
+        Assert.True(f.HasSelection); Assert.False(f.IsPreview);
+        Assert.True(f.ChartsRequest > requests);                                                     // the page is asked to bring the charts into view
+        Assert.True(h.ViewEnd - h.ViewStart < h.SessionEnd - h.SessionStart);                        // and the charts moved to the finding
+        Assert.DoesNotContain(f.FindingRows, r => r.IsPreviewed);
+        Assert.True(f.ShowFullRecordingCommand.CanExecute(null));
+
+        f.ShowFull();
+
+        Assert.False(f.HasSelection); Assert.True(f.IsPreview);
+        Assert.Equal(h.SessionStart, h.ViewStart); Assert.Equal(h.SessionEnd, h.ViewEnd);
+        Assert.True(f.FindingRows[0].IsPreviewed);
+        Assert.True(f.SelectPreviewCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task ThePreviewFollowsTheFiltersAndDisappearsWhenNothingIsShown()
+    {
+        var h = await OpenAsync(Recurring);
+        var f = h.Findings;
+        f.SelectedDomain = f.DomainFilters.Single(c => c.Value == FindingDomainFilter.Graphics);
+        Assert.True(f.IsPreview);
+        Assert.Equal("gfx.fps.low", f.DetailObservation!.Observation.RuleId);                       // one finding: its observation, not a group
+        Assert.Null(f.DetailGroup); Assert.False(f.HasDetailOccurrences);
+        f.SelectedSeverity = f.SeverityFilters.Single(c => c.Value == FindingSeverityFilter.Critical);
+        Assert.Empty(f.FindingRows);
+        Assert.False(f.IsPreview); Assert.False(f.HasDetail); Assert.Null(f.DetailObservation); Assert.Null(f.DetailGroup);
+        Assert.False(f.SelectPreviewCommand.CanExecute(null));
+        f.SelectedSeverity = f.SeverityFilters[0]; f.SelectedDomain = f.DomainFilters[0];
+        Assert.True(f.IsPreview);
+    }
+
+    [Fact]
+    public async Task ARealSelectionIsNeverReplacedByThePreviewAndAFilterThatHidesItBringsThePreviewBack()
+    {
+        var h = await OpenAsync(Recurring);
+        var f = h.Findings;
+        var fps = f.Observations.Single(o => o.Observation.RuleId == "gfx.fps.low");
+        f.SelectById(fps.Id);
+        Assert.False(f.IsPreview); Assert.Same(fps, f.DetailObservation);
+        f.SelectedDomain = f.DomainFilters.Single(c => c.Value == FindingDomainFilter.Connection);   // hides the selected finding
+        Assert.False(f.HasSelection);
+        Assert.True(f.IsPreview);
+        Assert.NotEqual("gfx.fps.low", f.DetailGroup?.RuleId ?? f.DetailObservation!.Observation.RuleId);
+    }
+
+    [Fact]
+    public async Task TheDetailsListTheIndividualOccurrencesAndEachIsSelectableOnItsOwn()
+    {
+        var h = await OpenAsync(Recurring);
+        var f = h.Findings;
+        f.SelectedRow = f.FindingRows.Single(r => r.IsGroup && r.RuleId == "guest.cpu.saturation");
+        var occurrences = f.DetailOccurrences;
+        Assert.Equal(3, occurrences.Count); Assert.True(f.HasDetailOccurrences); Assert.Equal("Occurrences (3)", f.DetailOccurrencesHeader);
+        var cpu = f.Observations.Where(o => o.Observation.RuleId == "guest.cpu.saturation").OrderBy(o => o.Observation.Start).ToArray();
+        Assert.Equal(cpu.Select(o => o.Id), occurrences.Select(o => o.Item!.Id));                     // the original observations, in time order
+        Assert.All(occurrences, o => Assert.Same(f.Observations.Single(x => x.Id == o.Item!.Id), o.Item));
+        Assert.Null(f.SelectedDetailOccurrence);                                                     // a group is shown, no occurrence chosen
+
+        f.SelectedDetailOccurrence = occurrences[1];
+
+        Assert.Same(cpu[1], f.SelectedObservation);
+        Assert.Equal(cpu[1].Observation.Start, f.HighlightStart); Assert.Equal(cpu[1].Observation.End, f.HighlightEnd);
+        Assert.Equal(cpu[1].Id, f.TimelineSelectedId);
+        Assert.Equal(cpu[1].Id, f.SelectedDetailOccurrence!.Item!.Id);
+        Assert.Equal(3, f.DetailOccurrences.Count);                                                  // the list stays while one of its occurrences is shown
+        Assert.True(f.HasDetailObservation); Assert.False(f.HasDetailGroup);
+    }
+
+    [Fact]
+    public async Task AFindingThatFiredOnceHasNoOccurrenceList()
+    {
+        var h = await OpenAsync(Recurring);
+        var f = h.Findings;
+        f.SelectById(f.Observations.Single(o => o.Observation.RuleId == "gfx.fps.low").Id);
+        Assert.Empty(f.DetailOccurrences); Assert.False(f.HasDetailOccurrences); Assert.Null(f.SelectedDetailOccurrence);
+    }
+
+    [Fact]
+    public async Task AnOccurrenceNamesItsSeverityOnlyWhenItDiffersFromItsGroup()
+    {
+        var h = await OpenAsync(Mixed);
+        var f = h.Findings;
+        var header = f.FindingRows.Single(r => r.IsGroup && r.RuleId == "guest.cpu.saturation");
+        Assert.Equal("Critical", header.SeverityTag);                                               // the worst occurrence
+        header.IsExpanded = true;
+        var lines = f.FindingRows.Where(r => r.IsOccurrence && r.RuleId == "guest.cpu.saturation").ToArray();
+        Assert.Equal(3, lines.Length);
+        Assert.Contains(lines, l => l.SeverityTag == "Critical" && !l.ShowSeverityWord);
+        Assert.Contains(lines, l => l.SeverityTag == "Warning" && l.ShowSeverityWord);
+        Assert.All(f.DetailOccurrences, o => Assert.Equal(o.SeverityTag != "Critical", o.ShowSeverityWord));
+    }
+
+    [Fact]
+    public async Task EveryLineStatesItsKeyMeasurementAndItsAffectedTimeWithTheirNames()
+    {
+        var h = await OpenAsync(Recurring);
+        var f = h.Findings;
+        var group = f.FindingRows.Single(r => r.IsGroup && r.RuleId == "guest.cpu.saturation");
+        Assert.Equal("Total affected", group.AffectedLabel);
+        Assert.Equal(group.TotalText["Total affected ".Length..], group.AffectedValue);
+        Assert.Equal($"{group.KeyLabel} {group.KeyMetric}: {group.KeyValue}", group.KeyAutomation);
+        var single = f.FindingRows.First(r => r.IsSingle);
+        Assert.Equal("Duration", single.AffectedLabel); Assert.Equal(single.Item!.Duration, single.AffectedValue);
+        Assert.Equal($"Duration: {single.Item.Duration}", single.AffectedAutomation); Assert.StartsWith("When: ", single.WhenAutomation);
+        Assert.StartsWith("First to last: ", group.WhenAutomation);
+        Assert.Equal(f.Observations[0].KeyAutomation, $"{f.Observations[0].KeyLabel} {f.Observations[0].KeyMetric}: {f.Observations[0].KeyValue}");
+    }
+
+    [Fact]
+    public async Task TheTechnicalDetailCarriesTheExactIdentifiersAndSamples()
+    {
+        var h = await OpenAsync(Recurring);
+        var o = h.Findings.Observations.First(x => x.Observation.RuleId == "guest.cpu.saturation");
+        var lines = o.Detail.Technical;
+        Assert.Contains($"Observation ID: {o.Id}", lines);
+        Assert.Contains($"Rule: {o.Observation.RuleId}, version {o.Observation.RuleVersion}", lines);
+        Assert.Contains(lines, l => l.StartsWith("Primary metric: ") && l.Contains($"channel {o.Observation.Primary.ChannelId}"));
+        Assert.Contains(lines, l => l.StartsWith("Samples: ") && l.Contains(FindingText.Count(o.Observation.MatchingSamples)));
+        Assert.Contains(o.Detail.Utc, lines);
+        Assert.Equal(6, lines.Count);
+        Assert.Contains(lines, l => l.StartsWith("Kind: ") && l.Contains(o.Observation.Status.ToString()));
+    }
+
+    // ---------- master-detail layout ----------
+
+    [Theory]
+    [InlineData(1093, true)]    // 1366 wide at 100 %
+    [InlineData(1647, true)]    // 1920 wide at 100 %
+    [InlineData(1253, true)]    // 1920 wide at 125 %
+    [InlineData(820, false)]    // 1366 wide at 125 %
+    [InlineData(638, false)]    // 1366 wide at 150 %
+    [InlineData(899, false)]
+    [InlineData(900, true)]
+    public void TheListAndTheDetailsAreSideBySideFrom900DipsAndStackedBelow(double width, bool sideBySide)
+    {
+        var r = MasterDetailLayout.Compute(width, true, MasterDetailOptions.Default);
+        Assert.Equal(sideBySide, r.SideBySide);
+        if (sideBySide)
+        {
+            Assert.InRange(r.MasterWidth, 400, 680); Assert.True(r.DetailWidth >= 400);              // neither column is ever too narrow to read
+            Assert.Equal(width, r.MasterWidth + r.Gap + r.DetailWidth, 6);                           // the two columns and the gap use the whole width
+            Assert.Equal(r.MasterWidth + r.Gap, r.DetailX, 6);
+        }
+        else { Assert.Equal(width, r.MasterWidth); Assert.Equal(width, r.DetailWidth); Assert.Equal(0, r.DetailX); }
+    }
+
+    [Fact]
+    public void AWideWindowGivesTheExtraRoomToTheDetailsAndTheListNeverGrowsBeyondItsCap()
+    {
+        var narrow = MasterDetailLayout.Compute(1093, true, MasterDetailOptions.Default);
+        var wide = MasterDetailLayout.Compute(1647, true, MasterDetailOptions.Default);
+        var huge = MasterDetailLayout.Compute(2400, true, MasterDetailOptions.Default);
+        Assert.True(wide.DetailWidth > narrow.DetailWidth);
+        Assert.Equal(680, wide.MasterWidth); Assert.Equal(680, huge.MasterWidth);
+    }
+
+    [Fact]
+    public void WithoutADetailsPaneTheListTakesTheWholeWidth()
+    {
+        var r = MasterDetailLayout.Compute(1200, false, MasterDetailOptions.Default);
+        Assert.False(r.SideBySide); Assert.Equal(1200, r.MasterWidth); Assert.Equal(0, r.DetailWidth);
+        Assert.False(MasterDetailLayout.Compute(double.PositiveInfinity, true, MasterDetailOptions.Default).SideBySide);
+    }
+
+    // ---------- the page (source level) ----------
+
+    [Fact]
+    public void TheFindingsPageIsAMasterDetailWithQuietExportsAndEverythingTechnicalBehindDisclosures()
+    {
+        var xaml = Xaml;
+        Assert.Contains("<ui:MasterDetailPanel", xaml);
+        Assert.DoesNotContain("MinimumColumnWidth=\"500\"", xaml);                                    // the old equal-columns panel is gone from the findings
+        Assert.Contains("x:Name=\"DetailOccurrencesList\"", xaml);
+        Assert.Contains("AutomationProperties.Name=\"Preview notice\"", xaml);
+        Assert.Contains("Command=\"{Binding SelectPreviewCommand}\"", xaml);
+        // exports are quiet text buttons
+        Assert.Equal(4, System.Text.RegularExpressions.Regex.Matches(xaml, "StaticResource LinkButton").Count);
+        // four disclosures, all closed until opened; the technical one carries the identifiers
+        foreach (var name in new[] { "Measurement evidence", "Threshold and baseline", "Recording limitations and nearby events", "Technical detail" })
+            Assert.Contains($"AutomationProperties.Name=\"{name}\"", xaml);
+        Assert.DoesNotContain("IsExpanded=\"True\"", xaml);
+        Assert.Contains("DetailObservation.Detail.Technical", xaml);
+        // the selected row is the table-row treatment of the other lists (accent bar and surface), the preview a quiet marker
+        Assert.Contains("ItemContainerStyle=\"{StaticResource FindingLine}\"", xaml);
+        Assert.Contains("Binding IsPreviewed", xaml);
     }
 
     // ---------- timeline lanes ----------

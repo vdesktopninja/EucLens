@@ -22,7 +22,7 @@ public partial class SessionHistoryView : UserControl
         PerformanceTimeline.RangeRequested += OnRange; PerformanceTimeline.NavigationRequested += OnNavigate;
         PerformanceTimeline.FindingActivated += (_, e) => { if (History?.Findings.SelectById(e.Id) == true) BringChartIntoView(); };
         PerformanceTimeline.FindingStepRequested += (_, e) => { if (History?.Findings.SelectAdjacent(e.Direction) == true) BringChartIntoView(); };
-        foreach (var list in new[] { FindingsList, CorrelationList, ContextList })
+        foreach (var list in new[] { FindingsList, DetailOccurrencesList, CorrelationList, ContextList })
         {
             // A click on a finding brings its chart into view; moving with the arrow keys never moves the page. Escape returns to the whole recording.
             list.PreviewMouseLeftButtonUp += OnFindingClicked;
@@ -133,6 +133,7 @@ public partial class SessionHistoryView : UserControl
 
     /// <summary>The findings controls, for the Windows validation.</summary>
     internal ListBox FindingsListControl => FindingsList;
+    internal ListBox DetailOccurrencesListControl => DetailOccurrencesList;
     internal ListBox CorrelationListControl => CorrelationList;
     internal ItemsControl ChartListControl => ChartList;
 

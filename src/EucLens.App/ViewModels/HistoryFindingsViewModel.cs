@@ -66,6 +66,16 @@ public sealed class HistoryObservationDetail
             _ => "Ended: measurements stopped or were missing after this interval. Recovery is not confirmed."
         };
         Limitations = o.Limitations.ToArray();
+        // Exact identifiers and recorded facts of the observation, as the analysis produced them.
+        Technical =
+        [
+            $"Observation ID: {o.Id}",
+            $"Rule: {o.RuleId}, version {o.RuleVersion.ToString(CultureInfo.InvariantCulture)}",
+            $"Kind: {o.Kind} · Status: {o.Status} · Ending: {o.Ending}",
+            $"Primary metric: {p.Title} (channel {p.ChannelId}, recorded unit {(p.Unit.Length == 0 ? "none" : p.Unit)})",
+            $"Samples: {FindingText.Count(o.MatchingSamples)} matching of {FindingText.Count(o.SampleCount)} valid · coverage {FindingText.Percent(o.Coverage)}",
+            Utc
+        ];
         Events = o.AssociatedEvents.Select(e => $"{HistoryTime.Format(e.At, zone)}  {e.Title}").Concat(
             o.AssociatedEventCount > o.AssociatedEvents.Count ? [$"+ {FindingText.Count(o.AssociatedEventCount - o.AssociatedEvents.Count)} more recorded events nearby"] : []).ToArray();
     }
@@ -87,6 +97,8 @@ public sealed class HistoryObservationDetail
     public IReadOnlyList<string> Threshold { get; }
     public string Ending { get; }
     public IReadOnlyList<string> Limitations { get; }
+    /// <summary>Identifiers and recorded facts for someone who needs to trace the finding: observation id, rule and version, kind, status, metric channel, samples.</summary>
+    public IReadOnlyList<string> Technical { get; }
     public IReadOnlyList<string> Events { get; }
     public bool HasLimitations => Limitations.Count > 0 || Events.Count > 0;
     public string LimitationsHeader => $"Recording limitations and nearby events ({(Limitations.Count + Events.Count).ToString(CultureInfo.InvariantCulture)})";
@@ -148,6 +160,10 @@ public sealed class HistoryObservationItem
     public bool LowerIsWorse { get; }
     /// <summary>The observation as drawn on the performance timeline: its recorded interval and nothing else.</summary>
     public FindingBar Bar => new(Id, Observation.RuleId, Title, Observation.Domain, Observation.Severity, Observation.Start, Observation.End, $"{KeyMetric}: {KeyLabel.ToLowerInvariant()} {KeyValue} · {Time} · {Duration}");
+    /// <summary>Names of the key figures for assistive technology: label and value together.</summary>
+    public string KeyAutomation => $"{KeyLabel} {KeyMetric}: {KeyValue}";
+    public string AffectedAutomation => $"Duration: {Duration}";
+    public string WhenAutomation => $"When: {Time}";
     public string Id => Observation.Id;
     public string Title => Observation.Title;
     public string Domain { get; }
@@ -252,6 +268,7 @@ public sealed class HistoryFindingsViewModel : ObservableObject
         severity = SeverityFilters[0]; domain = DomainFilters[0];
         ShowFullRecordingCommand = new(ShowFull, () => selectedObservation is not null || selectedCorrelation is not null || selectedContext is not null || selectedGroupRule is not null || highlightStart is not null);
         ShowInChartsCommand = new(RequestCharts, () => HasSelection);
+        SelectPreviewCommand = new(() => { if (previewRow is { } row) { SelectedRow = row; RequestCharts(); } }, () => previewRow is not null);
         ToggleSelectedGroupCommand = new(() => { if (selectedGroupRule is { } rule) ToggleGroup(rule); }, () => selectedGroupRule is not null);
         RefreshCounts();
     }
@@ -415,6 +432,7 @@ public sealed class HistoryFindingsViewModel : ObservableObject
     {
         rowsApplying = true;
         FindingRows.ReplaceAll(FindingGrouping.Build(VisibleObservations, expandedRules.Contains, SetExpanded));
+        rowsVersion++; occurrenceCache = null;                                   // released with the lines it was built from
         TimelineBars = VisibleObservations.Select(o => o.Bar).ToArray();
         rowsApplying = false;
         Raise(nameof(TimelineBars)); Raise(nameof(TimelineAutomationName)); RaiseSelectionDerived();
@@ -454,7 +472,69 @@ public sealed class HistoryFindingsViewModel : ObservableObject
         if (FindingRows.FirstOrDefault(r => r.IsGroup && r.RuleId == ruleId) is { IsExpanded: false } header) header.IsExpanded = true;
     }
 
-    private void RaiseSelectionDerived() { Raise(nameof(SelectedRow)); Raise(nameof(TimelineSelectedId)); Raise(nameof(TimelineHighlightIds)); }
+    private void RaiseSelectionDerived()
+    {
+        UpdatePreview();
+        Raise(nameof(SelectedRow)); Raise(nameof(TimelineSelectedId)); Raise(nameof(TimelineHighlightIds));
+        Raise(nameof(IsPreview)); Raise(nameof(DetailObservation)); Raise(nameof(DetailGroup)); Raise(nameof(HasDetailObservation)); Raise(nameof(HasDetailGroup)); Raise(nameof(HasDetail));
+        Raise(nameof(DetailOccurrences)); Raise(nameof(HasDetailOccurrences)); Raise(nameof(DetailOccurrencesHeader)); Raise(nameof(SelectedDetailOccurrence));
+    }
+
+    // ---------- details pane: the selection, or a preview while nothing is selected ----------
+
+    private int rowsVersion;
+    private HistoryFindingRow? previewRow;
+    private (string Rule, int Version, IReadOnlyList<HistoryFindingRow> Rows)? occurrenceCache;
+
+    /// <summary>
+    /// While nothing is selected, the details pane shows the most severe finding (the first line of the list) as a preview, so the pane is never an empty box. A preview is presentation
+    /// only: nothing is selected, the charts and the timeline stay on the whole recording, and <see cref="ShowFullRecordingCommand"/> stays disabled. <see cref="SelectPreviewCommand"/> makes it a
+    /// real selection.
+    /// </summary>
+    public bool IsPreview => previewRow is not null;
+    public string PreviewNotice => "Preview of the most severe finding. Nothing is selected and the charts show the whole recording.";
+    public RelayCommand SelectPreviewCommand { get; private set; } = null!;
+
+    private void UpdatePreview()
+    {
+        var next = HasSelection ? null : FindingRows.FirstOrDefault(r => !r.IsOccurrence);
+        if (!ReferenceEquals(next, previewRow) && previewRow is not null) previewRow.IsPreviewed = false;
+        previewRow = next;
+        if (next is not null) next.IsPreviewed = true;
+        SelectPreviewCommand?.Refresh();
+    }
+
+    /// <summary>The observation whose details are shown: the selected one, or the previewed one when the preview is a single finding.</summary>
+    public HistoryObservationItem? DetailObservation => selectedObservation ?? (previewRow is { IsGroup: false } r ? r.Item : null);
+    /// <summary>The group whose summary is shown: the selected header, or the previewed one.</summary>
+    public HistoryFindingRow? DetailGroup => SelectedGroup ?? (previewRow is { IsGroup: true } r ? r : null);
+    public bool HasDetailObservation => DetailObservation is not null;
+    public bool HasDetailGroup => DetailGroup is not null;
+    public bool HasDetail => HasDetailObservation || HasDetailGroup;
+
+    /// <summary>The individual occurrences of the rule being shown, in time order, when it fired more than once; each is selectable and keeps its own observation.</summary>
+    public IReadOnlyList<HistoryFindingRow> DetailOccurrences
+    {
+        get
+        {
+            var rule = DetailObservation?.Observation.RuleId ?? DetailGroup?.RuleId;
+            if (rule is null) return [];
+            if (occurrenceCache is { } cache && cache.Rule == rule && cache.Version == rowsVersion) return cache.Rows;
+            var members = VisibleObservations.Where(o => o.Observation.RuleId == rule).ToArray();
+            var rows = members.Length < 2 ? [] : FindingGrouping.OccurrenceRows(members);
+            occurrenceCache = (rule, rowsVersion, rows);
+            return rows;
+        }
+    }
+    public bool HasDetailOccurrences => DetailOccurrences.Count > 0;
+    public string DetailOccurrencesHeader => $"Occurrences ({DetailOccurrences.Count.ToString(CultureInfo.InvariantCulture)})";
+
+    /// <summary>The occurrence chosen in the details pane's own list: the selected observation's line there. Choosing one selects that observation exactly as choosing it in the main list does.</summary>
+    public HistoryFindingRow? SelectedDetailOccurrence
+    {
+        get => selectedObservation is null ? null : DetailOccurrences.FirstOrDefault(r => ReferenceEquals(r.Item, selectedObservation));
+        set { if (value?.Item is { } item && !ReferenceEquals(item, selectedObservation)) SelectedObservation = item; }
+    }
 
     /// <summary>
     /// The list's selection. An occurrence (or a rule that fired once) selects its observation, which moves every chart to the real interval of that observation. A group header selects
@@ -490,7 +570,7 @@ public sealed class HistoryFindingsViewModel : ObservableObject
     {
         if (selectedGroupRule is null) return;
         selectedGroupRule = null;
-        Raise(nameof(SelectedGroup)); Raise(nameof(HasSelectedGroup)); Raise(nameof(HasSelection));
+        Raise(nameof(SelectedGroup)); Raise(nameof(HasSelectedGroup)); Raise(nameof(HasSelection)); RaiseSelectionDerived();
     }
 
     /// <summary>The finding drawn as selected on the timeline.</summary>
@@ -578,7 +658,7 @@ public sealed class HistoryFindingsViewModel : ObservableObject
     public void ShowFull()
     {
         ClearObservationSelection(); ClearCorrelationSelection(); ClearGroupSelection(); ClearHighlight();
-        Raise(nameof(HasSelection));
+        Raise(nameof(HasSelection)); RaiseSelectionDerived();
         RefreshSelectionCommands();
         showFullRecording();
     }

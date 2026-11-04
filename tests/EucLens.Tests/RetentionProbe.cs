@@ -16,12 +16,13 @@ namespace EucLens.Tests;
 /// </summary>
 internal static class RetentionProbe
 {
-    internal sealed record Report(IReadOnlyList<long> Heaps, IReadOnlyList<long> BatchGrowth, double SlopePerBatch, long Cumulative, long LargestBatch, int Runs)
+    internal sealed record Report(IReadOnlyList<long> Heaps, IReadOnlyList<long> BatchGrowth, double SlopePerBatch, long Cumulative, long LargestBatch, int Runs, int Releases = 0)
     {
         public double SlopePerRun => SlopePerBatch / Runs;
         public override string ToString() =>
             $"heaps {string.Join(" → ", Heaps.Select(h => (h / 1024.0 / 1024.0).ToString("0.00")))} MiB; growth per batch {string.Join(", ", BatchGrowth.Select(g => (g / 1024.0).ToString("0")))} KiB; " +
-            $"slope {SlopePerBatch / 1024.0:0.0} KiB per batch of {Runs} runs ({SlopePerRun / 1024.0:0.00} KiB per run); cumulative {Cumulative / 1024.0:0} KiB";
+            $"slope {SlopePerBatch / 1024.0:0.0} KiB per batch of {Runs} runs ({SlopePerRun / 1024.0:0.00} KiB per run); cumulative {Cumulative / 1024.0:0} KiB" +
+            (Releases > 0 ? $"; {Releases} release(s) of more than 1 MiB between batches ignored" : "");
     }
 
     /// <summary>What a retained heap must not exceed: both the trend and the total over all measured batches.</summary>
@@ -65,17 +66,27 @@ internal static class RetentionProbe
         return Summarize(heaps, runsPerBatch);
     }
 
-    internal static Report Summarize(IReadOnlyList<long> heaps, int runsPerBatch)
+    /// <summary>
+    /// A fall of more than this between two batches is memory that something else released (the shared array pool trims idle buffers on a full collection, earlier garbage is finalized late):
+    /// an operation cannot make the heap shrink, so the fall says nothing about a leak. It is left out of the trend and the total, which can only make the verdict stricter, never more lenient.
+    /// </summary>
+    internal const long ReleaseThreshold = 1L << 20;
+
+    internal static Report Summarize(IReadOnlyList<long> heapsAsMeasured, int runsPerBatch)
     {
-        var growth = heaps.Zip(heaps.Skip(1), (a, b) => b - a).ToArray();
+        var growth = heapsAsMeasured.Zip(heapsAsMeasured.Skip(1), (a, b) => b - a).ToArray();
+        // The series the verdict is computed on: the same readings with every release removed (a batch that released memory counts as no growth).
+        var releases = growth.Count(g => g < -ReleaseThreshold);
+        var heaps = new long[heapsAsMeasured.Count];
+        for (var i = 0; i < heaps.Length; i++) heaps[i] = i == 0 ? heapsAsMeasured[0] : heaps[i - 1] + (growth[i - 1] < -ReleaseThreshold ? 0 : growth[i - 1]);
         // Theil–Sen slope: the median of the slopes between every pair of readings. One reading that is far off (a large collection of earlier garbage right after the warm-up,
         // a pool trimming itself) cannot hide a rise that the other readings show, which a least-squares line through all of them would let it do.
         var slopes = new List<double>();
-        for (var i = 0; i < heaps.Count; i++) for (var j = i + 1; j < heaps.Count; j++) slopes.Add((heaps[j] - heaps[i]) / (double)(j - i));
+        for (var i = 0; i < heaps.Length; i++) for (var j = i + 1; j < heaps.Length; j++) slopes.Add((heaps[j] - heaps[i]) / (double)(j - i));
         slopes.Sort();
         var slope = slopes.Count == 0 ? 0 : slopes.Count % 2 == 1 ? slopes[slopes.Count / 2] : (slopes[slopes.Count / 2 - 1] + slopes[slopes.Count / 2]) / 2;
         // How much more is held at the end than at the lowest reading, not than at the first one: a first reading that was inflated must not turn a rise into a fall.
-        return new(heaps, growth, slope, heaps[^1] - heaps.Min(), growth.Length == 0 ? 0 : growth.Max(), runsPerBatch);
+        return new(heapsAsMeasured, growth, slope, heaps[^1] - heaps.Min(), growth.Length == 0 ? 0 : growth.Max(), runsPerBatch, releases);
     }
 
     /// <summary>The verdict, with the reason: a leak when the trend, the total or any single batch is beyond the limits.</summary>
