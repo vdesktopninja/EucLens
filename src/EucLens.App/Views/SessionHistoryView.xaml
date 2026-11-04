@@ -33,9 +33,13 @@
   </DataTemplate>
   <DataTemplate x:Key="GroupFindingRow">
    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="16" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-    <TextBlock VerticalAlignment="Top" Margin="0,2,0,0" Foreground="{DynamicResource MutedBrush}" FontSize="{StaticResource MetaFontSize}" AutomationProperties.Name="Expand or collapse">
-     <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Text" Value="▸" /><Style.Triggers><DataTrigger Binding="{Binding IsExpanded}" Value="True"><Setter Property="Text" Value="▾" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
-    </TextBlock>
+    <!-- The chevron is a real button: the mouse and assistive technology invoke it. It is not a tab stop; the keyboard uses Right, Left and Enter on the selected line. -->
+    <Button Command="{Binding ToggleCommand}" Focusable="False" IsTabStop="False" VerticalAlignment="Top" HorizontalAlignment="Left" Margin="0,0,0,0" Width="16" Height="22" MinHeight="0" Padding="0" Background="Transparent" BorderThickness="0" AutomationProperties.Name="{Binding ToggleName}" ToolTip="Open or close the occurrences">
+     <Button.Template><ControlTemplate TargetType="Button"><Border Background="Transparent"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" /></Border></ControlTemplate></Button.Template>
+     <TextBlock Foreground="{DynamicResource MutedBrush}" FontSize="{StaticResource MetaFontSize}">
+      <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Text" Value="▸" /><Style.Triggers><DataTrigger Binding="{Binding IsExpanded}" Value="True"><Setter Property="Text" Value="▾" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+     </TextBlock>
+    </Button>
     <Path Grid.Column="1" Style="{StaticResource SeverityIcon}" Tag="{Binding SeverityTag}" VerticalAlignment="Top" Margin="0,2,10,0" />
     <StackPanel Grid.Column="2">
      <WrapPanel><TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="{StaticResource ReadingFontSize}" TextWrapping="Wrap" />

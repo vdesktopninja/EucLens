@@ -28,7 +28,12 @@ public sealed class HistoryFindingRow : ObservableObject
         Kind = kind; RuleId = ruleId; Title = title; SeverityTag = severityTag; Domain = domain; KeyValue = key; KeyLabel = keyLabel; KeyMetric = keyMetric; Time = time; Duration = duration;
         CountText = count; TotalText = total; StatusBadge = badge; Item = item; Occurrences = occurrences; expanded = isExpanded; this.setExpanded = setExpanded;
         SeverityLabel = severityTag;
+        ToggleCommand = new(() => IsExpanded = !IsExpanded, () => IsGroup);
     }
+
+    /// <summary>Opens or closes the occurrences of a group header: what the chevron button of the line invokes, for the mouse and for assistive technology.</summary>
+    public RelayCommand ToggleCommand { get; }
+    public string ToggleName => $"{(expanded ? "Close" : "Open")} the {CountText} of {Title}";
 
     public FindingRowKind Kind { get; }
     public string RuleId { get; }
@@ -65,7 +70,7 @@ public sealed class HistoryFindingRow : ObservableObject
     public bool IsExpanded
     {
         get => expanded;
-        set { if (IsGroup && expanded != value) { expanded = value; Raise(nameof(IsExpanded)); Raise(nameof(AutomationName)); setExpanded?.Invoke(RuleId, value); } }
+        set { if (IsGroup && expanded != value) { expanded = value; Raise(nameof(IsExpanded)); Raise(nameof(AutomationName)); Raise(nameof(ToggleName)); setExpanded?.Invoke(RuleId, value); } }
     }
 }
 

@@ -198,6 +198,7 @@ internal static class HistoryUxValidation
                             await HistoryValidation.Idle(c); await Task.Delay(250); await DesktopValidation.WaitForChartMeasureAsync(window);
                             await HistoryValidation.Shot(c, HistoryValidation.View(c), Path.Combine(shots, tag.Replace("ux-", "ux-selected-") + ".png"));
                             findings.ShowFull();
+                            foreach (var open in findings.FindingRows.Where(r => r.IsGroup && r.IsExpanded).ToArray()) open.IsExpanded = false;   // the next shots show the default state again
                             await HistoryValidation.Idle(c); await Task.Delay(150);
                         }
                     }
@@ -321,11 +322,28 @@ internal static class HistoryUxValidation
         HistoryValidation.Require(!f.FindingRows.Single(r => r.IsGroup && r.RuleId == "guest.cpu.saturation").IsExpanded && f.FindingRows.Count(r => r.IsOccurrence) == occurrencesBefore, "Left arrow did not close the group.");
         PressKey(list, Key.Enter); await HistoryValidation.Idle(c);
         HistoryValidation.Require(f.FindingRows.Single(r => r.IsGroup && r.RuleId == "guest.cpu.saturation").IsExpanded, "Enter did not open the group.");
-        // A click on the header line toggles it as well.
+        // The chevron button, as assistive technology and the mouse use it: invoke it.
         var container = (ListBoxItem)list.ItemContainerGenerator.ContainerFromItem(f.SelectedRow)!;
-        container.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = UIElement.PreviewMouseLeftButtonUpEvent, Source = container });
+        var chevron = DesktopValidation.Descendants<Button>(container).Single();
+        HistoryValidation.Require(chevron.IsVisible && chevron.ActualWidth >= 12 && chevron.ActualHeight >= 16 && !chevron.Focusable && System.Windows.Automation.AutomationProperties.GetName(chevron).StartsWith("Close the 3 occurrences", StringComparison.Ordinal),
+            $"The chevron button is not usable or not named: '{System.Windows.Automation.AutomationProperties.GetName(chevron)}' {chevron.ActualWidth:0}×{chevron.ActualHeight:0}.");
+        var invoke = (System.Windows.Automation.Provider.IInvokeProvider)new System.Windows.Automation.Peers.ButtonAutomationPeer(chevron).GetPattern(System.Windows.Automation.Peers.PatternInterface.Invoke)!;
+        invoke.Invoke(); await HistoryValidation.Idle(c);
+        HistoryValidation.Require(!f.FindingRows.Single(r => r.IsGroup && r.RuleId == "guest.cpu.saturation").IsExpanded, "Invoking the chevron button did not close the group.");
+        HistoryValidation.Require(f.HasSelectedGroup, "Invoking the chevron lost the selection.");
+        invoke = (System.Windows.Automation.Provider.IInvokeProvider)new System.Windows.Automation.Peers.ButtonAutomationPeer(DesktopValidation.Descendants<Button>((ListBoxItem)list.ItemContainerGenerator.ContainerFromItem(f.SelectedRow)!).Single()).GetPattern(System.Windows.Automation.Peers.PatternInterface.Invoke)!;
+        invoke.Invoke(); await HistoryValidation.Idle(c);
+        HistoryValidation.Require(f.FindingRows.Single(r => r.IsGroup && r.RuleId == "guest.cpu.saturation").IsExpanded, "Invoking the chevron button again did not open the group.");
+        // A click on the header line (not on the chevron) toggles it too. Reported with its state when it does not, after the other interactions have run.
+        container = (ListBoxItem)list.ItemContainerGenerator.ContainerFromItem(f.SelectedRow)!;
+        var before = f.FindingRows.Single(r => r.IsGroup && r.RuleId == "guest.cpu.saturation").IsExpanded;
+        var title = DesktopValidation.Descendants<TextBlock>(container).First(t => t.Text.StartsWith("Sustained", StringComparison.Ordinal));
+        list.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left) { RoutedEvent = UIElement.PreviewMouseLeftButtonUpEvent, Source = title });
         await HistoryValidation.Idle(c);
-        HistoryValidation.Require(!f.FindingRows.Single(r => r.IsGroup && r.RuleId == "guest.cpu.saturation").IsExpanded, "A click on the header line did not close the group.");
+        var after = f.FindingRows.Single(r => r.IsGroup && r.RuleId == "guest.cpu.saturation").IsExpanded;
+        HistoryValidation.Log(c, $"NOTE: click on the title of a group line: open {before} → {after}; list has {list.Items.Count} lines, container {(container.IsLoaded ? "loaded" : "not loaded")}, content {container.Content?.GetType().Name}");
+        Check(before != after, $"A click on the header line toggled the group {before} → {after}.");
+        if (!after) { f.ToggleGroup("guest.cpu.saturation"); await HistoryValidation.Idle(c); }
 
         // Occurrences stay separately selectable.
         f.ToggleGroup("guest.cpu.saturation"); await HistoryValidation.Idle(c);
@@ -333,6 +351,6 @@ internal static class HistoryUxValidation
         list.SelectedItem = occurrence; await h.Settled; await HistoryValidation.Idle(c);
         HistoryValidation.Require(ReferenceEquals(f.SelectedObservation, occurrence.Item) && timeline.SelectedId == occurrence.Item!.Id, "An occurrence is not selectable on its own.");
         f.ShowFull(); await HistoryValidation.Idle(c);
-        HistoryValidation.Log(c, "PASS: workspace interactions: a click on a timeline bar selects the finding, opens its group, scrolls the list and moves the charts to its own interval; Ctrl+Left steps back; a header chosen from the keyboard selects the group without opening it, Right, Left and Enter open and close it, a click toggles it; every occurrence is selectable on its own");
+        HistoryValidation.Log(c, Problems.Count == 0 ? "PASS: workspace interactions: a click on a timeline bar selects the finding, opens its group, scrolls the list and moves the charts to its own interval; Ctrl+Left steps back; a header chosen from the keyboard selects the group without opening it, Right, Left and Enter and the chevron button open and close it, a click on the line toggles it; every occurrence is selectable on its own" : "NOTE: workspace interactions finished with problems (reported with the layout)");
     }
 }

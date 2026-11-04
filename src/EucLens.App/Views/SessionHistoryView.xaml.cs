@@ -95,6 +95,9 @@ public partial class SessionHistoryView : UserControl
     private void OnFindingClicked(object sender, MouseButtonEventArgs e)
     {
         if (sender is not ListBox list || e.OriginalSource is not DependencyObject source || ItemsControl.ContainerFromElement(list, source) is not ListBoxItem item) return;
+        // The chevron button of a group line has its own command; toggling here as well would undo it.
+        for (DependencyObject? node = source; node is not null && !ReferenceEquals(node, item); node = node is System.Windows.Media.Visual or System.Windows.Media.Media3D.Visual3D ? System.Windows.Media.VisualTreeHelper.GetParent(node) : LogicalTreeHelper.GetParent(node))
+            if (node is System.Windows.Controls.Button) return;
         // A click on a group's line opens or closes it (the line is selected by the same click); a click elsewhere brings the finding's chart into view.
         if (ReferenceEquals(list, FindingsList) && item.Content is HistoryFindingRow { IsGroup: true } group) History?.Findings.ToggleGroup(group.RuleId);
         else BringChartIntoView();

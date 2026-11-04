@@ -380,6 +380,23 @@ public sealed class HistoryWorkspaceTests
         Assert.All(h.Tiles, t => Assert.Contains(t.Label, t.AutomationName));
     }
 
+    [Fact]
+    public async Task TheChevronCommandOpensAndClosesAGroupAndNamesWhatItDoes()
+    {
+        var h = await OpenAsync(Recurring);
+        var f = h.Findings;
+        var header = Header(f, "guest.cpu.saturation");
+        Assert.StartsWith("Open the 3 occurrences of ", header.ToggleName);
+        Assert.True(header.ToggleCommand.CanExecute(null));
+        header.ToggleCommand.Execute(null);
+        Assert.True(Header(f, "guest.cpu.saturation").IsExpanded);
+        Assert.StartsWith("Close the 3 occurrences of ", header.ToggleName);
+        header.ToggleCommand.Execute(null);
+        Assert.False(Header(f, "guest.cpu.saturation").IsExpanded);
+        Assert.False(f.FindingRows.First(r => r.IsSingle).ToggleCommand.CanExecute(null));          // a single line has nothing to open
+        Assert.Contains("AutomationProperties.Name=\"{Binding ToggleName}\"", Xaml);
+    }
+
     // ---------- timeline lanes ----------
 
     private static readonly DateTimeOffset T0 = new(2026, 11, 2, 8, 0, 0, TimeSpan.Zero);
