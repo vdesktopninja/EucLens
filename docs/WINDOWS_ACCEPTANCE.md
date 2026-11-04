@@ -54,6 +54,16 @@ CI cannot judge these; please check them once on a real Windows 11 VDI session:
 8. Point the recordings folder at a share and disconnect it: a storage problem is shown, samples are counted as lost, and the recording stops with a clear reason after a minute.
 9. Leave a recording running unattended for hours with the window hidden and compare Task Manager CPU and memory with the visible window.
 
+## Session History workspace (0.5.1) — manual acceptance
+
+1. Open a recording with findings in several areas: the eight overview tiles read correctly (date, duration, protocol, status, samples, data coverage, findings, incidents); *Recording details* holds the rest, including the Recording ID.
+2. The performance timeline shows each finding on the track of its area at the time you expect, with gaps in their own row; compare two findings with the charts below. Click a bar: the list scrolls to it, the charts move to its interval.
+3. Open a recording in which one rule fired several times (guest CPU, for example): one group line with its count, worst severity, highest value and total affected time. Open it with the mouse and with the keyboard (Right, Enter); each occurrence selects on its own and the charts show its own interval.
+4. Overlapping findings are in separate lanes and none hides another. With an 8-hour recording the narrowest findings can still be seen and clicked.
+5. Severity and Area filters are small and change the list and the timeline together; the four export buttons are in one *Export* area and each writes its file.
+6. 100 %, 125 % and 150 % scaling on 1366×768 and 1920×1080, light and dark, on a real display: nothing clipped, the overview and the timeline readable, every control reachable with the keyboard, a screen reader announces the timeline, the tiles, the group state and each finding line. (The automated scale cases only simulate the available space; this step is the real DPI check.)
+7. Open a recording made by an earlier version: it opens and shows its findings, gaps and incidents.
+
 ## Session history and incident timeline (0.4.4) — manual acceptance
 
 1. Start a recording, minimize EUC Lens to the tray, right-click the tray icon: *Mark Performance Issue* is enabled. Click it; a short notification confirms the time. Without a recording the item is disabled and says so. Unplug or fill the recordings location and mark again: the notification says the marker could not be saved (it never says saved).

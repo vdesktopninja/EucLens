@@ -4,7 +4,9 @@ Status: implemented in 0.5.0 (release candidate on `feature/euc-lens-0.5-intelli
 
 This document describes the interface over the M1 deterministic anomaly engine (`docs/M1_ANOMALY_ENGINE.md`). The engine, its rules, thresholds and baselines are unchanged; nothing here interprets a measurement differently from M1. A finding is a **measured condition**, never a confirmed cause.
 
-## 1. Page layout (top to bottom)
+> The page layout of section 1 was reorganized in 0.5.1 into a compact overview, a performance timeline and a findings list grouped by rule: see [SESSION_HISTORY_WORKSPACE.md](SESSION_HISTORY_WORKSPACE.md). The findings, their evidence, navigation and correlations described below are unchanged.
+
+## 1. Page layout (top to bottom, 0.5.0)
 
 1. **Recording selection and status** (unchanged).
 2. **Compact recording summary.** State, then one line: `state · duration · samples · protocol · data coverage`. The notes that matter (in progress, interrupted, partial, damaged parts, time zone) stay visible. The twelve facts moved into a collapsed **Recording details** expander.

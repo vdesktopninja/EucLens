@@ -102,7 +102,7 @@ internal static class HistoryValidation
     /// The part of the page a user sees: the scroll viewer that holds the page, not the page's full height. The application header (live clock, status) lies outside it,
     /// so its once-per-second updates cannot keep the pixels from settling, and a nonvirtualized list of thousands of rows is never rendered at its full height.
     /// </summary>
-    private static FrameworkElement PageViewport(FrameworkElement view)
+    internal static FrameworkElement PageViewport(FrameworkElement view)
     {
         for (DependencyObject? node = VisualTreeHelper.GetParent(view); node is not null; node = VisualTreeHelper.GetParent(node))
             if (node is ScrollViewer viewer && viewer.ActualHeight > 0) return viewer;
@@ -542,7 +542,7 @@ internal static class HistoryValidation
         Require(summary.Text == f.Summary && f.Summary.StartsWith($"{f.Observations.Count} observation", StringComparison.Ordinal), $"The summary line differs: '{summary.Text}' / '{f.Summary}'.");
         Require(((TextBlock)named("Data coverage summary")).Text.StartsWith("Data coverage: ", StringComparison.Ordinal) && f.DataQuality.Contains("1 gap", StringComparison.Ordinal), "The data coverage line is wrong: " + f.DataQuality);
         Require(!((Expander)named("Recording details")).IsExpanded && !((Expander)named("Data quality and evaluation details")).IsExpanded, "The recording details and data quality sections must start collapsed.");
-        Require(list.Items.Count == f.VisibleObservations.Count && list.IsVisible, "The findings list does not show the visible observations.");
+        Require(list.Items.Count == f.FindingRows.Count && f.FindingRows.Count <= f.VisibleObservations.Count && f.FindingRows.Sum(r => r.IsGroup ? r.Occurrences.Count : r.IsSingle ? 1 : 0) == f.VisibleObservations.Count && list.IsVisible, "The findings list does not show the visible observations (grouped by rule, each group closed).");
         await Idle(c);
         var realized = DesktopValidation.Descendants<ListBoxItem>(list).ToArray();
         Require(realized.Length > 0 && realized.Length <= f.VisibleObservations.Count && realized.All(r => r.Focusable), "The findings rows are missing or not focusable.");
@@ -552,13 +552,15 @@ internal static class HistoryValidation
         var severity = (ListBox)named("Severity filter");
         Require(severity.Items.Count == 4 && f.SeverityFilters.All(x => x.Label.Contains('(')), "The severity filter lacks its options or counts.");
         severity.SelectedItem = f.SeverityFilters.Single(x => x.Value == FindingSeverityFilter.Critical); await Idle(c);
-        Require(list.Items.Count == f.Observations.Count(o => o.Observation.Severity == Severity.Critical), "The Critical filter shows the wrong rows.");
+        Require(f.VisibleObservations.Count == f.Observations.Count(o => o.Observation.Severity == Severity.Critical) && list.Items.Count == f.FindingRows.Count, "The Critical filter shows the wrong rows.");
         severity.SelectedItem = f.SeverityFilters[0]; await Idle(c);
-        Require(list.Items.Count == f.Observations.Count, "Clearing the filter did not show every finding again.");
+        Require(f.VisibleObservations.Count == f.Observations.Count && list.Items.Count == f.FindingRows.Count, "Clearing the filter did not show every finding again.");
 
         // Selecting a finding through the list: every chart goes to its real interval, the evidence chart is emphasized, the peak is marked.
         var row = f.VisibleObservations.First(o => o.Observation.Primary.ChannelId == "rtt");
-        list.SelectedItem = row;
+        // The line of the finding: a rule that fired more than once is a closed group first, opened with the header's own gesture.
+        if (!f.FindingRows.Any(r => ReferenceEquals(r.Item, row))) { f.ToggleGroup(row.Observation.RuleId); await Idle(c); }
+        list.SelectedItem = f.FindingRows.First(r => ReferenceEquals(r.Item, row));
         await h.Settled; await Idle(c); await DesktopValidation.WaitForChartMeasureAsync(c.Window); await Task.Delay(150);
         var o = row.Observation;
         Require(ReferenceEquals(f.SelectedObservation, row), "Selecting the row did not select the finding.");
@@ -576,7 +578,7 @@ internal static class HistoryValidation
         var band = DesktopValidation.Descendants<Border>(container).First(b => b.Background is SolidColorBrush { Color.A: > 0 } && b.BorderThickness.Top >= 1);
         Require(band.Background is SolidColorBrush fill && fill.Color == ((SolidColorBrush)c.Window.FindResource("AccentSurfaceBrush")).Color, "The evidence chart is not drawn with the emphasis background.");
         Require(DesktopValidation.Descendants<TextBlock>(container).Any(t => t.Text == "Evidence for the selected finding" && t.IsVisible), "The evidence chart lacks its label.");
-        var detail = (Border)named("Selected finding evidence");
+        var detail = named("Selected finding evidence");
         Require(detail.IsVisible && DesktopValidation.Descendants<TextBlock>(detail).Any(t => t.Text == row.Detail.KeyValues && t.IsVisible), "The key measured values are not visible without expanding anything.");
         Require(DesktopValidation.Descendants<TextBlock>(detail).Any(t => t.Text == o.Explanation), "The deterministic explanation is not shown unchanged.");
         Require(!((Expander)named("Measurement evidence")).IsExpanded, "The dense evidence should start collapsed.");
@@ -739,7 +741,7 @@ internal static class HistoryValidation
                 }
                 else Require(hasBom && text.StartsWith("schema,recording_id", StringComparison.Ordinal) && text.Split("\r\n", StringSplitOptions.RemoveEmptyEntries).Length == 1 + f.Observations.Count + f.Correlations.Count, "The CSV export does not match the analysis.");
                 Require(ReferenceEquals(f.SelectedObservation, selected) && h.ViewStart == start && h.ViewEnd == end, "Exporting changed the selection or the view.");
-                Require(view.FindingsListControl.Items.Count == items && view.FindingsListControl.IsVisible && ((Border)DesktopValidation.Descendants<FrameworkElement>(view).First(e => System.Windows.Automation.AutomationProperties.GetName(e) == "Selected finding evidence")).IsVisible,
+                Require(view.FindingsListControl.Items.Count == items && view.FindingsListControl.IsVisible && DesktopValidation.Descendants<FrameworkElement>(view).First(e => System.Windows.Automation.AutomationProperties.GetName(e) == "Selected finding evidence").IsVisible,
                     "The findings panel is not intact after the export.");
             }
             Require(asked == 2 && Directory.GetFiles(folder).Length == 2, "Unexpected files after the exports.");
@@ -790,7 +792,7 @@ internal static class HistoryValidation
                 await WaitFor(() => f.Observations.Count > 0 && f.HasAnalysis, "the findings analysis");
                 var view = View(c);
                 views.Add(new WeakReference(view));
-                view.FindingsListControl.SelectedItem = f.VisibleObservations[0];
+                f.SelectById(f.VisibleObservations[0].Id); Require(ReferenceEquals(view.FindingsListControl.SelectedItem, f.SelectedRow), "The list does not show the selected finding.");
                 await h.Settled; await Idle(c);
                 f.ShowInChartsCommand.Execute(null); await Idle(c);
                 FindingsButton(view, "Export findings as JSON").Command!.Execute(null);

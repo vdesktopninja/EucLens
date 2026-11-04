@@ -3,92 +3,186 @@
   <!-- A note that takes no space while it is empty. -->
   <Style x:Key="HideWhenEmpty" TargetType="TextBlock" BasedOn="{StaticResource Meta}"><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed" /></Trigger></Style.Triggers></Style>
   <Style x:Key="HideWhenEmptyReading" TargetType="TextBlock" BasedOn="{StaticResource ReadingMuted}"><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed" /></Trigger></Style.Triggers></Style>
+  <!-- Small buttons for the export area: the page's actions are secondary to its findings. -->
+  <Style x:Key="CompactButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="MinHeight" Value="26" /><Setter Property="Padding" Value="8,1" /><Setter Property="Margin" Value="0,0,4,0" /><Setter Property="FontSize" Value="{StaticResource MetaFontSize}" /></Style>
+  <!-- Shown only while nothing is selected. -->
+  <Style x:Key="WhenNothingSelected" TargetType="TextBlock" BasedOn="{StaticResource Meta}"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding HasSelection}" Value="False"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style>
+
+  <!-- One tile of the recording overview. -->
+  <DataTemplate x:Key="OverviewTile">
+   <Border Background="{DynamicResource ElevatedBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="{StaticResource Hairline}" CornerRadius="{StaticResource ControlRadius}" Padding="10,6" Margin="0,0,8,8" ToolTip="{Binding ToolTip}" ToolTipService.IsEnabled="{Binding HasToolTip}" AutomationProperties.Name="{Binding AutomationName}">
+    <StackPanel>
+     <TextBlock Text="{Binding Label}" Style="{StaticResource Meta}" />
+     <StackPanel Orientation="Horizontal"><Path Style="{StaticResource SeverityIcon}" Tag="{Binding Icon}" Margin="0,0,6,0" Visibility="{Binding HasIcon, Converter={StaticResource BoolToVisibility}}" /><TextBlock Text="{Binding Value}" FontSize="{StaticResource StateFontSize}" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" TextWrapping="Wrap" VerticalAlignment="Center" /></StackPanel>
+     <TextBlock Text="{Binding Detail}" Style="{StaticResource Meta}" Typography.NumeralAlignment="Tabular" Visibility="{Binding HasDetail, Converter={StaticResource BoolToVisibility}}" />
+    </StackPanel>
+   </Border>
+  </DataTemplate>
+
+  <!-- The three kinds of line of the findings list. Severity is the icon and its word; the measured value that matters is on the right. -->
+  <DataTemplate x:Key="SingleFindingRow">
+   <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+    <Path Style="{StaticResource SeverityIcon}" Tag="{Binding SeverityTag}" VerticalAlignment="Top" Margin="0,2,10,0" />
+    <StackPanel Grid.Column="1">
+     <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="{StaticResource ReadingFontSize}" TextWrapping="Wrap" />
+     <TextBlock Style="{StaticResource Meta}" Typography.NumeralAlignment="Tabular"><Run Text="{Binding SeverityLabel, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Time, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Duration, Mode=OneWay}" /></TextBlock>
+     <TextBlock Text="{Binding StatusBadge}" Style="{StaticResource Meta}" Foreground="{DynamicResource WarningBrush}" Visibility="{Binding HasStatusBadge, Converter={StaticResource BoolToVisibility}}" />
+    </StackPanel>
+    <StackPanel Grid.Column="2" Margin="12,0,0,0" MinWidth="72"><TextBlock Text="{Binding KeyValue}" Style="{StaticResource ValueText}" TextAlignment="Right" /><TextBlock Text="{Binding KeyLabel}" Style="{StaticResource Meta}" TextAlignment="Right" /></StackPanel>
+   </Grid>
+  </DataTemplate>
+  <DataTemplate x:Key="GroupFindingRow">
+   <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="16" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+    <TextBlock VerticalAlignment="Top" Margin="0,2,0,0" Foreground="{DynamicResource MutedBrush}" FontSize="{StaticResource MetaFontSize}" AutomationProperties.Name="Expand or collapse">
+     <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Text" Value="▸" /><Style.Triggers><DataTrigger Binding="{Binding IsExpanded}" Value="True"><Setter Property="Text" Value="▾" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+    </TextBlock>
+    <Path Grid.Column="1" Style="{StaticResource SeverityIcon}" Tag="{Binding SeverityTag}" VerticalAlignment="Top" Margin="0,2,10,0" />
+    <StackPanel Grid.Column="2">
+     <WrapPanel><TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="{StaticResource ReadingFontSize}" TextWrapping="Wrap" />
+      <Border Background="{DynamicResource AccentSurfaceBrush}" CornerRadius="9" Padding="7,0" Margin="8,1,0,0" VerticalAlignment="Center"><TextBlock Text="{Binding CountText}" Style="{StaticResource Meta}" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold" TextWrapping="NoWrap" /></Border></WrapPanel>
+     <TextBlock Style="{StaticResource Meta}" Typography.NumeralAlignment="Tabular"><Run Text="{Binding SeverityLabel, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Time, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding TotalText, Mode=OneWay}" /></TextBlock>
+     <TextBlock Text="{Binding StatusBadge}" Style="{StaticResource Meta}" Foreground="{DynamicResource WarningBrush}" Visibility="{Binding HasStatusBadge, Converter={StaticResource BoolToVisibility}}" />
+    </StackPanel>
+    <StackPanel Grid.Column="3" Margin="12,0,0,0" MinWidth="72"><TextBlock Text="{Binding KeyValue}" Style="{StaticResource ValueText}" TextAlignment="Right" /><TextBlock Text="{Binding KeyLabel}" Style="{StaticResource Meta}" TextAlignment="Right" /></StackPanel>
+   </Grid>
+  </DataTemplate>
+  <DataTemplate x:Key="OccurrenceFindingRow">
+   <Grid Margin="30,0,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+    <Path Style="{StaticResource SeverityIcon}" Tag="{Binding SeverityTag}" VerticalAlignment="Top" Margin="0,1,10,0" />
+    <StackPanel Grid.Column="1">
+     <TextBlock Style="{StaticResource Reading}" Typography.NumeralAlignment="Tabular"><Run Text="{Binding Time, Mode=OneWay}" FontWeight="SemiBold" /><Run Text="  ·  " Foreground="{DynamicResource MutedBrush}" /><Run Text="{Binding Duration, Mode=OneWay}" /></TextBlock>
+     <TextBlock Text="{Binding SeverityLabel}" Style="{StaticResource Meta}" />
+     <TextBlock Text="{Binding StatusBadge}" Style="{StaticResource Meta}" Foreground="{DynamicResource WarningBrush}" Visibility="{Binding HasStatusBadge, Converter={StaticResource BoolToVisibility}}" />
+    </StackPanel>
+    <StackPanel Grid.Column="2" Margin="12,0,0,0" MinWidth="72"><TextBlock Text="{Binding KeyValue}" Style="{StaticResource ValueText}" TextAlignment="Right" /><TextBlock Text="{Binding KeyLabel}" Style="{StaticResource Meta}" TextAlignment="Right" /></StackPanel>
+   </Grid>
+  </DataTemplate>
+  <Style x:Key="FindingRowSwitch" TargetType="ContentControl">
+   <Setter Property="ContentTemplate" Value="{StaticResource SingleFindingRow}" />
+   <Setter Property="Focusable" Value="False" />
+   <Style.Triggers>
+    <DataTrigger Binding="{Binding Kind}" Value="Group"><Setter Property="ContentTemplate" Value="{StaticResource GroupFindingRow}" /></DataTrigger>
+    <DataTrigger Binding="{Binding Kind}" Value="Occurrence"><Setter Property="ContentTemplate" Value="{StaticResource OccurrenceFindingRow}" /></DataTrigger>
+   </Style.Triggers>
+  </Style>
  </UserControl.Resources>
- <!-- Session History. DataContext: SessionHistoryPage. One recording at a time: overview, range controls, the whole session as a strip of events, charts that share one time axis,
-      then the event list and the selected incident. Nothing here touches the live view or the sampling loop. -->
+ <!-- Session History. DataContext: SessionHistoryPage. One recording at a time: a compact overview, the performance timeline, the findings (grouped by rule, with the selected one's evidence beside
+      the list), range controls, charts that share one time axis, then the event list and the selected incident. Nothing here touches the live view or the sampling loop. -->
  <StackPanel>
-  <TextBlock Text="Session history" Style="{StaticResource Heading}" />
-  <TextBlock Text="Open a saved recording: measured findings, the measurements around them, and what the user marked. Everything is read from the recording on this computer." Style="{StaticResource Muted}" Margin="0,0,0,8" />
+  <TextBlock Text="Session history" Style="{StaticResource Heading}" Margin="0,0,0,2" />
+  <TextBlock Text="Measured findings, the measurements around them and what the user marked, read from the recording on this computer." Style="{StaticResource Muted}" Margin="0,0,0,8" />
 
   <Border Style="{StaticResource Panel}" AutomationProperties.Name="Recording selection"><StackPanel>
-   <StackPanel>
-    <ComboBox ItemsSource="{Binding Monitor.History.Recordings}" SelectedItem="{Binding Monitor.History.SelectedRecording}" AutomationProperties.Name="Saved recording" HorizontalAlignment="Stretch">
+   <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+    <ComboBox ItemsSource="{Binding Monitor.History.Recordings}" SelectedItem="{Binding Monitor.History.SelectedRecording}" AutomationProperties.Name="Saved recording" HorizontalAlignment="Stretch" Margin="0,0,8,0">
      <ComboBox.ItemTemplate><DataTemplate><TextBlock Typography.NumeralAlignment="Tabular"><Run Text="{Binding Started, Mode=OneWay}" FontWeight="SemiBold" /><Run Text="  ·  " /><Run Text="{Binding Duration, Mode=OneWay}" /><Run Text="  ·  " /><Run Text="{Binding Samples, Mode=OneWay}" /><Run Text=" samples  ·  " /><Run Text="{Binding Summary.Incidents, Mode=OneWay}" /><Run Text=" incident(s)  ·  " /><Run Text="{Binding Status, Mode=OneWay}" Foreground="{DynamicResource MutedBrush}" /></TextBlock></DataTemplate></ComboBox.ItemTemplate>
     </ComboBox>
-    <WrapPanel Margin="0,8,0,0"><Button Content="Refresh list" Command="{Binding Monitor.History.RefreshRecordingsCommand}" Margin="0,0,8,0" /><Button Content="Open folder" Command="{Binding Monitor.History.OpenFolderCommand}" Margin="0,0,8,0" /><Button Content="Export incidents (CSV)" Command="{Binding Monitor.History.ExportIncidentsCommand}" Margin="0,0,8,0" ToolTip="Optional separate file: marked incidents with their annotations. The session CSV and JSON exports are unchanged." /><Button Content="Export timeline (CSV)" Command="{Binding Monitor.History.ExportTimelineCommand}" ToolTip="Optional separate file: every timeline entry." /></WrapPanel>
-   </StackPanel>
-   <TextBlock Text="{Binding Monitor.History.Message}" Style="{StaticResource Muted}" Margin="0,8,0,0" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="History status" />
-   <TextBlock Text="{Binding Monitor.History.LoadProgress}" Style="{StaticResource Muted}" TextWrapping="Wrap" Typography.NumeralAlignment="Tabular" Visibility="{Binding Monitor.History.IsLoading, Converter={StaticResource BoolToVisibility}}" />
+    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Bottom"><Button Content="Refresh list" Command="{Binding Monitor.History.RefreshRecordingsCommand}" Margin="0,0,8,0" /><Button Content="Open folder" Command="{Binding Monitor.History.OpenFolderCommand}" /></StackPanel>
+   </Grid>
+   <TextBlock Text="{Binding Monitor.History.Message}" Style="{StaticResource Meta}" Margin="0,6,0,0" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="History status" />
+   <TextBlock Text="{Binding Monitor.History.LoadProgress}" Style="{StaticResource Meta}" TextWrapping="Wrap" Typography.NumeralAlignment="Tabular" Visibility="{Binding Monitor.History.IsLoading, Converter={StaticResource BoolToVisibility}}" />
    <TextBlock Text="{Binding Monitor.History.Error}" Foreground="{DynamicResource CriticalBrush}" FontWeight="SemiBold" Margin="0,6,0,0" TextWrapping="Wrap" Visibility="{Binding Monitor.History.HasError, Converter={StaticResource BoolToVisibility}}" AutomationProperties.LiveSetting="Assertive" AutomationProperties.Name="Recording error" />
   </StackPanel></Border>
 
   <StackPanel Visibility="{Binding Monitor.History.HasHistory, Converter={StaticResource BoolToVisibility}}">
+   <!-- Overview: eight tiles; the secondary facts and the recording's identifier are one expander away. -->
    <Border Style="{StaticResource Panel}" AutomationProperties.Name="Recording overview"><StackPanel>
-    <StackPanel Orientation="Horizontal"><Path Style="{StaticResource SeverityIcon}" Tag="{Binding Monitor.History.StateIcon}" Margin="0,0,8,0" /><TextBlock Text="{Binding Monitor.History.StateLabel}" FontWeight="SemiBold" FontSize="{StaticResource StateFontSize}" /></StackPanel>
-    <TextBlock Text="{Binding Monitor.History.CompactSummary}" Style="{StaticResource Reading}" Typography.NumeralAlignment="Tabular" Margin="0,2,0,0" AutomationProperties.Name="Recording summary" />
-    <TextBlock Text="{Binding Monitor.History.StateNote}" Style="{StaticResource Muted}" Margin="0,2,0,6" TextWrapping="Wrap" />
+    <ItemsControl ItemsSource="{Binding Monitor.History.Tiles}" ItemTemplate="{StaticResource OverviewTile}" Focusable="False" AutomationProperties.Name="Recording summary: date, duration, protocol, status, samples, data coverage, findings and incidents">
+     <ItemsControl.ItemsPanel><ItemsPanelTemplate><ui:AdaptiveColumnsPanel MinimumColumnWidth="128" MaximumColumns="8" BalanceRows="True" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+    </ItemsControl>
     <Border BorderBrush="{DynamicResource WarningBrush}" BorderThickness="2,0,0,0" Padding="8,2,0,2" Margin="0,0,0,8" Visibility="{Binding Monitor.History.IsPartial, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="Partial analysis notice"><TextBlock Text="{Binding Monitor.History.PartialNote}" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" /></Border>
-    <ItemsControl ItemsSource="{Binding Monitor.History.IssueLines}" Focusable="False" Visibility="{Binding Monitor.History.HasIssues, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="Reading notes"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Style="{StaticResource Reading}" Margin="0,2,0,0" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
-    <TextBlock Text="{Binding Monitor.History.ZoneNote}" Style="{StaticResource Meta}" Margin="0,2,0,0" />
-    <Expander Header="Recording details" Margin="0,6,0,0" AutomationProperties.Name="Recording details">
+    <ItemsControl ItemsSource="{Binding Monitor.History.IssueLines}" Focusable="False" Visibility="{Binding Monitor.History.HasIssues, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="Reading notes"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Style="{StaticResource Reading}" Margin="0,0,0,4" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+    <Expander Header="Recording details" AutomationProperties.Name="Recording details">
      <StackPanel>
+      <TextBlock Text="{Binding Monitor.History.StateNote}" Style="{StaticResource Meta}" Margin="0,2,0,0" />
+      <TextBlock Text="{Binding Monitor.History.CompactSummary}" Style="{StaticResource Meta}" Typography.NumeralAlignment="Tabular" Margin="0,2,0,0" AutomationProperties.Name="Recording summary" />
       <ItemsControl ItemsSource="{Binding Monitor.History.Facts}" Focusable="False" Margin="0,6,0,0" AutomationProperties.Name="Recording facts">
        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
        <ItemsControl.ItemTemplate><DataTemplate><StackPanel Width="230" Margin="0,0,16,8" AutomationProperties.Name="{Binding Label}"><TextBlock Text="{Binding Label}" Style="{StaticResource Meta}" /><TextBlock Text="{Binding Value}" Style="{StaticResource ValueText}" TextWrapping="Wrap" /><TextBlock Text="{Binding Detail}" Style="{StaticResource Meta}" /></StackPanel></DataTemplate></ItemsControl.ItemTemplate>
       </ItemsControl>
       <TextBlock Text="{Binding Monitor.History.UnavailableNote}" Style="{StaticResource Meta}" Margin="0,2,0,0" Visibility="{Binding Monitor.History.HasUnavailableNote, Converter={StaticResource BoolToVisibility}}" />
+      <TextBlock Text="{Binding Monitor.History.ZoneNote}" Style="{StaticResource Meta}" Margin="0,2,0,0" />
      </StackPanel>
     </Expander>
+   </StackPanel></Border>
+
+   <!-- Performance timeline: every finding at its recorded interval on the track of its area, the recording's gaps in a row of their own. A click selects the finding (and so moves the charts). -->
+   <Border Style="{StaticResource Panel}" AutomationProperties.Name="Performance timeline"><StackPanel>
+    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+     <TextBlock Text="Performance timeline" FontWeight="SemiBold" FontSize="{StaticResource ReadingFontSize}" />
+     <StackPanel Grid.Column="1" Orientation="Horizontal" AutomationProperties.Name="Timeline legend">
+      <StackPanel Orientation="Horizontal" Margin="0,0,12,0"><Border Width="12" Height="12" Background="{DynamicResource CriticalBrush}" Margin="0,0,4,0" VerticalAlignment="Center" /><TextBlock Text="Critical" Style="{StaticResource Meta}" VerticalAlignment="Center" /></StackPanel>
+      <StackPanel Orientation="Horizontal" Margin="0,0,12,0"><Border Width="12" Height="9" Background="{DynamicResource WarningBrush}" Margin="0,0,4,0" VerticalAlignment="Center" /><TextBlock Text="Warning" Style="{StaticResource Meta}" VerticalAlignment="Center" /></StackPanel>
+      <StackPanel Orientation="Horizontal" Margin="0,0,12,0"><Border Width="12" Height="6" Background="{DynamicResource AccentBrush}" Margin="0,0,4,0" VerticalAlignment="Center" /><TextBlock Text="Info" Style="{StaticResource Meta}" VerticalAlignment="Center" /></StackPanel>
+      <StackPanel Orientation="Horizontal"><Border Width="12" Height="9" Background="{DynamicResource MutedBrush}" Margin="0,0,4,0" VerticalAlignment="Center" /><TextBlock Text="No samples" Style="{StaticResource Meta}" VerticalAlignment="Center" /></StackPanel>
+     </StackPanel>
+    </Grid>
+    <ui:FindingsTimeline x:Name="PerformanceTimeline" Margin="0,6,0,0" SessionStart="{Binding Monitor.History.SessionStart, Mode=OneWay}" SessionEnd="{Binding Monitor.History.SessionEnd, Mode=OneWay}" ViewStart="{Binding Monitor.History.ViewStart, Mode=OneWay}" ViewEnd="{Binding Monitor.History.ViewEnd, Mode=OneWay}" Gaps="{Binding Monitor.History.Gaps, Mode=OneWay}" Zone="{Binding Monitor.History.Zone, Mode=OneWay}" Bars="{Binding Monitor.History.Findings.TimelineBars, Mode=OneWay}" SelectedId="{Binding Monitor.History.Findings.TimelineSelectedId, Mode=OneWay}" HighlightIds="{Binding Monitor.History.Findings.TimelineHighlightIds, Mode=OneWay}" AutomationProperties.Name="{Binding Monitor.History.Findings.TimelineAutomationName}" ToolTipService.ShowDuration="20000" />
    </StackPanel></Border>
 
    <!-- Performance findings. DataContext of the inner panel: the findings view model. Findings are measured conditions, not causes; selecting one moves every chart to its
         real interval (the page never scrolls on its own while arrow keys move through the list). -->
    <Border Style="{StaticResource Panel}" AutomationProperties.Name="Performance findings"><StackPanel x:Name="FindingsPanel" DataContext="{Binding Monitor.History.Findings}">
-    <TextBlock Text="Performance findings" FontWeight="SemiBold" FontSize="{StaticResource ReadingFontSize}" />
-    <TextBlock Text="{Binding Summary}" Style="{StaticResource Reading}" Typography.NumeralAlignment="Tabular" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Findings summary" />
-    <WrapPanel Margin="0,6,0,2">
-     <Button Content="Show full recording" Command="{Binding ShowFullRecordingCommand}" Margin="0,0,8,4" AutomationProperties.Name="Show full recording" ToolTip="Clear the selected finding and show the whole recording (Escape in the findings list)" />
-     <Button Content="Export findings (CSV)" Command="{Binding DataContext.Monitor.History.ExportFindingsCsvCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" Margin="0,0,8,4" AutomationProperties.Name="Export findings as CSV" ToolTip="Optional file: every observation and correlation with its evidence, UTC times and recorded units. Text cells are protected against spreadsheet formulas." />
-     <Button Content="Export findings (JSON)" Command="{Binding DataContext.Monitor.History.ExportFindingsJsonCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" Margin="0,0,8,4" AutomationProperties.Name="Export findings as JSON" ToolTip="Optional file: the complete analysis in a versioned structure (euclens.findings/1)." />
-    </WrapPanel>
+    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+     <StackPanel>
+      <TextBlock Text="Performance findings" FontWeight="SemiBold" FontSize="{StaticResource ReadingFontSize}" />
+      <TextBlock Text="{Binding Summary}" Style="{StaticResource Meta}" Typography.NumeralAlignment="Tabular" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Findings summary" />
+      <WrapPanel Margin="0,4,0,0"><Button Content="Show full recording" Style="{StaticResource CompactButton}" Command="{Binding ShowFullRecordingCommand}" AutomationProperties.Name="Show full recording" ToolTip="Clear the selected finding and show the whole recording (Escape in the findings list)" /></WrapPanel>
+     </StackPanel>
+     <!-- All the optional files in one labelled place. -->
+     <StackPanel Grid.Column="1" Margin="12,0,0,0" AutomationProperties.Name="Export">
+      <TextBlock Text="Export" Style="{StaticResource Meta}" />
+      <WrapPanel>
+       <Button Content="Findings CSV" Style="{StaticResource CompactButton}" Command="{Binding DataContext.Monitor.History.ExportFindingsCsvCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" AutomationProperties.Name="Export findings as CSV" ToolTip="Optional file: every observation and correlation with its evidence, UTC times and recorded units. Text cells are protected against spreadsheet formulas." />
+       <Button Content="Findings JSON" Style="{StaticResource CompactButton}" Command="{Binding DataContext.Monitor.History.ExportFindingsJsonCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" AutomationProperties.Name="Export findings as JSON" ToolTip="Optional file: the complete analysis in a versioned structure (euclens.findings/1)." />
+       <Button Content="Incidents CSV" Style="{StaticResource CompactButton}" Command="{Binding DataContext.Monitor.History.ExportIncidentsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" AutomationProperties.Name="Export incidents as CSV" ToolTip="Optional separate file: marked incidents with their annotations. The session CSV and JSON exports are unchanged." />
+       <Button Content="Timeline CSV" Style="{StaticResource CompactButton}" Command="{Binding DataContext.Monitor.History.ExportTimelineCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" AutomationProperties.Name="Export timeline as CSV" ToolTip="Optional separate file: every timeline entry." />
+      </WrapPanel>
+     </StackPanel>
+    </Grid>
     <TextBlock Text="{Binding ExportMessage}" Style="{StaticResource HideWhenEmpty}" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Findings export result" />
-    <TextBlock Text="{Binding Status}" Style="{StaticResource Meta}" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Findings status" />
+    <TextBlock Text="{Binding Status}" Style="{StaticResource Meta}" Margin="0,2,0,0" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Findings status" />
     <Border BorderBrush="{DynamicResource AccentBrush}" BorderThickness="2,0,0,0" Padding="8,2,0,2" Margin="0,6,0,0" Visibility="{Binding HasSnapshotNote, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="Recording snapshot notice"><TextBlock Text="{Binding SnapshotNote}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" /></Border>
     <TextBlock Text="{Binding DataQuality}" Style="{StaticResource Meta}" Typography.NumeralAlignment="Tabular" Margin="0,4,0,0" Visibility="{Binding HasDataQuality, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="Data coverage summary" />
-    <WrapPanel Margin="0,8,0,0" Visibility="{Binding HasObservations, Converter={StaticResource BoolToVisibility}}">
-     <StackPanel Margin="0,0,16,0"><TextBlock Text="Severity" Style="{StaticResource Meta}" />
-      <ListBox Style="{StaticResource Segmented}" ItemsSource="{Binding SeverityFilters}" SelectedItem="{Binding SelectedSeverity}" DisplayMemberPath="Label" AutomationProperties.Name="Severity filter" /></StackPanel>
-     <StackPanel><TextBlock Text="Area" Style="{StaticResource Meta}" />
-      <ListBox Style="{StaticResource Segmented}" ItemsSource="{Binding DomainFilters}" SelectedItem="{Binding SelectedDomain}" DisplayMemberPath="Label" AutomationProperties.Name="Area filter" /></StackPanel>
+    <!-- The filters are secondary: small, on one line, below the summary. -->
+    <WrapPanel Margin="0,6,0,0" Visibility="{Binding HasObservations, Converter={StaticResource BoolToVisibility}}">
+     <StackPanel Orientation="Horizontal" Margin="0,0,16,0"><TextBlock Text="Severity" Style="{StaticResource Meta}" VerticalAlignment="Center" Margin="0,0,6,4" />
+      <ListBox Style="{StaticResource Segmented}" FontSize="{StaticResource MetaFontSize}" ItemsSource="{Binding SeverityFilters}" SelectedItem="{Binding SelectedSeverity}" DisplayMemberPath="Label" AutomationProperties.Name="Severity filter" /></StackPanel>
+     <StackPanel Orientation="Horizontal"><TextBlock Text="Area" Style="{StaticResource Meta}" VerticalAlignment="Center" Margin="0,0,6,4" />
+      <ListBox Style="{StaticResource Segmented}" FontSize="{StaticResource MetaFontSize}" ItemsSource="{Binding DomainFilters}" SelectedItem="{Binding SelectedDomain}" DisplayMemberPath="Label" AutomationProperties.Name="Area filter" /></StackPanel>
     </WrapPanel>
     <TextBlock Text="{Binding FilterNote}" Style="{StaticResource HideWhenEmpty}" />
     <TextBlock Text="{Binding EmptyNote}" Style="{StaticResource HideWhenEmptyReading}" Margin="0,6,0,0" />
-    <ListBox x:Name="FindingsList" ItemsSource="{Binding VisibleObservations}" SelectedItem="{Binding SelectedObservation}" Style="{StaticResource TableList}" ItemContainerStyle="{StaticResource TableRow}" Margin="0,6,0,0" MaxHeight="{x:Static ui:HistoryLayout.FindingsListMaxHeight}" Visibility="{Binding HasVisibleObservations, Converter={StaticResource BoolToVisibility}}" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" VirtualizingPanel.ScrollUnit="Item" ScrollViewer.CanContentScroll="True" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Findings: select one to show its interval in the charts">
-     <ListBox.Template><ControlTemplate TargetType="ListBox"><Border Background="{TemplateBinding Background}"><ScrollViewer x:Name="FindingsScroll" Focusable="False" CanContentScroll="True" VerticalScrollBarVisibility="{TemplateBinding ScrollViewer.VerticalScrollBarVisibility}" HorizontalScrollBarVisibility="{TemplateBinding ScrollViewer.HorizontalScrollBarVisibility}" ui:WheelChaining.Enabled="True"><ItemsPresenter /></ScrollViewer></Border></ControlTemplate></ListBox.Template>
-     <ListBox.ItemsPanel><ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate></ListBox.ItemsPanel>
-     <ListBox.ItemTemplate><DataTemplate>
-      <Grid AutomationProperties.Name="{Binding AutomationName}">
-       <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-       <Path Style="{StaticResource SeverityIcon}" Tag="{Binding SeverityTag}" VerticalAlignment="Top" Margin="0,2,8,0" />
-       <StackPanel Grid.Column="1">
-        <TextBlock TextWrapping="Wrap" FontSize="{StaticResource ReadingFontSize}"><Run Text="{Binding SeverityLabel, Mode=OneWay}" FontWeight="SemiBold" /><Run Text="  " /><Run Text="{Binding Title, Mode=OneWay}" FontWeight="SemiBold" /></TextBlock>
-        <TextBlock Text="{Binding Measurement}" Style="{StaticResource Reading}" Typography.NumeralAlignment="Tabular" />
-        <TextBlock Style="{StaticResource Meta}" Typography.NumeralAlignment="Tabular"><Run Text="{Binding Time, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Duration, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Domain, Mode=OneWay}" /></TextBlock>
-        <TextBlock Text="{Binding StatusBadge}" Style="{StaticResource Meta}" Foreground="{DynamicResource WarningBrush}" Visibility="{Binding HasStatusBadge, Converter={StaticResource BoolToVisibility}}" />
-       </StackPanel>
-      </Grid>
-     </DataTemplate></ListBox.ItemTemplate>
-    </ListBox>
 
-    <!-- The selected observation: the original deterministic explanation, the values that matter, then the evidence in sections. -->
-    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,8,0,0" Margin="0,8,0,0" Visibility="{Binding HasSelectedObservation, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="Selected finding evidence"><StackPanel>
-     <StackPanel Orientation="Horizontal"><Path Style="{StaticResource SeverityIcon}" Tag="{Binding SelectedObservation.SeverityTag}" Margin="0,0,8,0" /><TextBlock FontWeight="SemiBold" FontSize="{StaticResource StateFontSize}" TextWrapping="Wrap"><Run Text="{Binding SelectedObservation.Title, Mode=OneWay}" /></TextBlock></StackPanel>
-     <TextBlock Text="What was observed" Style="{StaticResource SubLabel}" Margin="0,6,0,2" />
-     <TextBlock Text="{Binding SelectedObservation.Detail.Explanation}" Style="{StaticResource Reading}" />
-     <TextBlock Text="{Binding SelectedObservation.Detail.KeyValues}" Style="{StaticResource ValueText}" TextWrapping="Wrap" Margin="0,6,0,0" AutomationProperties.Name="Key measured values" />
-     <TextBlock Text="{Binding SelectedObservation.Detail.Utc}" Style="{StaticResource Meta}" Typography.NumeralAlignment="Tabular" />
-     <TextBlock Text="{Binding SelectedObservation.Detail.Ending}" Style="{StaticResource Meta}" />
-     <WrapPanel Margin="0,6,0,0"><Button Content="Show in charts" Command="{Binding ShowInChartsCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0" AutomationProperties.Name="Show in charts" ToolTip="Scroll to the chart that carries this evidence" /></WrapPanel>
+    <!-- The list on the left, what the selection means on the right; they stack below 1000 DIPs. -->
+    <ui:AdaptiveColumnsPanel MinimumColumnWidth="500" MaximumColumns="2" Margin="0,6,0,0" AutomationProperties.Name="Findings and selected finding">
+     <ListBox x:Name="FindingsList" ItemsSource="{Binding FindingRows}" SelectedItem="{Binding SelectedRow}" Style="{StaticResource TableList}" ItemContainerStyle="{StaticResource TableRow}" Margin="0,0,12,0" MaxHeight="{x:Static ui:HistoryLayout.FindingsListMaxHeight}" Visibility="{Binding HasVisibleObservations, Converter={StaticResource BoolToVisibility}}" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" VirtualizingPanel.ScrollUnit="Item" ScrollViewer.CanContentScroll="True" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Findings: select one to show its interval in the charts; a group opens with Enter, Right arrow and closes with Left arrow">
+      <ListBox.Template><ControlTemplate TargetType="ListBox"><Border Background="{TemplateBinding Background}"><ScrollViewer x:Name="FindingsScroll" Focusable="False" CanContentScroll="True" VerticalScrollBarVisibility="{TemplateBinding ScrollViewer.VerticalScrollBarVisibility}" HorizontalScrollBarVisibility="{TemplateBinding ScrollViewer.HorizontalScrollBarVisibility}" ui:WheelChaining.Enabled="True"><ItemsPresenter /></ScrollViewer></Border></ControlTemplate></ListBox.Template>
+      <ListBox.ItemsPanel><ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate></ListBox.ItemsPanel>
+      <ListBox.ItemTemplate><DataTemplate><ContentControl Content="{Binding}" Style="{StaticResource FindingRowSwitch}" AutomationProperties.Name="{Binding AutomationName}" /></DataTemplate></ListBox.ItemTemplate>
+     </ListBox>
+
+     <!-- What the selection is: nothing yet, a group of occurrences, or one observation with its measured values and evidence. -->
+     <Grid>
+      <TextBlock Text="Select a finding in the list or on the timeline to see what was measured and to show it in the charts." Style="{StaticResource WhenNothingSelected}" Margin="12,6,0,0" />
+      <StackPanel Margin="12,0,0,0" Visibility="{Binding HasSelectedGroup, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="Selected group of findings"><StackPanel DataContext="{Binding SelectedGroup}">
+       <StackPanel Orientation="Horizontal"><Path Style="{StaticResource SeverityIcon}" Tag="{Binding SeverityTag}" Margin="0,0,8,0" /><TextBlock FontWeight="SemiBold" FontSize="{StaticResource StateFontSize}" TextWrapping="Wrap"><Run Text="{Binding Title, Mode=OneWay}" /></TextBlock></StackPanel>
+       <TextBlock Style="{StaticResource Meta}" Typography.NumeralAlignment="Tabular" Margin="0,2,0,0"><Run Text="{Binding CountText, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Domain, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Time, Mode=OneWay}" /></TextBlock>
+       <StackPanel Orientation="Horizontal" Margin="0,8,0,0"><TextBlock Text="{Binding KeyValue}" FontSize="{StaticResource MetricFontSize}" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" /><TextBlock Margin="8,0,0,3" VerticalAlignment="Bottom" Style="{StaticResource Meta}"><Run Text="{Binding KeyLabel, Mode=OneWay}" /><Run Text=" " /><Run Text="{Binding KeyMetric, Mode=OneWay}" /></TextBlock></StackPanel>
+       <TextBlock Text="{Binding TotalText}" Style="{StaticResource Reading}" Typography.NumeralAlignment="Tabular" Margin="0,4,0,0" />
+       <TextBlock Text="Overlapping occurrences count once. The charts show the span of all of them; open the group and choose an occurrence for its own interval and evidence." Style="{StaticResource Meta}" Margin="0,4,0,0" />
+      </StackPanel>
+       <WrapPanel Margin="0,6,0,0"><Button Content="Open or close the occurrences" Command="{Binding ToggleSelectedGroupCommand}" Style="{StaticResource CompactButton}" AutomationProperties.Name="Open or close the occurrences of this group" /></WrapPanel>
+      </StackPanel>
+      <StackPanel Margin="12,0,0,0" Visibility="{Binding HasSelectedObservation, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="Selected finding evidence">
+       <StackPanel Orientation="Horizontal"><Path Style="{StaticResource SeverityIcon}" Tag="{Binding SelectedObservation.SeverityTag}" Margin="0,0,8,0" /><TextBlock FontWeight="SemiBold" FontSize="{StaticResource StateFontSize}" TextWrapping="Wrap"><Run Text="{Binding SelectedObservation.Title, Mode=OneWay}" /></TextBlock></StackPanel>
+       <StackPanel Orientation="Horizontal" Margin="0,6,0,0"><TextBlock Text="{Binding SelectedObservation.KeyValue}" FontSize="{StaticResource MetricFontSize}" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" /><TextBlock Margin="8,0,0,3" VerticalAlignment="Bottom" Style="{StaticResource Meta}"><Run Text="{Binding SelectedObservation.KeyLabel, Mode=OneWay}" /><Run Text=" " /><Run Text="{Binding SelectedObservation.KeyMetric, Mode=OneWay}" /></TextBlock></StackPanel>
+       <TextBlock Style="{StaticResource Meta}" Typography.NumeralAlignment="Tabular" Margin="0,2,0,0"><Run Text="{Binding SelectedObservation.Domain, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding SelectedObservation.Time, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding SelectedObservation.Duration, Mode=OneWay}" /></TextBlock>
+       <TextBlock Text="{Binding SelectedObservation.Detail.Explanation}" Style="{StaticResource Reading}" Margin="0,8,0,0" />
+       <TextBlock Text="{Binding SelectedObservation.Detail.KeyValues}" Style="{StaticResource Meta}" TextWrapping="Wrap" Margin="0,4,0,0" AutomationProperties.Name="Key measured values" />
+       <TextBlock Text="{Binding SelectedObservation.Detail.Utc}" Style="{StaticResource Meta}" Typography.NumeralAlignment="Tabular" />
+       <TextBlock Text="{Binding SelectedObservation.Detail.Ending}" Style="{StaticResource Meta}" />
+       <WrapPanel Margin="0,6,0,0"><Button Content="Show in charts" Command="{Binding ShowInChartsCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0" AutomationProperties.Name="Show in charts" ToolTip="Scroll to the chart that carries this evidence" /></WrapPanel>
      <Expander Header="Measurement evidence" Margin="0,6,0,0" AutomationProperties.Name="Measurement evidence">
       <StackPanel Margin="0,4,0,0">
        <ItemsControl ItemsSource="{Binding SelectedObservation.Detail.Metrics}" Focusable="False" AutomationProperties.Name="Measured metrics"><ItemsControl.ItemTemplate><DataTemplate>
@@ -110,7 +204,10 @@
        <ItemsControl ItemsSource="{Binding SelectedObservation.Detail.Events}" Focusable="False"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Style="{StaticResource Meta}" Typography.NumeralAlignment="Tabular" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
       </StackPanel>
      </Expander>
-    </StackPanel></Border>
+
+      </StackPanel>
+     </Grid>
+    </ui:AdaptiveColumnsPanel>
 
     <!-- Correlations: timing only. Performance correlations first; availability-only ones are kept, but out of the way. -->
     <TextBlock Text="Performance correlations" Style="{StaticResource SubLabel}" Margin="0,12,0,4" Visibility="{Binding HasPerformanceCorrelations, Converter={StaticResource BoolToVisibility}}" />

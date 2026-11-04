@@ -38,6 +38,33 @@ public sealed class AsyncCommand(Func<Task> execute, Func<bool>? canExecute = nu
 }
 public sealed record Choice<T>(T Value, string Label);
 public sealed record MetricCard(string Label, string Value, string Detail);
+
+/// <summary>
+/// One tile of a compact overview: a label, the value that matters, a short qualifier and optionally the severity icon (<see cref="Icon"/> is a SeverityIcon tag, empty for none).
+/// Value, qualifier and icon can change while the tile is shown (a tile that waits for an analysis).
+/// </summary>
+public sealed class HistoryTile : ObservableObject
+{
+    private string value, detail, icon;
+
+    public HistoryTile(string label, string value, string detail, string icon, string toolTip) { Label = label; this.value = value; this.detail = detail; this.icon = icon; ToolTip = toolTip; }
+
+    public string Label { get; }
+    public string Value { get => value; private set => Set(ref this.value, value); }
+    public string Detail { get => detail; private set => Set(ref detail, value); }
+    public string Icon { get => icon; private set { if (Set(ref icon, value)) Raise(nameof(HasIcon)); } }
+    public bool HasIcon => icon.Length > 0;
+    public bool HasDetail => Detail.Length > 0;
+    public string ToolTip { get; }
+    public bool HasToolTip => ToolTip.Length > 0;
+    public string AutomationName => Detail.Length > 0 ? $"{Label}: {Value}, {Detail}" : $"{Label}: {Value}";
+
+    internal void Set(string newValue, string newDetail, string newIcon)
+    {
+        Value = newValue; Detail = newDetail; Icon = newIcon;
+        Raise(nameof(HasDetail)); Raise(nameof(AutomationName));
+    }
+}
 public sealed record AdvancedMetricRow(string Category, string Name, string Value, string Unit, string Scope, string Status,
     string Source, string Timestamp, string Id);
 public abstract class PageViewModel(MainViewModel monitor, string name, string glyph)

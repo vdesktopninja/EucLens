@@ -18,11 +18,16 @@ public partial class SessionHistoryView : UserControl
         Strip.NavigationRequested += OnNavigate; Overlay.NavigationRequested += OnNavigate;
         Strip.MarkerActivated += (_, e) => History?.ActivateMarker(e.At);
         Overlay.HoverChanged += OnHover;
+        // The performance timeline shares the range gestures of the strip; a click on a finding selects it, Ctrl+Left and Ctrl+Right step through them.
+        PerformanceTimeline.RangeRequested += OnRange; PerformanceTimeline.NavigationRequested += OnNavigate;
+        PerformanceTimeline.FindingActivated += (_, e) => { if (History?.Findings.SelectById(e.Id) == true) BringChartIntoView(); };
+        PerformanceTimeline.FindingStepRequested += (_, e) => { if (History?.Findings.SelectAdjacent(e.Direction) == true) BringChartIntoView(); };
         foreach (var list in new[] { FindingsList, CorrelationList, ContextList })
         {
             // A click on a finding brings its chart into view; moving with the arrow keys never moves the page. Escape returns to the whole recording.
             list.PreviewMouseLeftButtonUp += OnFindingClicked;
             list.KeyDown += OnFindingKey;
+            if (ReferenceEquals(list, FindingsList)) list.PreviewKeyDown += OnGroupKey;
         }
         Loaded += (_, _) => Watch();
         Unloaded += (_, _) => Unwatch();
@@ -42,6 +47,7 @@ public partial class SessionHistoryView : UserControl
         watched = history;
         PropertyChangedEventManager.AddHandler(history, OnHistoryProperty, nameof(SessionHistoryViewModel.SelectedEvent));
         PropertyChangedEventManager.AddHandler(history.Findings, OnChartsRequested, nameof(HistoryFindingsViewModel.ChartsRequest));
+        PropertyChangedEventManager.AddHandler(history.Findings, OnSelectedRowChanged, nameof(HistoryFindingsViewModel.SelectedRow));
         CollectionChangedEventManager.AddHandler(history.Events, OnEventsChanged);
     }
 
@@ -50,6 +56,7 @@ public partial class SessionHistoryView : UserControl
         if (watched is null) return;
         PropertyChangedEventManager.RemoveHandler(watched, OnHistoryProperty, nameof(SessionHistoryViewModel.SelectedEvent));
         PropertyChangedEventManager.RemoveHandler(watched.Findings, OnChartsRequested, nameof(HistoryFindingsViewModel.ChartsRequest));
+        PropertyChangedEventManager.RemoveHandler(watched.Findings, OnSelectedRowChanged, nameof(HistoryFindingsViewModel.SelectedRow));
         CollectionChangedEventManager.RemoveHandler(watched.Events, OnEventsChanged);
         watched = null;
     }
@@ -76,9 +83,31 @@ public partial class SessionHistoryView : UserControl
 
     private void OnChartsRequested(object? sender, PropertyChangedEventArgs e) => BringChartIntoView();
 
+    /// <summary>A finding chosen on the timeline (or stepped to) may be far down the virtualized list: bring its line into view without moving the page.</summary>
+    private void OnSelectedRowChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
+        {
+            if (History?.Findings.SelectedRow is { } row && FindingsList.Items.Contains(row)) FindingsList.ScrollIntoView(row);
+        });
+    }
+
     private void OnFindingClicked(object sender, MouseButtonEventArgs e)
     {
-        if (sender is ListBox list && e.OriginalSource is DependencyObject source && ItemsControl.ContainerFromElement(list, source) is ListBoxItem) BringChartIntoView();
+        if (sender is not ListBox list || e.OriginalSource is not DependencyObject source || ItemsControl.ContainerFromElement(list, source) is not ListBoxItem item) return;
+        // A click on a group's line opens or closes it (the line is selected by the same click); a click elsewhere brings the finding's chart into view.
+        if (ReferenceEquals(list, FindingsList) && item.Content is HistoryFindingRow { IsGroup: true } group) History?.Findings.ToggleGroup(group.RuleId);
+        else BringChartIntoView();
+    }
+
+    /// <summary>On the findings list: Right opens and Left closes the selected group, Enter and Space do either. Moving with Up and Down only selects, so it never opens a group.</summary>
+    private void OnGroupKey(object sender, KeyEventArgs e)
+    {
+        if (History?.Findings is not { SelectedRow: { IsGroup: true } row } findings) return;
+        switch (e.Key)
+        {
+            case Key.Right when !row.IsExpanded: case Key.Left when row.IsExpanded: case Key.Enter: case Key.Space: findings.ToggleGroup(row.RuleId); e.Handled = true; break;
+        }
     }
 
     private void OnFindingKey(object sender, KeyEventArgs e)

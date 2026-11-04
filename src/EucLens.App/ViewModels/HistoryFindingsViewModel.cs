@@ -121,10 +121,14 @@ public sealed class HistoryObservationItem
     {
         Observation = observation; this.zone = zone;
         Domain = HistoryChannels.GroupTitle(observation.Domain);
-        Time = HistoryTime.Format(observation.Start, zone, withDate) + "–" + HistoryTime.Format(observation.End, zone, withDate);
+        StartLabel = HistoryTime.Format(observation.Start, zone, withDate); EndLabel = HistoryTime.Format(observation.End, zone, withDate);
+        Time = StartLabel + "–" + EndLabel;
         Duration = FindingText.Span(observation.Duration);
         var p = observation.Primary;
         var lowerIsWorse = HistoryChannels.Find(p.ChannelId) is { HigherIsWorse: false };
+        LowerIsWorse = lowerIsWorse;
+        KeyLabel = lowerIsWorse ? "Lowest" : "Highest"; KeyMetric = p.Title;
+        KeyValue = p.ValidSamples == 0 || !double.IsFinite(lowerIsWorse ? p.Minimum : p.Maximum) ? "no valid value" : FindingText.Value(lowerIsWorse ? p.Minimum : p.Maximum, p.Unit);
         Measurement = p.ValidSamples == 0 || !double.IsFinite(p.Maximum)
             ? $"{p.Title}: no valid measurement in this interval"
             : lowerIsWorse ? $"{p.Title}: lowest {FindingText.Value(p.Minimum, p.Unit)} · P50 {FindingText.Value(p.P50, p.Unit)}"
@@ -135,6 +139,15 @@ public sealed class HistoryObservationItem
     }
 
     public AnomalyObservation Observation { get; }
+    public string StartLabel { get; }
+    public string EndLabel { get; }
+    /// <summary>The value that describes the finding best at a glance, in the recorded unit: the lowest value for FPS, the highest for every other metric.</summary>
+    public string KeyValue { get; }
+    public string KeyLabel { get; }
+    public string KeyMetric { get; }
+    public bool LowerIsWorse { get; }
+    /// <summary>The observation as drawn on the performance timeline: its recorded interval and nothing else.</summary>
+    public FindingBar Bar => new(Id, Observation.RuleId, Title, Observation.Domain, Observation.Severity, Observation.Start, Observation.End, $"{KeyMetric}: {KeyLabel.ToLowerInvariant()} {KeyValue} · {Time} · {Duration}");
     public string Id => Observation.Id;
     public string Title => Observation.Title;
     public string Domain { get; }
@@ -227,7 +240,9 @@ public sealed class HistoryFindingsViewModel : ObservableObject
     private FindingFilterChoice<FindingDomainFilter> domain;
     private IReadOnlyList<HistoryObservationItem> all = [];
     private DateTimeOffset? highlightStart, highlightEnd, peakAt;
-    private bool applying;
+    private bool applying, rowsApplying;
+    private string? selectedGroupRule;
+    private readonly HashSet<string> expandedRules = new(StringComparer.Ordinal);
 
     public HistoryFindingsViewModel(TimeZoneInfo zone, Action<FindingTarget> navigate, Action? clearEmphasis = null, Action? showFullRecording = null)
     {
@@ -235,8 +250,9 @@ public sealed class HistoryFindingsViewModel : ObservableObject
         SeverityFilters = [new(FindingSeverityFilter.All, "All"), new(FindingSeverityFilter.Critical, "Critical"), new(FindingSeverityFilter.Warning, "Warning"), new(FindingSeverityFilter.Info, "Info")];
         DomainFilters = [new(FindingDomainFilter.All, "All areas"), new(FindingDomainFilter.Connection, "Connection"), new(FindingDomainFilter.Graphics, "Graphics"), new(FindingDomainFilter.Guest, "VDI Guest")];
         severity = SeverityFilters[0]; domain = DomainFilters[0];
-        ShowFullRecordingCommand = new(ShowFull, () => selectedObservation is not null || selectedCorrelation is not null || selectedContext is not null || highlightStart is not null);
+        ShowFullRecordingCommand = new(ShowFull, () => selectedObservation is not null || selectedCorrelation is not null || selectedContext is not null || selectedGroupRule is not null || highlightStart is not null);
         ShowInChartsCommand = new(RequestCharts, () => HasSelection);
+        ToggleSelectedGroupCommand = new(() => { if (selectedGroupRule is { } rule) ToggleGroup(rule); }, () => selectedGroupRule is not null);
         RefreshCounts();
     }
 
@@ -250,6 +266,13 @@ public sealed class HistoryFindingsViewModel : ObservableObject
     public IReadOnlyList<HistoryObservationItem> Observations => all;
     /// <summary>What the filters let through; replaced as one change.</summary>
     public BulkObservableCollection<HistoryObservationItem> VisibleObservations { get; } = [];
+    /// <summary>
+    /// What the list shows: the visible observations, with the observations of a rule that fired more than once under one expandable header. Every observation is still its own
+    /// line (selectable, with its own evidence and identifier) while its group is expanded; the grouping exists only here, never in the analysis or in an export.
+    /// </summary>
+    public BulkObservableCollection<HistoryFindingRow> FindingRows { get; } = [];
+    /// <summary>The findings the filters let through, as the performance timeline draws them: their recorded intervals, one bar each.</summary>
+    public IReadOnlyList<FindingBar> TimelineBars { get; private set; } = [];
     public IReadOnlyList<HistoryCorrelationItem> PerformanceCorrelations { get; private set; } = [];
     public IReadOnlyList<HistoryCorrelationItem> ContextCorrelations { get; private set; } = [];
     public IReadOnlyList<HistoryCorrelationItem> Correlations => [.. PerformanceCorrelations, .. ContextCorrelations];
@@ -324,6 +347,8 @@ public sealed class HistoryFindingsViewModel : ObservableObject
         if (selectedObservation is not null && !VisibleObservations.Contains(selectedObservation)) { selectedObservation = null; Raise(nameof(SelectedObservation)); Raise(nameof(HasSelectedObservation)); Raise(nameof(HasSelection)); ClearHighlight(); clearEmphasis(); }
         // The list drops its selection when its items are replaced; a finding that is still shown is selected in it again.
         else if (selectedObservation is not null) Raise(nameof(SelectedObservation));
+        if (selectedGroupRule is not null && !VisibleObservations.Any(o => o.Observation.RuleId == selectedGroupRule)) { ClearGroupSelection(); ClearHighlight(); clearEmphasis(); }
+        RebuildRows();
         Raise(nameof(HasVisibleObservations)); Raise(nameof(FilterNote)); Raise(nameof(EmptyNote));
         RefreshSelectionCommands();
     }
@@ -337,8 +362,11 @@ public sealed class HistoryFindingsViewModel : ObservableObject
         {
             if (applying || !Set(ref selectedObservation, value)) return;
             Raise(nameof(HasSelectedObservation)); Raise(nameof(HasSelection));
-            if (value is null) { RefreshSelectionCommands(); return; }
-            ClearCorrelationSelection();
+            if (value is null) { RaiseSelectionDerived(); RefreshSelectionCommands(); return; }
+            ClearCorrelationSelection(); ClearGroupSelection();
+            // A selection that comes from the timeline, a correlation or a marker opens its group so the occurrence is on screen in the list.
+            Expand(value.Observation.RuleId);
+            RaiseSelectionDerived();
             Go(new(value.Observation.Start, value.Observation.End, value.Observation.Primary.ValidSamples > 0 ? value.Observation.Primary.WorstAt : null,
                 [value.Observation.Primary.ChannelId], value.Observation.Metrics.Skip(1).Select(m => m.ChannelId).ToArray(), value.Observation.Start, value.Observation.End));
         }
@@ -351,9 +379,9 @@ public sealed class HistoryFindingsViewModel : ObservableObject
         set
         {
             if (!Set(ref selectedCorrelation, value)) return;
-            Raise(nameof(ActiveCorrelation)); Raise(nameof(HasSelectedCorrelation)); Raise(nameof(HasSelection));
+            Raise(nameof(ActiveCorrelation)); Raise(nameof(HasSelectedCorrelation)); Raise(nameof(HasSelection)); RaiseSelectionDerived();
             if (value is null) { RefreshSelectionCommands(); return; }
-            ClearObservationSelection(); ClearContextSelection();
+            ClearObservationSelection(); ClearContextSelection(); ClearGroupSelection();
             GoCorrelation(value);
         }
     }
@@ -365,9 +393,9 @@ public sealed class HistoryFindingsViewModel : ObservableObject
         set
         {
             if (!Set(ref selectedContext, value)) return;
-            Raise(nameof(ActiveCorrelation)); Raise(nameof(HasSelectedCorrelation)); Raise(nameof(HasSelection));
+            Raise(nameof(ActiveCorrelation)); Raise(nameof(HasSelectedCorrelation)); Raise(nameof(HasSelection)); RaiseSelectionDerived();
             if (value is null) { RefreshSelectionCommands(); return; }
-            ClearObservationSelection(); ClearPerformanceSelection();
+            ClearObservationSelection(); ClearPerformanceSelection(); ClearGroupSelection();
             GoCorrelation(value);
         }
     }
@@ -376,8 +404,124 @@ public sealed class HistoryFindingsViewModel : ObservableObject
     public HistoryCorrelationItem? ActiveCorrelation => selectedCorrelation ?? selectedContext;
     public bool HasSelectedObservation => selectedObservation is not null;
     public bool HasSelectedCorrelation => ActiveCorrelation is not null;
-    public bool HasSelection => HasSelectedObservation || HasSelectedCorrelation;
-    private void RefreshSelectionCommands() { ShowFullRecordingCommand.Refresh(); ShowInChartsCommand.Refresh(); }
+    public bool HasSelection => HasSelectedObservation || HasSelectedCorrelation || HasSelectedGroup;
+    private void RefreshSelectionCommands() { ShowFullRecordingCommand.Refresh(); ShowInChartsCommand.Refresh(); ToggleSelectedGroupCommand.Refresh(); }
+
+    // ---------- grouped list and performance timeline ----------
+
+    private int Group(string ruleId) => VisibleObservations.Count(o => o.Observation.RuleId == ruleId);
+
+    private void RebuildRows()
+    {
+        rowsApplying = true;
+        FindingRows.ReplaceAll(FindingGrouping.Build(VisibleObservations, expandedRules.Contains, SetExpanded));
+        TimelineBars = VisibleObservations.Select(o => o.Bar).ToArray();
+        rowsApplying = false;
+        Raise(nameof(TimelineBars)); Raise(nameof(TimelineAutomationName)); RaiseSelectionDerived();
+    }
+
+    /// <summary>
+    /// A group was opened or closed (the header's own state changed): its occurrence lines are inserted below it or removed. Nothing else in the list is replaced, so the header keeps its
+    /// selection and its keyboard focus, and the lines of every other group stay as they are.
+    /// </summary>
+    private void SetExpanded(string ruleId, bool open)
+    {
+        if (open) expandedRules.Add(ruleId); else expandedRules.Remove(ruleId);
+        var at = FindingRows.ToList().FindIndex(r => r.IsGroup && r.RuleId == ruleId);
+        if (at < 0) return;
+        var header = FindingRows[at];
+        var following = 0;
+        while (at + 1 + following < FindingRows.Count && FindingRows[at + 1 + following].IsOccurrence && FindingRows[at + 1 + following].RuleId == ruleId) following++;
+        rowsApplying = true;
+        try
+        {
+            if (open && following == 0) { var lines = FindingGrouping.OccurrenceRows(header.Occurrences); for (var i = 0; i < lines.Count; i++) FindingRows.Insert(at + 1 + i, lines[i]); }
+            else if (!open) for (var i = 0; i < following; i++) FindingRows.RemoveAt(at + 1);
+        }
+        finally { rowsApplying = false; }
+        Raise(nameof(SelectedRow));
+    }
+
+    /// <summary>Opens or closes the occurrences of a rule that fired more than once.</summary>
+    public void ToggleGroup(string ruleId)
+    {
+        if (FindingRows.FirstOrDefault(r => r.IsGroup && r.RuleId == ruleId) is { } header) header.IsExpanded = !header.IsExpanded;
+    }
+
+    /// <summary>Opens the group of a rule (no change when it is open or has no group).</summary>
+    private void Expand(string ruleId)
+    {
+        if (FindingRows.FirstOrDefault(r => r.IsGroup && r.RuleId == ruleId) is { IsExpanded: false } header) header.IsExpanded = true;
+    }
+
+    private void RaiseSelectionDerived() { Raise(nameof(SelectedRow)); Raise(nameof(TimelineSelectedId)); Raise(nameof(TimelineHighlightIds)); }
+
+    /// <summary>
+    /// The list's selection. An occurrence (or a rule that fired once) selects its observation, which moves every chart to the real interval of that observation. A group header selects
+    /// the group: no observation, the charts show the span of its occurrences and no interval is highlighted, because the occurrences do not share one. Moving through the list with the
+    /// arrow keys therefore never opens or closes a group; that is done with the header's own gestures (<see cref="ToggleGroup"/>).
+    /// </summary>
+    public HistoryFindingRow? SelectedRow
+    {
+        get => selectedObservation is not null ? FindingRows.FirstOrDefault(r => ReferenceEquals(r.Item, selectedObservation))
+            : selectedGroupRule is not null ? FindingRows.FirstOrDefault(r => r.IsGroup && r.RuleId == selectedGroupRule) : null;
+        set
+        {
+            if (rowsApplying || value is null) return;
+            if (value.IsGroup) SelectGroup(value.RuleId); else SelectedObservation = value.Item;
+        }
+    }
+
+    /// <summary>The group whose summary is shown (a header chosen in the list); null when an observation or nothing is selected.</summary>
+    public HistoryFindingRow? SelectedGroup => selectedGroupRule is null ? null : FindingRows.FirstOrDefault(r => r.IsGroup && r.RuleId == selectedGroupRule);
+    public bool HasSelectedGroup => selectedGroupRule is not null;
+
+    private void SelectGroup(string ruleId)
+    {
+        var members = VisibleObservations.Where(o => o.Observation.RuleId == ruleId).OrderBy(o => o.Observation.Start).ToArray();
+        if (members.Length == 0 || ruleId == selectedGroupRule) return;
+        ClearObservationSelection(); ClearCorrelationSelection();
+        selectedGroupRule = ruleId;
+        Raise(nameof(SelectedGroup)); Raise(nameof(HasSelectedGroup)); Raise(nameof(HasSelection)); RaiseSelectionDerived();
+        Go(new(members.Min(m => m.Observation.Start), members.Max(m => m.Observation.End), null, [members[0].Observation.Primary.ChannelId], [], null, null));
+    }
+
+    private void ClearGroupSelection()
+    {
+        if (selectedGroupRule is null) return;
+        selectedGroupRule = null;
+        Raise(nameof(SelectedGroup)); Raise(nameof(HasSelectedGroup)); Raise(nameof(HasSelection));
+    }
+
+    /// <summary>The finding drawn as selected on the timeline.</summary>
+    public string? TimelineSelectedId => selectedObservation?.Id;
+    /// <summary>The findings that make up the selected correlation: outlined on the timeline.</summary>
+    public IReadOnlyList<string> TimelineHighlightIds => ActiveCorrelation?.Components.Select(c => c.Id).ToArray() ?? [];
+
+    /// <summary>Selects the previous (-1) or next (+1) visible finding in time order; with no selection, the first or the last. False when there is nothing to select.</summary>
+    public bool SelectAdjacent(int direction)
+    {
+        var ordered = VisibleObservations.OrderBy(o => o.Observation.Start).ThenBy(o => o.Observation.End).ThenBy(o => o.Id, StringComparer.Ordinal).ToArray();
+        if (ordered.Length == 0) return false;
+        var at = selectedObservation is null ? -1 : Array.IndexOf(ordered, selectedObservation);
+        var next = at < 0 ? (direction < 0 ? ordered.Length - 1 : 0) : Math.Clamp(at + Math.Sign(direction), 0, ordered.Length - 1);
+        SelectedObservation = ordered[next];
+        return true;
+    }
+
+    /// <summary>What a screen reader says about the timeline: how many findings it draws and how to move through them.</summary>
+    public string TimelineAutomationName => TimelineBars.Count == 0
+        ? "Performance timeline: no findings"
+        : $"Performance timeline: {FindingText.Plural(TimelineBars.Count, "finding", "findings")} on three tracks, Connection, Graphics and VDI Guest. Press Control and Left or Right to move between findings.";
+
+    /// <summary>Selects a finding by its identifier (a click on the timeline); a finding the filters hide cannot be chosen there because it is not drawn.</summary>
+    public bool SelectById(string id)
+    {
+        var item = VisibleObservations.FirstOrDefault(o => string.Equals(o.Id, id, StringComparison.Ordinal));
+        if (item is null) return false;
+        SelectedObservation = item;
+        return true;
+    }
 
     /// <summary>A component of the shown correlation chosen for inspection: selects that observation (clearing the correlation) and navigates to it.</summary>
     public HistoryObservationItem? SelectedComponent
@@ -410,7 +554,7 @@ public sealed class HistoryFindingsViewModel : ObservableObject
         navigate(target);
     }
 
-    private void ClearObservationSelection() { if (selectedObservation is null) return; selectedObservation = null; Raise(nameof(SelectedObservation)); Raise(nameof(HasSelectedObservation)); }
+    private void ClearObservationSelection() { if (selectedObservation is null) return; selectedObservation = null; Raise(nameof(SelectedObservation)); Raise(nameof(HasSelectedObservation)); RaiseSelectionDerived(); }
     private void ClearPerformanceSelection() { if (selectedCorrelation is null) return; selectedCorrelation = null; Raise(nameof(SelectedCorrelation)); }
     private void ClearContextSelection() { if (selectedContext is null) return; selectedContext = null; Raise(nameof(SelectedContextCorrelation)); }
     private void ClearCorrelationSelection() { ClearPerformanceSelection(); ClearContextSelection(); Raise(nameof(ActiveCorrelation)); Raise(nameof(HasSelectedCorrelation)); }
@@ -424,6 +568,8 @@ public sealed class HistoryFindingsViewModel : ObservableObject
     /// <summary>When the primary metric reached its recorded extreme inside the selected observation.</summary>
     public DateTimeOffset? PeakAt => peakAt;
     public RelayCommand ShowFullRecordingCommand { get; }
+    /// <summary>Opens or closes the occurrences of the selected group: the keyboard- and screen-reader-friendly twin of clicking the header.</summary>
+    public RelayCommand ToggleSelectedGroupCommand { get; }
     /// <summary>Asks the page to bring the emphasized chart into view (a button, or a click on a finding). Selecting with the arrow keys never moves the page.</summary>
     public RelayCommand ShowInChartsCommand { get; }
     public int ChartsRequest { get; private set; }
@@ -431,7 +577,7 @@ public sealed class HistoryFindingsViewModel : ObservableObject
     /// <summary>Back to the whole recording: nothing selected, nothing highlighted, every chart on the full range.</summary>
     public void ShowFull()
     {
-        ClearObservationSelection(); ClearCorrelationSelection(); ClearHighlight();
+        ClearObservationSelection(); ClearCorrelationSelection(); ClearGroupSelection(); ClearHighlight();
         Raise(nameof(HasSelection));
         RefreshSelectionCommands();
         showFullRecording();
@@ -443,8 +589,9 @@ public sealed class HistoryFindingsViewModel : ObservableObject
 
     public void Clear()
     {
-        selectedObservation = null; selectedCorrelation = null; selectedContext = null; highlightStart = highlightEnd = peakAt = null;
+        selectedObservation = null; selectedCorrelation = null; selectedContext = null; selectedGroupRule = null; highlightStart = highlightEnd = peakAt = null;
         all = []; analyzed = false; CurrentAnalysis = null; exportMessage = ""; Raise(nameof(ExportMessage)); Raise(nameof(HasAnalysis)); applying = true; VisibleObservations.ReplaceAll([]); applying = false;
+        expandedRules.Clear(); RebuildRows();
         PerformanceCorrelations = []; ContextCorrelations = []; QualityGroups = []; Limitations = [];
         severity = SeverityFilters[0]; domain = DomainFilters[0];
         RefreshCounts();
@@ -478,8 +625,9 @@ public sealed class HistoryFindingsViewModel : ObservableObject
         Limitations = analysis.Limitations.ToArray();
         analyzed = true; CurrentAnalysis = analysis; Raise(nameof(HasAnalysis));
         RefreshCounts();
-        selectedObservation = null; selectedCorrelation = null; selectedContext = null; highlightStart = highlightEnd = peakAt = null;
+        selectedObservation = null; selectedCorrelation = null; selectedContext = null; selectedGroupRule = null; highlightStart = highlightEnd = peakAt = null;
         applying = true; VisibleObservations.ReplaceAll(all.Where(Passes)); applying = false;
+        expandedRules.Clear(); RebuildRows();
         Summary = BuildSummary(analysis.Observations, PerformanceCorrelations.Count, ContextCorrelations.Count);
         DataQuality = BuildDataQuality(info);
         SnapshotNote = BuildSnapshotNote(info, analysis);
@@ -572,8 +720,8 @@ public sealed class HistoryFindingsViewModel : ObservableObject
         Raise(nameof(HasObservations)); Raise(nameof(HasVisibleObservations)); Raise(nameof(HasPerformanceCorrelations)); Raise(nameof(HasContextCorrelations));
         Raise(nameof(FilterNote)); Raise(nameof(EmptyNote));
         Raise(nameof(SelectedObservation)); Raise(nameof(SelectedCorrelation)); Raise(nameof(SelectedContextCorrelation)); Raise(nameof(ActiveCorrelation));
-        Raise(nameof(HasSelectedObservation)); Raise(nameof(HasSelectedCorrelation)); Raise(nameof(HasSelection));
+        Raise(nameof(HasSelectedObservation)); Raise(nameof(HasSelectedCorrelation)); Raise(nameof(HasSelection)); Raise(nameof(SelectedGroup)); Raise(nameof(HasSelectedGroup));
         Raise(nameof(SelectedSeverity)); Raise(nameof(SelectedDomain));
-        RaiseHighlight();
+        RaiseHighlight(); RaiseSelectionDerived();
     }
 }

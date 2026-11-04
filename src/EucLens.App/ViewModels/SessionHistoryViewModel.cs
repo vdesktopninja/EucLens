@@ -190,6 +190,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
         this.zone = zone ?? TimeZoneInfo.Local; this.logger = logger;
         ChartsRuntime.EnsureInitialized();
         Findings = new HistoryFindingsViewModel(this.zone, NavigateToFinding, ClearEmphasis, ShowFullRecording);
+        Findings.PropertyChanged += (_, e) => { if (e.PropertyName is nameof(HistoryFindingsViewModel.HasAnalysis) or nameof(HistoryFindingsViewModel.Status) or nameof(HistoryFindingsViewModel.Summary)) RefreshFindingsTile(); };
         RangePresets = [new(HistoryRangePreset.EntireSession, "Entire session"), new(HistoryRangePreset.Last60Minutes, "Last 60 minutes"), new(HistoryRangePreset.Last15Minutes, "Last 15 minutes"), new(HistoryRangePreset.Custom, "Custom range")];
         ContextChoices = [new(TimeSpan.FromMinutes(1), "± 1 min"), new(TimeSpan.FromMinutes(2), "± 2 min"), new(TimeSpan.FromMinutes(5), "± 5 min"), new(TimeSpan.FromMinutes(10), "± 10 min")];
         Filters = [new(HistoryEventFilter.All, "All events"), new(HistoryEventFilter.Incidents, "User incidents"), new(HistoryEventFilter.Findings, "Diagnostic findings"), new(HistoryEventFilter.Other, "Recording and session")];
@@ -292,6 +293,9 @@ public sealed class SessionHistoryViewModel : ObservableObject
     // ---------- overview ----------
 
     public ObservableCollection<MetricCard> Facts { get; } = [];
+    /// <summary>The compact overview: when, how long, protocol, status, samples, data coverage, findings and incidents. Everything else is in <see cref="Facts"/>, one expander away.</summary>
+    public ObservableCollection<HistoryTile> Tiles { get; } = [];
+    private HistoryTile? findingsTile;
     /// <summary>One line for the overview: state, duration, samples, protocol and data coverage. The full facts are one expander away.</summary>
     public string CompactSummary { get; private set; } = "";
     public string StateLabel { get; private set; } = "";
@@ -406,7 +410,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
         Findings.Clear();
         history = null; annotations = RecordingAnnotations.Empty;
         foreach (var row in Charts) row.Data.Clear();
-        Charts.Clear(); Events.Clear(); allEvents = []; Facts.Clear(); IssueLines.Clear();
+        Charts.Clear(); Events.Clear(); allEvents = []; Facts.Clear(); Tiles.Clear(); findingsTile = null; IssueLines.Clear();
         Markers = []; Gaps = []; SelectedIncident = null; selectedEvent = null; Raise(nameof(SelectedEvent));
         IsLoading = false; LoadProgress = ""; HoverText = ""; hoverAt = null;
         RaiseAll();
@@ -560,6 +564,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
         Facts.Add(new("Data source", info.IsDemo ? "Demo data" : "Real session", info.AppVersion.Length > 0 ? $"EUC Lens {info.AppVersion}" : ""));
         Facts.Add(new("Protocol", ProtocolSummary(info), ProtocolNote(info)));
         Facts.Add(new("Samples", info.Samples.ToString("N0", CultureInfo.CurrentCulture), $"{info.Parts} recording part(s)"));
+        Facts.Add(new("Recording ID", info.ShortId, "Identifies the part files on this computer"));
         Facts.Add(new("Diagnostic warnings", info.Warnings.ToString(CultureInfo.CurrentCulture), "Recorded by the diagnostic engine"));
         Facts.Add(new("Critical findings", info.Criticals.ToString(CultureInfo.CurrentCulture), "Recorded by the diagnostic engine"));
         Facts.Add(new("Marked incidents", info.Incidents.ToString(CultureInfo.CurrentCulture), "Marked by the user"));
@@ -573,6 +578,45 @@ public sealed class SessionHistoryViewModel : ObservableObject
         CompactSummary = $"{StateLabel} · {HistoryTime.FormatSpan(info.Duration)} · {info.Samples.ToString("N0", CultureInfo.InvariantCulture)} samples · " +
             (protocol.Length == 0 ? "protocol not detected" : string.Join(", ", protocol)) + $" · {(info.DataCoverage * 100).ToString("0.0", CultureInfo.InvariantCulture)}% data coverage";
         Raise(nameof(HasIssues)); Raise(nameof(StateLabel)); Raise(nameof(StateIcon)); Raise(nameof(StateNote)); Raise(nameof(CompactSummary));
+        BuildTiles(info);
+    }
+
+    /// <summary>The overview tiles, from the recording's own metadata only. The findings tile follows the analysis, which finishes later.</summary>
+    private void BuildTiles(HistoryInfo info)
+    {
+        var known = info.Protocols.Where(p => p != UnknownProtocol).ToArray();
+        var protocol = known.Length == 0 ? ProtocolSummary(info) : string.Join(", ", known);
+        var protocolDetail = known.Length == 0 ? (info.Protocols.Contains(UnknownProtocol) ? "No Horizon Blast counters" : "") : info.Protocols.Contains(UnknownProtocol) ? "Not detected at times" : "";
+        var coverage = info.Gaps == 0 ? "No gaps" : $"{FindingText.Plural(info.Gaps, "gap", "gaps")} · {FindingText.Span(info.GapTime)} missing";
+        findingsTile = new("Findings", "…", "Analyzing", "NoData", "Measured conditions found by the offline analysis of this recording.");
+        Tiles.Clear();
+        Tiles.Add(new("Recorded", HistoryTime.Format(info.StartedUtc, zone, withDate: true), info.HasEnded ? "until " + HistoryTime.Format(info.EndedUtc, zone, withDate: false) : info.IsPartial ? "first part only" : "end not recorded", "", "Start of the recording in the time zone shown below. Recordings store UTC."));
+        Tiles.Add(new(info.IsPartial ? "Duration analyzed" : "Duration", HistoryTime.FormatSpan(info.Duration), info.IsPartial ? "beginning only" : "", "", ""));
+        Tiles.Add(new("Protocol", protocol, protocolDetail, "", ProtocolNote(info)));
+        Tiles.Add(new("Status", StateLabel, info.State == RecordingCompleteness.Complete ? info.EndReason : "not complete", StateIcon, StateNote));
+        Tiles.Add(new("Samples", info.Samples.ToString("N0", CultureInfo.CurrentCulture), info.LostSamples > 0 ? $"{info.LostSamples:N0} lost" : $"{info.Parts} part(s)", "", ""));
+        Tiles.Add(new("Data coverage", info.DataCoverage.ToString("P1", CultureInfo.CurrentCulture), coverage, info.DataCoverage < 0.95 || info.Gaps > 0 ? "Info" : "", "Share of the recording's time that has samples. Gaps are never filled or interpolated."));
+        Tiles.Add(findingsTile);
+        Tiles.Add(new("Incidents", info.Incidents.ToString(CultureInfo.CurrentCulture), "marked by the user", "", ""));
+        RefreshFindingsTile();
+    }
+
+    private void RefreshFindingsTile()
+    {
+        if (findingsTile is not { } tile) return;
+        var f = Findings;
+        if (f.HasAnalysis)
+        {
+            var o = f.Observations;
+            var critical = o.Count(i => i.Observation.Severity == Severity.Critical); var warning = o.Count(i => i.Observation.Severity == Severity.Warning); var info = o.Count(i => i.Observation.Severity == Severity.Info);
+            var parts = new List<string>();
+            if (critical > 0) parts.Add($"{FindingText.Count(critical)} critical");
+            if (warning > 0) parts.Add($"{FindingText.Count(warning)} {(warning == 1 ? "warning" : "warnings")}");
+            if (info > 0) parts.Add($"{FindingText.Count(info)} info");
+            tile.Set(FindingText.Count(o.Count), parts.Count == 0 ? "none detected" : string.Join(" · ", parts), critical > 0 ? "Critical" : warning > 0 ? "Warning" : info > 0 ? "Info" : "Healthy");
+        }
+        else if (f.Status.StartsWith("Analysis unavailable", StringComparison.Ordinal)) tile.Set("—", "analysis unavailable", "NoData");
+        else tile.Set("…", "analyzing", "NoData");
     }
 
     private void BuildEvents(LoadedHistory loaded)
