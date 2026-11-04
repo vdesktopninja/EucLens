@@ -99,7 +99,7 @@ internal static class TypographyValidation
             }
             else
             {
-                var needed = DesktopValidation.NeededHeight(t, t.ActualWidth);
+                var needed = DesktopValidation.NeededHeight(t, t.ActualWidth + 2);              // two DIPs of tolerance: a text that exactly fills its width must not be measured into a second line by rounding
                 if (needed > t.ActualHeight + 1) Problem(visit, $"'{label}' is cut vertically: it needs {needed:0} DIPs at its width and has {t.ActualHeight:0} ({Where(t)})");
             }
             var bounds = t.TransformToAncestor(root).TransformBounds(new Rect(0, 0, t.ActualWidth, t.ActualHeight));
