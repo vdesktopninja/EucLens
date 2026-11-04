@@ -584,8 +584,16 @@ internal static class HistoryValidation
         Require(band.Background is SolidColorBrush fill && fill.Color == ((SolidColorBrush)c.Window.FindResource("AccentSurfaceBrush")).Color, "The evidence chart is not drawn with the emphasis background.");
         Require(DesktopValidation.Descendants<TextBlock>(container).Any(t => t.Text == "Evidence for the selected finding" && t.IsVisible), "The evidence chart lacks its label.");
         var detail = named("Selected finding evidence");
-        Require(detail.IsVisible && DesktopValidation.Descendants<TextBlock>(detail).Any(t => t.Text == row.Detail.KeyValues && t.IsVisible), "The key measured values are not visible without expanding anything.");
-        Require(DesktopValidation.Descendants<TextBlock>(detail).Any(t => t.Text == o.Explanation), "The deterministic explanation is not shown unchanged.");
+        // Without expanding anything: the key figure and the short structured facts. The engine's sentence and the long values line are one disclosure away, unchanged.
+        Require(detail.IsVisible && DesktopValidation.Descendants<TextBlock>(detail).Any(t => t.Text == row.KeyValue && t.IsVisible), "The key measurement is not visible without expanding anything.");
+        foreach (var fact in row.Detail.Facts)
+            Require(DesktopValidation.Descendants<TextBlock>(detail).Any(t => t.Text == fact.Value && t.IsVisible) && DesktopValidation.Descendants<TextBlock>(detail).Any(t => t.Text == fact.Label && t.IsVisible), $"The fact '{fact.Label}' is not visible without expanding anything.");
+        var fullExplanation = (Expander)named("What was observed, full explanation");
+        Require(!fullExplanation.IsExpanded, "The full explanation starts open.");
+        fullExplanation.IsExpanded = true; await Idle(c);
+        Require(DesktopValidation.Descendants<TextBlock>(fullExplanation).Any(t => t.Text == o.Explanation && t.IsVisible), "The deterministic explanation is not shown unchanged inside its disclosure.");
+        Require(DesktopValidation.Descendants<TextBlock>(fullExplanation).Any(t => t.Text == row.Detail.KeyValues && t.IsVisible), "The key measured values are not shown inside the full explanation.");
+        fullExplanation.IsExpanded = false; await Idle(c);
         Require(!((Expander)named("Measurement evidence")).IsExpanded, "The dense evidence should start collapsed.");
 
         var shownFrom = h.ViewStart; var shownTo = h.ViewEnd; var peak = o.Primary.WorstAt;
