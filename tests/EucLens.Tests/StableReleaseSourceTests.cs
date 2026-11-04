@@ -104,8 +104,8 @@ public sealed class StableReleaseSourceTests
             .Where(f => File.ReadAllText(f) is var text && (text.Contains("UseSyntheticSource(", StringComparison.Ordinal) || text.Contains("UseSyntheticDataAsync(", StringComparison.Ordinal)
                 || text.Contains("MockMetricsProvider", StringComparison.Ordinal)))
             .Select(f => Path.GetFileName(f)).Order(StringComparer.Ordinal).ToArray();
-        // The generator itself, the view model hook, and the smoke-harness files that use it (live sections and recording fixtures).
-        Assert.Equal(["App.xaml.cs", "BackgroundValidation.cs", "HistoryValidation.cs", "MainViewModel.cs", "MockMetricsProvider.cs"], callers);
+        // The generator itself, the view model hook, and the smoke-harness files that use it (live sections, recording fixtures and the History workspace screenshots).
+        Assert.Equal(["App.xaml.cs", "BackgroundValidation.cs", "HistoryUxValidation.cs", "HistoryValidation.cs", "MainViewModel.cs", "MockMetricsProvider.cs"], callers);
         Assert.Contains("if (smoke) await RunSmokeAsync(", app);
     }
 
