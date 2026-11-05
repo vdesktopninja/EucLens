@@ -11,6 +11,9 @@
    </Border>
   </DataTemplate>
 
+  <!-- A muted line that takes no room while it has nothing to say (a hint that does not apply, a message that has not happened). -->
+  <Style x:Key="HintText" TargetType="TextBlock" BasedOn="{StaticResource Muted}"><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed" /></Trigger></Style.Triggers></Style>
+
   <!-- The saved-recordings list: a table with its own scroll viewer and virtual rows, so hundreds of recordings cost the same as a dozen. -->
   <Style x:Key="RecordingList" TargetType="ListBox">
    <Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /><Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
@@ -38,9 +41,9 @@
      <Button Content="{Binding Monitor.Recorder.MonitoringActionLabel}" Command="{Binding Monitor.Recorder.MonitoringActionCommand}" Margin="0,0,8,4" ToolTip="Monitoring collects the measurements. Pausing it records a gap, never invented values." />
      <Button Content="Mark performance issue" Command="{Binding Monitor.Background.MarkIncidentCommand}" Margin="0,0,8,4" AutomationProperties.Name="Mark performance issue" ToolTip="Saves a timestamped marker into the running recording. Monitoring and recording continue." />
     </WrapPanel>
-    <TextBlock Text="{Binding Monitor.Recorder.StartHint}" Style="{StaticResource Muted}" AutomationProperties.Name="Why recording cannot start" />
-    <TextBlock Text="{Binding Monitor.Background.IncidentHint}" Style="{StaticResource Muted}" AutomationProperties.Name="Why incident marking is unavailable" />
-    <TextBlock Text="{Binding Monitor.Background.LastIncidentText}" Style="{StaticResource Muted}" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Latest incident marker" />
+    <TextBlock Text="{Binding Monitor.Recorder.StartHint}" Style="{StaticResource HintText}" AutomationProperties.Name="Why recording cannot start" />
+    <TextBlock Text="{Binding Monitor.Background.IncidentHint}" Style="{StaticResource HintText}" AutomationProperties.Name="Why incident marking is unavailable" />
+    <TextBlock Text="{Binding Monitor.Background.LastIncidentText}" Style="{StaticResource HintText}" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Latest incident marker" />
     <WrapPanel Margin="0,6,0,0">
      <TextBlock Text="Current recording" Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,8,4" />
      <Button Content="Export JSON" Command="{Binding Monitor.ExportJsonCommand}" Margin="0,0,8,4" AutomationProperties.Name="Export the current recording as JSON" />
@@ -88,7 +91,7 @@
        <TextBlock Grid.Column="1" Text="{Binding Duration}" Typography.NumeralAlignment="Tabular" TextAlignment="Right" Margin="0,0,8,0" />
        <TextBlock Grid.Column="2" Text="{Binding Samples}" Typography.NumeralAlignment="Tabular" TextAlignment="Right" Margin="0,0,8,0" />
        <TextBlock Grid.Column="3" Text="{Binding Size}" Typography.NumeralAlignment="Tabular" TextAlignment="Right" Margin="0,0,8,0" TextWrapping="Wrap" />
-       <StackPanel Grid.Column="4" Orientation="Horizontal" Margin="12,0,0,0"><Path Style="{StaticResource SeverityIcon}" Tag="{Binding StatusIcon}" Margin="0,2,6,0" VerticalAlignment="Top" /><TextBlock Text="{Binding StatusSummary}" TextWrapping="Wrap" ToolTip="{Binding Status}" /></StackPanel>
+       <Grid Grid.Column="4" Margin="12,0,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><Path Style="{StaticResource SeverityIcon}" Tag="{Binding StatusIcon}" Margin="0,2,6,0" VerticalAlignment="Top" /><TextBlock Grid.Column="1" Text="{Binding StatusSummary}" TextWrapping="Wrap" ToolTip="{Binding Status}" /></Grid>
       </Grid>
      </DataTemplate></ListBox.ItemTemplate>
     </ListBox>
@@ -104,8 +107,8 @@
        <Button Content="Show file" Command="{Binding Monitor.Background.SavedRecordings.ShowFileCommand}" Margin="0,0,8,4" AutomationProperties.Name="Show the selected recording's file in Windows Explorer" AutomationProperties.HelpText="{Binding Monitor.Background.SavedRecordings.ShowFileHint}" />
        <Button Content="Open folder" Command="{Binding Monitor.Background.SavedRecordings.OpenFolderCommand}" Margin="0,0,8,4" AutomationProperties.Name="Open the selected recording's folder" AutomationProperties.HelpText="{Binding Monitor.Background.SavedRecordings.ActionHint}" />
       </WrapPanel>
-      <TextBlock Text="{Binding Monitor.Background.SavedRecordings.ActionHint}" Style="{StaticResource Muted}" AutomationProperties.Name="Why the actions are unavailable" />
-      <TextBlock Text="{Binding Monitor.Background.RecordingsMessage}" Style="{StaticResource Muted}" Margin="0,2,0,0" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Recordings message" />
+      <TextBlock Text="{Binding Monitor.Background.SavedRecordings.ActionHint}" Style="{StaticResource HintText}" AutomationProperties.Name="Why the actions are unavailable" />
+      <TextBlock Text="{Binding Monitor.Background.RecordingsMessage}" Style="{StaticResource HintText}" Margin="0,2,0,0" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Recordings message" />
      </StackPanel>
     </Border>
    </StackPanel>
@@ -116,9 +119,9 @@
    <StackPanel Margin="0,8,0,8">
     <TextBlock Text="Recordings folder" Style="{StaticResource SubLabel}" />
     <TextBlock Text="{Binding Monitor.Recorder.FolderText}" TextWrapping="Wrap" Margin="0,2,0,2" AutomationProperties.Name="Recordings folder" />
-    <TextBlock Text="{Binding Monitor.Recorder.FolderNote}" Style="{StaticResource Muted}" Margin="0,0,0,4" />
+    <TextBlock Text="{Binding Monitor.Recorder.FolderNote}" Style="{StaticResource HintText}" Margin="0,0,0,4" />
     <Button Content="Open folder" Command="{Binding Monitor.Background.OpenRecordingsFolderCommand}" HorizontalAlignment="Left" AutomationProperties.Name="Open the recordings folder" />
-    <TextBlock Text="{Binding Monitor.Recorder.StorageStatus}" Style="{StaticResource Muted}" Margin="0,6,0,0" AutomationProperties.Name="Recording storage status" />
+    <TextBlock Text="{Binding Monitor.Recorder.StorageStatus}" Style="{StaticResource HintText}" Margin="0,6,0,0" AutomationProperties.Name="Recording storage status" />
     <TextBlock Text="Storage and limits" Style="{StaticResource SubLabel}" Margin="0,10,0,0" />
     <TextBlock Text="{Binding Monitor.Recorder.RecordLimit}" Style="{StaticResource Muted}" />
     <TextBlock Text="{Binding Monitor.Recorder.QuotaText}" Style="{StaticResource Muted}" Margin="0,4,0,0" />

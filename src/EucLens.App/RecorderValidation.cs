@@ -201,7 +201,7 @@ internal static class RecorderValidation
                 list.SelectedIndex = 0; await Idle(window); await Task.Delay(100);
                 Require(vm.SelectedPage == page, "Selecting a recording navigated away.");
                 Require(Math.Abs(scroll.VerticalOffset - offset) < 1, $"Selecting a recording scrolled the page ({offset:0} to {scroll.VerticalOffset:0}).");
-                Require(saved.SelectedItem is not null && Named(window, "Analyze recording").IsEnabled && Named(window, "Export JSON").IsEnabled, "The actions of the selected recording are not available.");
+                Require(saved.SelectedItem is not null && Named(window, "Analyze recording").IsEnabled && Named(window, "Export the selected recording as JSON").IsEnabled, "The actions of the selected recording are not available.");
                 foreach (var name in new[] { "Show file", "Open folder" }) Require(DesktopValidation.Descendants<Button>(window).Any(b => b.IsVisible && (b.Content as string) == name && b.IsEnabled), $"'{name}' is not enabled for the selected recording.");
                 Require(((ListBoxItem)list.ItemContainerGenerator.ContainerFromIndex(0)).IsSelected, "The selected row is not highlighted.");
                 Require(VisibleTexts(window).Any(t => t == saved.SelectionSummary && t.Length > 0), "The selection summary is not shown.");
