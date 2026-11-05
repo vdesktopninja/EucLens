@@ -1,7 +1,7 @@
 <UserControl x:Class="EucLens.App.Views.AboutView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
  <StackPanel>
   <TextBlock Text="About" Style="{StaticResource Heading}" />
-  <TextBlock Text="What this application is, its licence, and an update check that only runs when you ask for it." Style="{StaticResource Muted}" Margin="0,0,0,12" />
+  <TextBlock Text="What this application is, its license, and an update check that only runs when you ask for it." Style="{StaticResource Muted}" Margin="0,0,0,12" />
   <Border Style="{StaticResource Panel}" AutomationProperties.Name="Application identity">
    <Grid>
     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
@@ -49,7 +49,7 @@
     <TextBlock Text="The check sends one request to GitHub's public release list: no account, no identifier, no computer or user name, and nothing about your session or recordings. Corporate proxy and certificate settings are respected. Monitoring and recording are not affected by the result." Style="{StaticResource Muted}" Margin="0,8,0,0" />
    </StackPanel>
   </Border>
-  <Border Style="{StaticResource Panel}" AutomationProperties.Name="Release notes, licence and acknowledgments">
+  <Border Style="{StaticResource Panel}" AutomationProperties.Name="Release notes, license and acknowledgments">
    <StackPanel>
     <TextBlock Text="Release notes and legal" Style="{StaticResource Section}" />
     <Expander Header="Release notes of this version" AutomationProperties.Name="Release notes of this version">

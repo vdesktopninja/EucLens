@@ -2,7 +2,7 @@ using System.Reflection;
 
 namespace EucLens.Core;
 
-/// <summary>The licence, the third-party notices and the release notes of this version: the repository's own files, embedded in the assembly by the build.</summary>
+/// <summary>The license, the third-party notices and the release notes of this version: the repository's own files, embedded in the assembly by the build.</summary>
 public static class LegalTexts
 {
     public static string License => Read("EucLens.LICENSE.txt");

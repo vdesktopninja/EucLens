@@ -8,7 +8,7 @@ namespace EucLens.App.ViewModels;
 public sealed record AboutFact(string Label, string Value);
 
 /// <summary>
-/// The About page: who the application is (read from the assembly metadata, nothing typed twice), the licence and acknowledgments, the release notes and an update check.
+/// The About page: who the application is (read from the assembly metadata, nothing typed twice), the license and acknowledgments, the release notes and an update check.
 /// <para>
 /// Privacy: building this object, showing the page or changing an option makes no network request. The only network access is <see cref="CheckForUpdatesCommand"/>, which the user
 /// presses; the optional checker is created at that moment. "Download update" opens the official release page in the browser; EUC Lens never downloads or starts a file.

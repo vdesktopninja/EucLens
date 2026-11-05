@@ -74,7 +74,7 @@ public sealed class MainViewModel : ObservableObject
     public BackgroundViewModel Background { get; }
     /// <summary>Session History: saved recordings, incident timeline and historical charts. Independent of the live view and of monitoring.</summary>
     public SessionHistoryViewModel History { get; }
-    /// <summary>The About page: identity, licence, release notes and the update check the user starts. It makes no network request until asked.</summary>
+    /// <summary>The About page: identity, license, release notes and the update check the user starts. It makes no network request until asked.</summary>
     public AboutViewModel About { get; }
     public MonitoringService Monitoring => monitoring;
     private static readonly IReadOnlyDictionary<RemoteProtocol, string> ProtocolLabels = new Dictionary<RemoteProtocol, string>

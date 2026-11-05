@@ -181,11 +181,11 @@ internal static class AboutValidation
             {
                 vm.About.UseCheckerForValidation(new FakeChecker(_ => Task.FromResult(new UpdateCheckResult(UpdateOutcome.UpToDate, "You have the latest version.", ReleaseVersion.Zero))));
                 var expanders = DesktopValidation.Descendants<Expander>(window).Where(e => e.IsVisible).ToList();
-                Require(expanders.Count == 3, $"{expanders.Count} disclosures instead of 3 (release notes, licence, acknowledgments).");
+                Require(expanders.Count == 3, $"{expanders.Count} disclosures instead of 3 (release notes, license, acknowledgments).");
                 foreach (var expander in expanders) expander.IsExpanded = true;
                 await Idle(window); await Task.Delay(150);
                 var texts = DesktopValidation.Descendants<TextBlock>(window).Where(t => t.IsVisible).Select(t => t.Text).ToList();
-                Require(texts.Any(t => t.StartsWith("MIT License", StringComparison.Ordinal) && t.Contains("Permission is hereby granted", StringComparison.Ordinal)), "The licence text is not shown.");
+                Require(texts.Any(t => t.StartsWith("MIT License", StringComparison.Ordinal) && t.Contains("Permission is hereby granted", StringComparison.Ordinal)), "The license text is not shown.");
                 Require(texts.Any(t => t.Contains("LiveChartsCore", StringComparison.Ordinal) && t.Contains("SkiaSharp", StringComparison.Ordinal) || t.Contains("# Third-party notices", StringComparison.Ordinal)), "The acknowledgments are not shown.");
                 Require(texts.Any(t => t.StartsWith("## " + AppVersion.Current, StringComparison.Ordinal)), "The release notes of this version are not shown.");
                 TypographyValidation.Reset();
@@ -197,7 +197,7 @@ internal static class AboutValidation
                 DesktopValidation.PageHost(window)?.ScrollToTop();
                 foreach (var expander in expanders) expander.IsExpanded = false;
                 await Idle(window);
-                Log(directory, $"PASS: legal text ({theme}): release notes of this version, the MIT licence and the acknowledgments open and read in full; no text clipped, overlapping or outside its card with all three open");
+                Log(directory, $"PASS: legal text ({theme}): release notes of this version, the MIT license and the acknowledgments open and read in full; no text clipped, overlapping or outside its card with all three open");
             });
         }
 
