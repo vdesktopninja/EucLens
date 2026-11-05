@@ -96,6 +96,7 @@ internal static class AboutValidation
 
             await Section($"page content {theme}", async () =>
             {
+                var checksBefore = vm.About.CheckCount;      // the earlier theme's sections pressed the button on purpose; only a change during this section counts
                 vm.About.UseCheckerForValidation(new FakeChecker(_ => Task.FromResult(new UpdateCheckResult(UpdateOutcome.UpToDate, "You have the latest version.", ReleaseVersion.Zero))));
                 await Idle(window);
                 var texts = DesktopValidation.Descendants<TextBlock>(window).Where(t => t.IsVisible).Select(t => t.Text).ToList();
@@ -112,7 +113,7 @@ internal static class AboutValidation
                     Require(button.IsEnabled && button.IsTabStop && button.Focusable && !string.IsNullOrEmpty(System.Windows.Automation.AutomationProperties.GetName(button)), $"'{name}' is not an enabled, focusable, named button.");
                 }
                 Require(!DesktopValidation.Descendants<Button>(window).Any(b => b.IsVisible && ((b.Content as string) is "Download update" or "View release notes")), "Update actions are shown before an update was found.");
-                Require(vm.About.CheckCount == 0, "The page content check started an update check.");
+                Require(vm.About.CheckCount == checksBefore, "Showing the page started an update check.");
                 Log(directory, $"PASS: About page {theme}: identity, version, copyright, MIT, maintainer, platform, logo and the footer version are shown from the single source; the three actions are named, enabled and focusable; no update action before a result");
                 DesktopValidation.Capture(window, client, Path.Combine(directory, $"about-idle-{theme}.png"));
             });
