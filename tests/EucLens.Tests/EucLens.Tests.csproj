@@ -4,6 +4,8 @@
   <Compile Include="../../src/EucLens.App/ViewModels/MainViewModel.cs" Link="App/MainViewModel.cs" />
   <Compile Include="../../src/EucLens.App/ViewModels/ObservableObject.cs" Link="App/ObservableObject.cs" />
   <Compile Include="../../src/EucLens.App/ViewModels/AboutViewModel.cs" Link="App/AboutViewModel.cs" />
+  <Compile Include="../../src/EucLens.App/ViewModels/SavedRecordingsViewModel.cs" Link="App/SavedRecordingsViewModel.cs" />
+  <Compile Include="../../src/EucLens.App/ViewModels/RecorderWorkspace.cs" Link="App/RecorderWorkspace.cs" />
   <Compile Include="../../src/EucLens.App/ViewModels/DiagnosticsViewModel.cs" Link="App/DiagnosticsViewModel.cs" />
   <Compile Include="../../src/EucLens.App/ViewModels/DiagnosticItems.cs" Link="App/DiagnosticItems.cs" />
   <Compile Include="../../src/EucLens.App/ViewModels/BackgroundViewModel.cs" Link="App/BackgroundViewModel.cs" />

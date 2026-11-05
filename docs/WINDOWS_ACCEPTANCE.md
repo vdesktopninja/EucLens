@@ -76,6 +76,17 @@ CI cannot judge these; please check them once on a real Windows 11 VDI session:
 5. Tab through a page and the navigation: the focus is always visible (ring or accent border) and moves in reading order; a screen reader announces headings, tiles, lines, groups and the preview.
 6. Windows *Settings → Accessibility → Text size* is not applied by WPF applications (display scaling is). Confirm that is acceptable, or ask for it.
 
+## Session Recorder (0.5.1) — manual acceptance
+
+1. Open Session Recorder with monitoring running and nothing recording: the Recording tile says *Ready*, Duration `00:00:00`, Samples `0`; the line under the tiles reads `Monitoring active · Real Session · …` with the protocol your session really has (Horizon Blast, or *Windows metrics only* without counters); *Start recording* is prominent, *Stop recording* is dimmed.
+2. Click *Start recording* twice quickly: one recording starts (Duration counts, Samples grow), the second click does nothing. *Stop recording* is now the prominent button. Hide the window to the tray and restore it: still recording, the numbers current. Switch to another page and back: the same.
+3. *Pause monitoring* during a recording: it keeps recording, the tile shows *Monitoring paused* with a warning shape and the page explains the gap; *Resume monitoring* continues. *Mark performance issue* confirms with a time.
+4. The latency chart is compact. Before any sample it says *No RTT samples available yet.*; in a session without Horizon counters it says RTT is not available; with data it draws only the recorded values, with gaps where values are missing.
+5. Stop the recording: *Completed*; refresh the list if it is not there yet. Saved recordings: newest first; sort by Recorded, Duration and Size (a second press reverses); filter by Status. Click a row: it is highlighted, **nothing opens, the page does not scroll and Session History does not open**; the action bar lists Analyze recording, Export JSON, Export CSV, Show file, Open folder. Arrow keys move the selection; Tab reaches the buttons. *Analyze recording* opens Session History; the exports write the same files as before; *Show file* selects the file in Explorer.
+6. With a recording that was deleted outside EUC Lens still selected, press *Refresh*: it disappears and the actions say to select a recording. With several hundred recordings in the folder the page stays responsive.
+7. *Storage and recording details* (collapsed): folder with *Open folder*, quota and retention, recording format, pause semantics and the VDI note.
+8. 100 %, 125 % and 150 % display scaling on 1366×768 and 1920×1080, light and dark, on a real display: nothing clipped or overlapping, the table readable down to the narrowest window, every control reachable by keyboard, a screen reader announces the status, the tiles, the rows and the actions.
+
 ## About and update checking (0.5.1) — manual acceptance
 
 1. Explorer → right-click `EucLens.exe` → Properties → Details: Product name *EUC Lens*, File description *EUC Lens - Remote Session Performance Diagnostics*, Product version *0.5.1*, File version *0.5.1.0*, Copyright *Copyright (c) 2026 EUC Lens contributors* (the repository's existing line, unchanged). Windows shows the company, *VDI Ninja*, on the Details/Properties of the executable where it displays one; it has no author field.

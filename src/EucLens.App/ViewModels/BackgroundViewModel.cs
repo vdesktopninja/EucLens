@@ -39,6 +39,7 @@ public sealed class BackgroundViewModel : ObservableObject
         RefreshRecordingsCommand = new(RefreshRecordingsAsync);
         MarkIncidentCommand = new(() => MarkIncidentAsync(), () => monitoring.CanMarkIncident);
         monitoring.StatusChanged += _ => Post(RefreshMonitoring);
+        SavedRecordings = new SavedRecordingsViewModel(this);
         Apply(BackgroundSettings.Defaults);
     }
 
@@ -216,7 +217,10 @@ public sealed class BackgroundViewModel : ObservableObject
     internal bool IsActiveRecording(RecordingSummary summary) =>
         recorder.IsRecording && recorder.SinkStatus?.RecordingId is { } id && RecordingFormat.ShortId(id) == summary.ShortId;
 
-    public ObservableCollection<RecordingItem> Recordings { get; } = [];
+    /// <summary>Every saved recording found by the last scan, newest first as the catalog lists them. The Session Recorder page shows <see cref="SavedRecordings"/>, the sorted, filtered and selectable view of it.</summary>
+    public BulkObservableCollection<RecordingItem> Recordings { get; } = [];
+    /// <summary>The saved-recordings workspace: sorting, filter, one selection and the actions on it. Holds no view.</summary>
+    public SavedRecordingsViewModel SavedRecordings { get; }
     public string RecordingsMessage { get => recordingsMessage; private set => Set(ref recordingsMessage, value); }
     public string StorageStatus { get => storageStatus; private set => Set(ref storageStatus, value); }
     public string RecordingFolder => current.EffectiveDirectory;
@@ -259,8 +263,8 @@ public sealed class BackgroundViewModel : ObservableObject
         try
         {
             var found = await Task.Run(() => RecordingCatalog.Scan(storage, folder));
-            Recordings.Clear();
-            foreach (var summary in found) Recordings.Add(new(summary, this));
+            // One notification for the whole list: hundreds of recordings must not raise hundreds of collection events.
+            Recordings.ReplaceAll(found.Select(summary => new RecordingItem(summary, this)));
             RecordingsMessage = found.Count == 0 ? $"No recordings in {folder}." : $"{found.Count} recording(s) in {folder}.";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -291,6 +295,9 @@ public sealed class BackgroundViewModel : ObservableObject
     }
 }
 
+/// <summary>How a saved recording ended, as far as its own files say: not a new state of the recording engine.</summary>
+public enum RecordingStatusKind { Complete, InProgress, Interrupted }
+
 /// <summary>One saved recording in the Session Recorder list.</summary>
 public sealed class RecordingItem(RecordingSummary summary, BackgroundViewModel owner) : ObservableObject
 {
@@ -306,6 +313,20 @@ public sealed class RecordingItem(RecordingSummary summary, BackgroundViewModel 
     public string Status => Summary.IsComplete
         ? Summary.EndReason + (Summary.LostSamples > 0 ? $" · {Summary.LostSamples:N0} samples lost" : "")
         : (IsActive ? "Recording in progress · saved as it is collected" : "Interrupted · readable up to the last complete line") + (Summary.LostSamples > 0 ? $" · {Summary.LostSamples:N0} samples lost" : "");
+    /// <summary>The state in one word for the list, the filter and the sort: complete (its end was written), in progress (the one being written now) or interrupted.</summary>
+    public RecordingStatusKind StatusKind => Summary.IsComplete ? RecordingStatusKind.Complete : IsActive ? RecordingStatusKind.InProgress : RecordingStatusKind.Interrupted;
+    /// <summary>The shape next to the status word (a SeverityIcon tag), so the state is never carried by colour alone.</summary>
+    public string StatusIcon => StatusKind switch { RecordingStatusKind.Complete => "Healthy", RecordingStatusKind.InProgress => "Info", _ => "Warning" };
+    public string StatusLabel => StatusKind switch { RecordingStatusKind.Complete => "Complete", RecordingStatusKind.InProgress => "In progress", _ => "Interrupted" };
+    /// <summary>"Complete" or "Interrupted" plus what is worth knowing at a glance: samples lost, a pause the user should be aware of.</summary>
+    public string StatusSummary => Summary.LostSamples > 0 ? $"{StatusLabel} · {Summary.LostSamples:N0} lost" : StatusLabel;
+    public DateTimeOffset StartedUtc => Summary.StartedUtc;
+    public TimeSpan DurationValue => Summary.Duration;
+    public long Bytes => Summary.Bytes;
+    public string ShortId => Summary.ShortId;
+    /// <summary>The first file of the recording, for the action bar's explanation and the tooltip of the date; empty when the catalog found none.</summary>
+    public string FileName => Summary.Parts.Count > 0 ? Path.GetFileName(Summary.Parts[0]) : "";
+    public bool HasFile => Summary.Parts.Count > 0;
     public string Source => Summary.Source == "Demo" ? "Demo data" : "Real session";
     public string AutomationName => $"Recording from {Started}, {Duration}, {Samples} samples, {Events}, {Status}";
     public RelayCommand OpenFileCommand { get; } = new(() => owner.Open(summary, folderOnly: false));

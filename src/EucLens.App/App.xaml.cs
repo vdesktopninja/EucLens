@@ -304,6 +304,8 @@ public partial class App : Application
         var deferred = new List<string>();
         try { await AboutValidation.RunAsync(MainWindow, vm, Path.Combine(AppContext.BaseDirectory, "visual-evidence")); }
         catch (Exception ex) { deferred.Add("About validation: " + ex.Message); SmokeLog.Write("about validation failed: " + ex.Message); }
+        try { await RecorderValidation.RunAsync(MainWindow, vm, recorder, Path.Combine(AppContext.BaseDirectory, "visual-evidence")); }
+        catch (Exception ex) { deferred.Add("Recorder validation: " + ex.Message); SmokeLog.Write("recorder validation failed: " + ex.Message); }
         try { await HistoryValidation.RunAsync(new(this, MainWindow, vm, Path.Combine(AppContext.BaseDirectory, "visual-evidence"))); }
         catch (Exception ex)
         {

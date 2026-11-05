@@ -1,38 +1,135 @@
-<UserControl x:Class="EucLens.App.Views.RecorderView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:ui="clr-namespace:EucLens.App.Presentation" xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF">
+<UserControl x:Class="EucLens.App.Views.RecorderView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:ui="clr-namespace:EucLens.App.Presentation" xmlns:vm="clr-namespace:EucLens.App.ViewModels" xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF">
+ <UserControl.Resources>
+  <!-- One overview tile: label, the value that matters, an optional short qualifier and the status shape (never colour alone). -->
+  <DataTemplate x:Key="RecorderTile">
+   <Border Background="{DynamicResource ElevatedBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="{StaticResource Hairline}" CornerRadius="{StaticResource ControlRadius}" Padding="12,8" Margin="0,0,8,8" ToolTip="{Binding ToolTip}" AutomationProperties.Name="{Binding AutomationName}">
+    <StackPanel>
+     <TextBlock Text="{Binding Label}" Style="{StaticResource Meta}" />
+     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><Path Style="{StaticResource SeverityIcon}" Tag="{Binding Icon}" Margin="0,0,8,0" Visibility="{Binding HasIcon, Converter={StaticResource BoolToVisibility}}" /><TextBlock Grid.Column="1" Text="{Binding Value}" Style="{StaticResource MetricValue}" TextWrapping="Wrap" VerticalAlignment="Center" /></Grid>
+     <TextBlock Text="{Binding Detail}" Style="{StaticResource Meta}" Typography.NumeralAlignment="Tabular" Visibility="{Binding HasDetail, Converter={StaticResource BoolToVisibility}}" />
+    </StackPanel>
+   </Border>
+  </DataTemplate>
+
+  <!-- The saved-recordings list: a table with its own scroll viewer and virtual rows, so hundreds of recordings cost the same as a dozen. -->
+  <Style x:Key="RecordingList" TargetType="ListBox">
+   <Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /><Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+   <Setter Property="KeyboardNavigation.DirectionalNavigation" Value="Contained" /><Setter Property="KeyboardNavigation.TabNavigation" Value="Once" />
+   <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True" /><Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling" /><Setter Property="VirtualizingPanel.ScrollUnit" Value="Item" /><Setter Property="ScrollViewer.CanContentScroll" Value="True" />
+   <Setter Property="ItemsPanel"><Setter.Value><ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate></Setter.Value></Setter>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBox"><Border Background="{TemplateBinding Background}"><ScrollViewer x:Name="RecordingsScroll" Focusable="False" CanContentScroll="True" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Padding="0"><ItemsPresenter /></ScrollViewer></Border></ControlTemplate></Setter.Value></Setter>
+  </Style>
+ </UserControl.Resources>
  <StackPanel>
   <TextBlock Text="Session recorder" Style="{StaticResource Heading}" />
-  <TextBlock Text="Record timestamped measurements to disk while you work, also with the window hidden in the notification area. Export during recording or after stopping." Style="{StaticResource Muted}" Margin="0,0,0,12" />
-  <Border Style="{StaticResource Panel}" AutomationProperties.Name="Monitoring control"><StackPanel>
-   <TextBlock Text="Monitoring" FontWeight="SemiBold" />
-   <TextBlock Text="{Binding Monitor.Background.MonitoringText}" Margin="0,4,0,2" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
-   <TextBlock Text="{Binding Monitor.Background.TrayDescription}" Style="{StaticResource Muted}" Margin="0,0,0,8" TextWrapping="Wrap" />
-   <WrapPanel><Button Content="Start monitoring" Command="{Binding Monitor.Background.StartMonitoringCommand}" Margin="0,0,8,4" /><Button Content="Pause monitoring" Command="{Binding Monitor.Background.PauseMonitoringCommand}" Margin="0,0,8,4" /><Button Content="Resume monitoring" Command="{Binding Monitor.Background.ResumeMonitoringCommand}" Margin="0,0,8,4" /></WrapPanel>
-   <TextBlock Text="Pausing collects no samples; an open recording records the pause and its exact length as a gap, never invented values. Recording needs monitoring." Style="{StaticResource Muted}" TextWrapping="Wrap" />
-  </StackPanel></Border>
-  <Border Style="{StaticResource Panel}"><StackPanel>
-   <WrapPanel Margin="0,0,0,8"><TextBlock Text="{Binding Monitor.RecordingState}" FontWeight="SemiBold" Margin="0,0,24,4" /><TextBlock Text="{Binding Monitor.RecordingDuration, StringFormat=Elapsed: {0}}" Typography.NumeralAlignment="Tabular" Margin="0,0,24,4" /><TextBlock Text="{Binding Monitor.SampleCount, StringFormat=Samples: {0}}" Typography.NumeralAlignment="Tabular" /></WrapPanel>
-   <WrapPanel><Button Content="Start recording" Command="{Binding Monitor.StartRecordingCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,8,4" /><Button Content="Stop" Command="{Binding Monitor.StopRecordingCommand}" Margin="0,0,8,4" /><Button Content="Export JSON" Command="{Binding Monitor.ExportJsonCommand}" Margin="0,0,8,4" /><Button Content="Export CSV" Command="{Binding Monitor.ExportCsvCommand}" Margin="0,0,8,4" /></WrapPanel>
-   <WrapPanel Margin="0,8,0,0"><Button Content="Mark performance issue" Command="{Binding Monitor.Background.MarkIncidentCommand}" Margin="0,0,12,4" AutomationProperties.Name="Mark performance issue" ToolTip="Saves a timestamped marker into the running recording. Monitoring and recording continue." /><TextBlock Text="{Binding Monitor.Background.LastIncidentText}" VerticalAlignment="Center" Margin="0,0,0,4" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Last incident" /></WrapPanel>
-   <TextBlock Text="{Binding Monitor.Background.IncidentHint}" Style="{StaticResource Muted}" TextWrapping="Wrap" AutomationProperties.Name="Why incident marking is unavailable" />
-   <TextBlock Text="{Binding Monitor.Background.StorageStatus}" Style="{StaticResource Muted}" Margin="0,4,0,0" TextWrapping="Wrap" AutomationProperties.Name="Recording storage status" />
-  </StackPanel></Border><Border Style="{StaticResource ChartSurface}"><StackPanel><TextBlock Text="Recorded connection history" FontWeight="SemiBold" /><TextBlock Text="RTT · ms · latest 600 samples · exports include the full recording" Style="{StaticResource Muted}" Margin="0,4,0,8" /><lvc:CartesianChart ui:LiveChart.Data="{Binding Monitor.RecordingChart}" AnimationsSpeed="{Binding Monitor.ChartAnimation}" Height="216" Background="{DynamicResource ChartBackgroundBrush}" ui:ChartTheme.Text="{DynamicResource MutedBrush}" ui:ChartTheme.Surface="{DynamicResource SurfaceBrush}" ui:ChartTheme.Grid="{DynamicResource ChartGridBrush}" ui:ChartTheme.Line="{DynamicResource AccentBrush}" AutomationProperties.Name="Recorded connection history history" /></StackPanel></Border>
-  <Border Style="{StaticResource Panel}"><StackPanel><TextBlock Text="Storage and limits" FontWeight="SemiBold" Margin="0,0,0,8" /><TextBlock Text="{Binding Monitor.RecordLimit}" Style="{StaticResource Muted}" TextWrapping="Wrap" /><TextBlock Text="Each recording is a series of readable JSON Lines files in the recordings folder (schema euclens.recording/1). Unavailable measurements have no value and are never written as zero; pauses, disconnects and lost samples are explicit entries. Exports keep the existing JSON and CSV formats. Folder, quota and retention are set under Settings, Background monitoring." Style="{StaticResource Muted}" Margin="0,8,0,0" TextWrapping="Wrap" /></StackPanel></Border>
-  <Border Style="{StaticResource Panel}" AutomationProperties.Name="Saved recordings"><StackPanel>
-   <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-    <TextBlock Text="Saved recordings" FontWeight="SemiBold" VerticalAlignment="Center" />
-    <WrapPanel Grid.Column="1"><Button Content="Refresh" Command="{Binding Monitor.Background.RefreshRecordingsCommand}" Margin="0,0,8,0" /><Button Content="Open recordings folder" Command="{Binding Monitor.Background.OpenRecordingsFolderCommand}" /></WrapPanel>
-   </Grid>
-   <TextBlock Text="{Binding Monitor.Background.RecordingFolder}" Style="{StaticResource Muted}" Margin="0,6,0,0" TextWrapping="Wrap" />
-   <TextBlock Text="{Binding Monitor.Background.RecordingFolderNote}" Style="{StaticResource Muted}" Margin="0,2,0,6" TextWrapping="Wrap" />
-   <TextBlock Text="{Binding Monitor.Background.RecordingsMessage}" Margin="0,0,0,4" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
-   <ItemsControl ItemsSource="{Binding Monitor.Background.Recordings}" Focusable="False" AutomationProperties.Name="Recordings list"><ItemsControl.ItemTemplate><DataTemplate>
-    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,8" AutomationProperties.Name="{Binding AutomationName}"><StackPanel>
-     <WrapPanel><TextBlock Text="{Binding Started}" FontWeight="SemiBold" Margin="0,0,16,0" Typography.NumeralAlignment="Tabular" /><TextBlock Text="{Binding Duration, StringFormat=Duration {0}}" Margin="0,0,16,0" Typography.NumeralAlignment="Tabular" /><TextBlock Text="{Binding Samples, StringFormat=Samples {0}}" Margin="0,0,16,0" Typography.NumeralAlignment="Tabular" /><TextBlock Text="{Binding Size, StringFormat=Size {0}}" Margin="0,0,16,0" Typography.NumeralAlignment="Tabular" /><TextBlock Text="{Binding Source}" Margin="0,0,16,0" /></WrapPanel>
-     <TextBlock Text="{Binding Events}" Style="{StaticResource Muted}" />
-     <TextBlock Text="{Binding Status}" Style="{StaticResource Muted}" TextWrapping="Wrap" />
-     <WrapPanel Margin="0,6,0,0"><Button Content="Show file" Command="{Binding OpenFileCommand}" Margin="0,0,8,0" /><Button Content="Open folder" Command="{Binding OpenFolderCommand}" Margin="0,0,8,0" /><Button Content="Export JSON" Command="{Binding ExportJsonCommand}" Margin="0,0,8,0" /><Button Content="Export CSV" Command="{Binding ExportCsvCommand}" /></WrapPanel>
-    </StackPanel></Border>
-   </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
-  </StackPanel></Border>
+  <TextBlock Text="Record timestamped measurements to disk while you work, also with the window hidden. Analyze, export or find a saved recording below." Style="{StaticResource Muted}" Margin="0,0,0,12" />
+
+  <!-- Monitoring and recording: one status, three tiles, the actions. -->
+  <Border Style="{StaticResource Panel}" AutomationProperties.Name="Monitoring and recording">
+   <StackPanel>
+    <ItemsControl ItemsSource="{Binding Monitor.Recorder.Tiles}" ItemTemplate="{StaticResource RecorderTile}" Focusable="False" AutomationProperties.Name="Recording status, duration and samples">
+     <ItemsControl.ItemsPanel><ItemsPanelTemplate><ui:AdaptiveColumnsPanel MinimumColumnWidth="150" MaximumColumns="3" BalanceRows="True" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+    </ItemsControl>
+    <TextBlock Text="{Binding Monitor.Recorder.MonitoringSummary}" FontWeight="SemiBold" TextWrapping="Wrap" ToolTip="{Binding Monitor.Recorder.MonitoringDetail}" AutomationProperties.Name="Monitoring status" AutomationProperties.LiveSetting="Polite" />
+    <TextBlock Text="{Binding Monitor.Recorder.StatusDetail}" Style="{StaticResource Reading}" Margin="0,2,0,10" AutomationProperties.Name="Recording status detail" AutomationProperties.LiveSetting="Polite" />
+    <WrapPanel>
+     <Button Content="Start recording" Command="{Binding Monitor.StartRecordingCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,8,4" AutomationProperties.Name="Start recording" />
+     <Button Content="Stop recording" Command="{Binding Monitor.StopRecordingCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,8,4" AutomationProperties.Name="Stop recording" />
+     <Button Content="{Binding Monitor.Recorder.MonitoringActionLabel}" Command="{Binding Monitor.Recorder.MonitoringActionCommand}" Margin="0,0,8,4" ToolTip="Monitoring collects the measurements. Pausing it records a gap, never invented values." />
+     <Button Content="Mark performance issue" Command="{Binding Monitor.Background.MarkIncidentCommand}" Margin="0,0,8,4" AutomationProperties.Name="Mark performance issue" ToolTip="Saves a timestamped marker into the running recording. Monitoring and recording continue." />
+    </WrapPanel>
+    <TextBlock Text="{Binding Monitor.Recorder.StartHint}" Style="{StaticResource Muted}" AutomationProperties.Name="Why recording cannot start" />
+    <TextBlock Text="{Binding Monitor.Background.IncidentHint}" Style="{StaticResource Muted}" AutomationProperties.Name="Why incident marking is unavailable" />
+    <TextBlock Text="{Binding Monitor.Background.LastIncidentText}" Style="{StaticResource Muted}" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Latest incident marker" />
+    <WrapPanel Margin="0,6,0,0">
+     <TextBlock Text="Current recording" Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,8,4" />
+     <Button Content="Export JSON" Command="{Binding Monitor.ExportJsonCommand}" Margin="0,0,8,4" AutomationProperties.Name="Export the current recording as JSON" />
+     <Button Content="Export CSV" Command="{Binding Monitor.ExportCsvCommand}" Margin="0,0,8,4" AutomationProperties.Name="Export the current recording as CSV" />
+    </WrapPanel>
+   </StackPanel>
+  </Border>
+
+  <!-- Live connection latency: compact; an empty state instead of an empty chart. -->
+  <Border Style="{StaticResource ChartSurface}" AutomationProperties.Name="Live connection latency">
+   <StackPanel>
+    <TextBlock Text="Live connection latency" Style="{StaticResource Section}" Margin="0" />
+    <TextBlock Text="{Binding Monitor.Recorder.ChartSubtitle}" Style="{StaticResource Muted}" Margin="0,2,0,8" />
+    <Grid>
+     <lvc:CartesianChart ui:LiveChart.Data="{Binding Monitor.RecordingChart}" AnimationsSpeed="{Binding Monitor.ChartAnimation}" Height="200" Background="{DynamicResource ChartBackgroundBrush}" ui:ChartTheme.Text="{DynamicResource MutedBrush}" ui:ChartTheme.Surface="{DynamicResource SurfaceBrush}" ui:ChartTheme.Grid="{DynamicResource ChartGridBrush}" ui:ChartTheme.Line="{DynamicResource AccentBrush}" AutomationProperties.Name="Live connection latency: round-trip time in milliseconds, latest 600 samples" />
+     <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="{StaticResource Hairline}" CornerRadius="{StaticResource ControlRadius}" Padding="14,10" MaxWidth="520" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" Visibility="{Binding Monitor.Recorder.ChartShowEmpty, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="Chart empty state">
+      <TextBlock Text="{Binding Monitor.Recorder.ChartEmptyText}" Style="{StaticResource Reading}" TextAlignment="Center" AutomationProperties.LiveSetting="Polite" />
+     </Border>
+    </Grid>
+   </StackPanel>
+  </Border>
+
+  <!-- Saved recordings: one table, one selection, one action bar. -->
+  <Border Style="{StaticResource Panel}" AutomationProperties.Name="Saved recordings">
+   <StackPanel>
+    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+     <StackPanel Orientation="Horizontal"><TextBlock Text="Saved recordings" Style="{StaticResource Section}" Margin="0" VerticalAlignment="Center" /><TextBlock Text="{Binding Monitor.Background.SavedRecordings.CountText, StringFormat=· {0}}" Style="{StaticResource Muted}" Margin="10,0,0,0" VerticalAlignment="Center" AutomationProperties.LiveSetting="Polite" /></StackPanel>
+     <Button Grid.Column="1" Content="Refresh" Command="{Binding Monitor.Background.RefreshRecordingsCommand}" AutomationProperties.Name="Refresh the list of saved recordings" />
+    </Grid>
+    <WrapPanel Margin="0,8,0,4"><TextBlock Text="Status" Style="{StaticResource ReadingMuted}" VerticalAlignment="Center" Margin="0,0,8,4" /><ListBox Style="{StaticResource Segmented}" ItemsSource="{Binding Monitor.Background.SavedRecordings.StatusFilters}" SelectedItem="{Binding Monitor.Background.SavedRecordings.SelectedFilter}" DisplayMemberPath="Label" AutomationProperties.Name="Filter saved recordings by status" /></WrapPanel>
+    <!-- Column headers: the same star proportions as the rows; date, duration and size sort. -->
+    <Grid x:Name="RecordingsHeader" Margin="8,0,8,2">
+     <Grid.ColumnDefinitions><ColumnDefinition Width="2.1*" /><ColumnDefinition Width="1*" /><ColumnDefinition Width="1*" /><ColumnDefinition Width="1*" /><ColumnDefinition Width="1.5*" /></Grid.ColumnDefinitions>
+     <Button Style="{StaticResource ColumnHeader}" Command="{Binding Monitor.Background.SavedRecordings.SortByRecordedCommand}" AutomationProperties.Name="Sort by recording date" ToolTip="{Binding Monitor.Background.SavedRecordings.SortDescription}"><StackPanel Orientation="Horizontal"><TextBlock Text="Recorded" /><TextBlock Text="{Binding Monitor.Background.SavedRecordings.RecordedSortMark}" Margin="4,0,0,0" /></StackPanel></Button>
+     <Button Grid.Column="1" Style="{StaticResource ColumnHeader}" HorizontalAlignment="Right" Command="{Binding Monitor.Background.SavedRecordings.SortByDurationCommand}" AutomationProperties.Name="Sort by duration" ToolTip="{Binding Monitor.Background.SavedRecordings.SortDescription}"><StackPanel Orientation="Horizontal"><TextBlock Text="Duration" /><TextBlock Text="{Binding Monitor.Background.SavedRecordings.DurationSortMark}" Margin="4,0,0,0" /></StackPanel></Button>
+     <TextBlock Grid.Column="2" Text="Samples" FontWeight="SemiBold" Foreground="{DynamicResource MutedBrush}" TextAlignment="Right" Margin="0,2,8,0" VerticalAlignment="Center" />
+     <Button Grid.Column="3" Style="{StaticResource ColumnHeader}" HorizontalAlignment="Right" Command="{Binding Monitor.Background.SavedRecordings.SortBySizeCommand}" AutomationProperties.Name="Sort by size" ToolTip="{Binding Monitor.Background.SavedRecordings.SortDescription}"><StackPanel Orientation="Horizontal"><TextBlock Text="Size" /><TextBlock Text="{Binding Monitor.Background.SavedRecordings.SizeSortMark}" Margin="4,0,0,0" /></StackPanel></Button>
+     <TextBlock Grid.Column="4" Text="Status" FontWeight="SemiBold" Foreground="{DynamicResource MutedBrush}" Margin="12,2,0,0" VerticalAlignment="Center" />
+    </Grid>
+    <ListBox x:Name="RecordingsList" ItemsSource="{Binding Monitor.Background.SavedRecordings.Items}" SelectedItem="{Binding Monitor.Background.SavedRecordings.SelectedItem}" Style="{StaticResource RecordingList}" ItemContainerStyle="{StaticResource TableRow}" MaxHeight="360" Visibility="{Binding Monitor.Background.SavedRecordings.HasItems, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="Saved recordings: choose one to show its actions below. Choosing a recording opens nothing.">
+     <ListBox.ItemTemplate><DataTemplate>
+      <Grid AutomationProperties.Name="{Binding AutomationName}" ToolTip="{Binding FileName}">
+       <Grid.ColumnDefinitions><ColumnDefinition Width="2.1*" /><ColumnDefinition Width="1*" /><ColumnDefinition Width="1*" /><ColumnDefinition Width="1*" /><ColumnDefinition Width="1.5*" /></Grid.ColumnDefinitions>
+       <TextBlock Text="{Binding Started}" FontWeight="SemiBold" Typography.NumeralAlignment="Tabular" TextWrapping="Wrap" />
+       <TextBlock Grid.Column="1" Text="{Binding Duration}" Typography.NumeralAlignment="Tabular" TextAlignment="Right" Margin="0,0,8,0" />
+       <TextBlock Grid.Column="2" Text="{Binding Samples}" Typography.NumeralAlignment="Tabular" TextAlignment="Right" Margin="0,0,8,0" />
+       <TextBlock Grid.Column="3" Text="{Binding Size}" Typography.NumeralAlignment="Tabular" TextAlignment="Right" Margin="0,0,8,0" TextWrapping="Wrap" />
+       <StackPanel Grid.Column="4" Orientation="Horizontal" Margin="12,0,0,0"><Path Style="{StaticResource SeverityIcon}" Tag="{Binding StatusIcon}" Margin="0,2,6,0" VerticalAlignment="Top" /><TextBlock Text="{Binding StatusSummary}" TextWrapping="Wrap" ToolTip="{Binding Status}" /></StackPanel>
+      </Grid>
+     </DataTemplate></ListBox.ItemTemplate>
+    </ListBox>
+    <TextBlock Text="{Binding Monitor.Background.SavedRecordings.EmptyText}" Style="{StaticResource Muted}" Margin="8,6,8,6" Visibility="{Binding Monitor.Background.SavedRecordings.IsEmpty, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="No recordings to show" />
+    <!-- The action bar of the selected recording. -->
+    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Margin="0,6,0,0" Padding="0,8,0,0" AutomationProperties.Name="Actions for the selected recording">
+     <StackPanel>
+      <TextBlock Text="{Binding Monitor.Background.SavedRecordings.SelectionSummary}" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.Name="Selected recording" AutomationProperties.LiveSetting="Polite" />
+      <WrapPanel Margin="0,4,0,0">
+       <Button Content="Analyze recording" Command="{Binding Monitor.Background.SavedRecordings.AnalyzeCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,8,4" AutomationProperties.Name="Analyze recording in Session History" AutomationProperties.HelpText="{Binding Monitor.Background.SavedRecordings.AnalyzeHint}" />
+       <Button Content="Export JSON" Command="{Binding Monitor.Background.SavedRecordings.ExportJsonCommand}" Margin="0,0,8,4" AutomationProperties.Name="Export the selected recording as JSON" AutomationProperties.HelpText="{Binding Monitor.Background.SavedRecordings.ActionHint}" />
+       <Button Content="Export CSV" Command="{Binding Monitor.Background.SavedRecordings.ExportCsvCommand}" Margin="0,0,8,4" AutomationProperties.Name="Export the selected recording as CSV" AutomationProperties.HelpText="{Binding Monitor.Background.SavedRecordings.ActionHint}" />
+       <Button Content="Show file" Command="{Binding Monitor.Background.SavedRecordings.ShowFileCommand}" Margin="0,0,8,4" AutomationProperties.Name="Show the selected recording's file in Windows Explorer" AutomationProperties.HelpText="{Binding Monitor.Background.SavedRecordings.ShowFileHint}" />
+       <Button Content="Open folder" Command="{Binding Monitor.Background.SavedRecordings.OpenFolderCommand}" Margin="0,0,8,4" AutomationProperties.Name="Open the selected recording's folder" AutomationProperties.HelpText="{Binding Monitor.Background.SavedRecordings.ActionHint}" />
+      </WrapPanel>
+      <TextBlock Text="{Binding Monitor.Background.SavedRecordings.ActionHint}" Style="{StaticResource Muted}" AutomationProperties.Name="Why the actions are unavailable" />
+      <TextBlock Text="{Binding Monitor.Background.RecordingsMessage}" Style="{StaticResource Muted}" Margin="0,2,0,0" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="Recordings message" />
+     </StackPanel>
+    </Border>
+   </StackPanel>
+  </Border>
+
+  <!-- The long explanations, one disclosure away. -->
+  <Expander Header="Storage and recording details" Margin="0,4,0,0" AutomationProperties.Name="Storage and recording details">
+   <StackPanel Margin="0,8,0,8">
+    <TextBlock Text="Recordings folder" Style="{StaticResource SubLabel}" />
+    <TextBlock Text="{Binding Monitor.Recorder.FolderText}" TextWrapping="Wrap" Margin="0,2,0,2" AutomationProperties.Name="Recordings folder" />
+    <TextBlock Text="{Binding Monitor.Recorder.FolderNote}" Style="{StaticResource Muted}" Margin="0,0,0,4" />
+    <Button Content="Open folder" Command="{Binding Monitor.Background.OpenRecordingsFolderCommand}" HorizontalAlignment="Left" AutomationProperties.Name="Open the recordings folder" />
+    <TextBlock Text="{Binding Monitor.Recorder.StorageStatus}" Style="{StaticResource Muted}" Margin="0,6,0,0" AutomationProperties.Name="Recording storage status" />
+    <TextBlock Text="Storage and limits" Style="{StaticResource SubLabel}" Margin="0,10,0,0" />
+    <TextBlock Text="{Binding Monitor.Recorder.RecordLimit}" Style="{StaticResource Muted}" />
+    <TextBlock Text="{Binding Monitor.Recorder.QuotaText}" Style="{StaticResource Muted}" Margin="0,4,0,0" />
+    <TextBlock Text="Recording format" Style="{StaticResource SubLabel}" Margin="0,10,0,0" />
+    <TextBlock Text="{x:Static vm:RecorderWorkspace.FormatText}" Style="{StaticResource Muted}" />
+    <TextBlock Text="Pause and monitoring" Style="{StaticResource SubLabel}" Margin="0,10,0,0" />
+    <TextBlock Text="{x:Static vm:RecorderWorkspace.PauseText}" Style="{StaticResource Muted}" />
+    <TextBlock Text="{Binding Monitor.Recorder.TrayText}" Style="{StaticResource Muted}" Margin="0,4,0,0" />
+    <TextBlock Text="Non-persistent VDI" Style="{StaticResource SubLabel}" Margin="0,10,0,0" />
+    <TextBlock Text="{x:Static vm:RecorderWorkspace.VdiText}" Style="{StaticResource Muted}" />
+   </StackPanel>
+  </Expander>
  </StackPanel>
 </UserControl>

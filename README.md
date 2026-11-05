@@ -67,6 +67,7 @@ availability (Horizon Blast counters + Windows metrics, or Windows metrics only)
   RTT chart (latest 600 samples). JSON and CSV export to a chosen local file.
 - Local preferences, bounded application logs, no authentication, telemetry,
   service, database, cloud dependency or runtime internet requirement.
+- **Session Recorder** (0.5.1 layout): one status for monitoring and recording, a compact live latency chart, and a table of saved recordings with one action bar. See [Session Recorder](docs/SESSION_RECORDER.md).
 - **About EUC Lens** (0.5.1): by Dominik Jakubowski, VDI Ninja (https://vdesktop.ninja), with version and build, MIT license, open-source acknowledgments (and the verbatim third-party license texts) and release notes. An explicit **Check for updates**
   button asks GitHub's public release list (nothing is requested unless you press it; no identifiers or session data are sent; nothing is downloaded or installed, *Download
   update* opens the release page in your browser). See [About and updates](docs/ABOUT_AND_UPDATES.md) and the [self-update design](docs/SELF_UPDATE_DESIGN.md) (not implemented).

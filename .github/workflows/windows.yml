@@ -126,8 +126,17 @@ jobs:
           if (Test-Path artifacts/win-x64/visual-evidence/about-validation.txt) {
             Get-Content artifacts/win-x64/visual-evidence/about-validation.txt
           }
+          if (Test-Path artifacts/win-x64/visual-evidence/recorder-validation.txt) {
+            Get-Content artifacts/win-x64/visual-evidence/recorder-validation.txt
+          }
           foreach ($result in 'history-events-result.txt', 'history-navigation-result.txt', 'history-6h-result.txt') {
             if (Test-Path "artifacts/win-x64/visual-evidence/$result") { Get-Content "artifacts/win-x64/visual-evidence/$result" }
+          }
+          if (-not (Test-Path artifacts/win-x64/visual-evidence/recorder-validation.txt)) { $problems += 'Missing Session Recorder validation result' }
+          else {
+            $recorderCheck = Get-Content artifacts/win-x64/visual-evidence/recorder-validation.txt -Raw
+            if ($recorderCheck -notmatch 'PASS: recorder validation complete') { $problems += 'Session Recorder validation did not complete' }
+            if ($recorderCheck -match 'FAIL:') { $problems += 'Session Recorder validation reported a failure' }
           }
           if (-not (Test-Path artifacts/win-x64/visual-evidence/about-validation.txt)) { $problems += 'Missing About validation result' }
           else {
@@ -221,7 +230,7 @@ jobs:
               Get-Content artifacts/win-x64/smoke-progress.txt -Tail 80
               Write-Host '::endgroup::'
             }
-            foreach ($result in 'smoke-result.txt', 'visual-evidence/background-validation.txt', 'visual-evidence/history-validation.txt', 'visual-evidence/about-validation.txt') {
+            foreach ($result in 'smoke-result.txt', 'visual-evidence/background-validation.txt', 'visual-evidence/history-validation.txt', 'visual-evidence/about-validation.txt', 'visual-evidence/recorder-validation.txt') {
               $file = Join-Path artifacts/win-x64 $result
               if (Test-Path $file) {
                 Write-Host "::group::$result"
@@ -239,7 +248,7 @@ jobs:
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.Drawing
-          $files = @(Get-ChildItem 'artifacts/win-x64/visual-evidence/*' -Include '*-100pct-*Page.png', 'about-*.png', 'FAILED-*.png' -ErrorAction SilentlyContinue | Sort-Object Name)
+          $files = @(Get-ChildItem 'artifacts/win-x64/visual-evidence/*' -Include '*-100pct-*Page.png', 'about-*.png', 'recorder-*.png', 'FAILED-*.png' -ErrorAction SilentlyContinue | Sort-Object Name)
           # The Session History workspace: every scenario in both themes at 100 % and, at the narrowest size, with the space of 150 % (simulated space, not a Windows DPI change).
           $files += @(Get-ChildItem 'artifacts/win-x64/visual-evidence/workspace/*.png' -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*-100pct.png' -or $_.Name -like '*-1366x768-150pct.png' } | Sort-Object Name)
           Write-Host "Page screenshots: $($files.Count)"

@@ -14,6 +14,8 @@ public sealed class MainViewModel : ObservableObject
     private bool recordingIsSynthetic;
     private IMetricsProvider ActiveProvider => syntheticSource ?? provider;
     private bool IsSynthetic => syntheticSource is not null;
+    /// <summary>For the Session Recorder's presentation: whether the harness's synthetic source is in use.</summary>
+    internal bool UsesSyntheticSource => IsSynthetic;
     public string ModeLabel => IsSynthetic ? "Synthetic test data" : "Real Session";
     /// <summary>What the current data is and which collectors provide it; never claims Blast counters the session does not have.</summary>
     public string ModeBanner => IsSynthetic ? "SYNTHETIC TEST DATA · Automated validation only" : "REAL SESSION · " + DataAvailability;
@@ -72,6 +74,8 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>Persisted recordings are already on disk; only an in-memory recording can be lost by exiting.</summary>
     public bool HasUnexportedSamples => !recorder.IsPersistent && recorder.SampleCount > exportedSamples;
     public BackgroundViewModel Background { get; }
+    /// <summary>The Session Recorder page's presentation: one status, the tiles, the chart's empty state and the storage details.</summary>
+    public RecorderWorkspace Recorder { get; }
     /// <summary>Session History: saved recordings, incident timeline and historical charts. Independent of the live view and of monitoring.</summary>
     public SessionHistoryViewModel History { get; }
     /// <summary>The About page: identity, license, release notes and the update check the user starts. It makes no network request until asked.</summary>
@@ -161,6 +165,7 @@ public sealed class MainViewModel : ObservableObject
         Background = background ?? new BackgroundViewModel(this.monitoring, recorder, desktop, logger: logger);
         History = new SessionHistoryViewModel(Background, desktop, recorder, Background.Storage, logger: logger);
         About = new AboutViewModel(desktop, updateChecker);
+        Recorder = new RecorderWorkspace(this, Background, recorder);
         recorder.Ended += reason => Post(() => OnRecordingEnded(reason));
         this.monitoring.StatusChanged += _ => Post(RefreshRecorder);
         Background.IncidentCompleted += result => Status = result.Message;
@@ -311,6 +316,7 @@ public sealed class MainViewModel : ObservableObject
 
     private void OnRecordingEnded(RecordingEndReason reason)
     {
+        Recorder.OnRecordingEnded(reason);
         Status = reason switch
         {
             RecordingEndReason.StorageError => "The recording stopped because of a storage problem. What was written is saved; see the Session Recorder page.",
@@ -477,11 +483,13 @@ public sealed class MainViewModel : ObservableObject
     }
     private void StartRecording()
     {
+        // A second request while a recording is running (a double click, a repeated key press) must not start another one: the recorder would refuse it with an exception.
+        if (recorder.IsRecording) return;
         // A persisted recording never replaces an earlier one (it is a new file), so only in-memory history needs the confirmation.
         if (!recorder.IsPersistent && recorder.SampleCount > 0 && !desktop.ConfirmNewRecording()) return;
         if (monitoring.Coordinator.State != MonitoringState.Running) { Status = "Recording needs monitoring: start or resume monitoring first."; return; }
         try { recordingIsSynthetic = IsSynthetic; recorder.Start(IsSynthetic); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
             logger.LogWarning(ex, "Recording could not be started.");
             Status = $"The recording could not be started: {ex.Message} Check the recordings folder in Settings.";
@@ -499,6 +507,7 @@ public sealed class MainViewModel : ObservableObject
         monitoring.Refresh();
         Raise(nameof(RecordingState)); Raise(nameof(RecordingDuration)); Raise(nameof(SampleCount)); Raise(nameof(RecordLimit));
         Background.RefreshStorage();
+        Recorder?.Refresh();
         StartRecordingCommand.Refresh(); StopRecordingCommand.Refresh(); ExportJsonCommand.Refresh(); ExportCsvCommand.Refresh();
     }
     private async Task ExportAsync(bool json)
