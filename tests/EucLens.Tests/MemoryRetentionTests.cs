@@ -39,16 +39,23 @@ public sealed class MemoryRetentionTests(ITestOutputHelper output)
 
     private sealed class LongLivedPublisher { public event Action? Happened; public int Count => Happened?.GetInvocationList().Length ?? 0; public void Subscribe(Action handler) => Happened += handler; }
 
+    /// <summary>
+    /// Runs per batch of the three leak controls. A control leaks about 10 to 25 KiB per run (the limit is 6 KiB); on a busy Windows runner the heap also falls by a few hundred KiB between
+    /// batches (idle pooled buffers are trimmed), which at 20 runs per batch (200 to 460 KiB of signal) once cancelled the signal of the first control (measured: slope 1.3 KiB per run, CI run 42019776615).
+    /// More runs per batch make the same leak add up to more than that noise; the limits of the verdict are unchanged.
+    /// </summary>
+    private const int ControlRuns = 60;
+
     [Fact]
     public void TheProbeDetectsRetainedResultsARetainedBufferAndAHandlerThatIsNeverRemoved()
     {
         var input = Input(40_795);
         var results = new List<AnomalyAnalysis>();                                           // a cache that is never emptied
-        var retainedResults = RetentionProbe.Measure(_ => results.Add(AnomalyDetectionEngine.Analyze(input)));
+        var retainedResults = RetentionProbe.Measure(_ => results.Add(AnomalyDetectionEngine.Analyze(input)), runsPerBatch: ControlRuns);
         var buffers = new List<byte[]>();                                                    // a small buffer (16 KiB) kept per run
-        var retainedBuffers = RetentionProbe.Measure(_ => buffers.Add(new byte[16 * 1024]));
+        var retainedBuffers = RetentionProbe.Measure(_ => buffers.Add(new byte[16 * 1024]), runsPerBatch: ControlRuns);
         var publisher = new LongLivedPublisher();                                            // a view-like object that subscribed and was never unsubscribed
-        var leakedHandlers = RetentionProbe.Measure(_ => { var scratch = new byte[16 * 1024]; publisher.Subscribe(() => scratch[0]++); });
+        var leakedHandlers = RetentionProbe.Measure(_ => { var scratch = new byte[16 * 1024]; publisher.Subscribe(() => scratch[0]++); }, runsPerBatch: ControlRuns);
         foreach (var (name, report) in new[] { ("retained results", retainedResults), ("retained buffers", retainedBuffers), ("leaked handlers", leakedHandlers) })
         {
             var (leaks, why) = RetentionProbe.Verdict(report);
