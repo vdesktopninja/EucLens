@@ -24,6 +24,8 @@ public sealed class AboutAndUpdateTests
 {
     private static string Repo([System.Runtime.CompilerServices.CallerFilePath] string file = "") => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(file)!, "../.."));
     private static string Source(string relative) => File.ReadAllText(Path.Combine(Repo(), relative));
+    /// <summary>obj and bin hold generated files (global usings include System.Net.Http); the check is of hand-written source, on any path separator.</summary>
+    private static bool IsBuildOutput(string path) { var normalized = path.Replace('\\', '/'); return normalized.Contains("/obj/", StringComparison.Ordinal) || normalized.Contains("/bin/", StringComparison.Ordinal); }
     private static ReleaseVersion V(string text) => ReleaseVersion.TryParse(text, out var v) ? v : throw new ArgumentException(text);
     private static readonly ReleaseVersion Installed = V("0.5.1");
 
@@ -47,7 +49,7 @@ public sealed class AboutAndUpdateTests
     [Fact]
     public void NoViewAndNoAboutCodeTypesTheVersionNumberAgain()
     {
-        foreach (var xaml in Directory.EnumerateFiles(Path.Combine(Repo(), "src/EucLens.App"), "*.xaml", SearchOption.AllDirectories).Where(f => !f.Contains("/obj/") && !f.Contains("/bin/")))
+        foreach (var xaml in Directory.EnumerateFiles(Path.Combine(Repo(), "src/EucLens.App"), "*.xaml", SearchOption.AllDirectories).Where(f => !IsBuildOutput(f)))
             Assert.DoesNotMatch(@"\b\d+\.\d+\.\d+\b", File.ReadAllText(xaml));
         foreach (var code in new[] { "src/EucLens.App/ViewModels/AboutViewModel.cs", "src/EucLens.Core/About/AppIdentity.cs", "src/EucLens.Core/Updates/GitHubUpdateChecker.cs" })
             Assert.DoesNotContain("0.5.1", Source(code), StringComparison.Ordinal);
@@ -285,7 +287,7 @@ public sealed class AboutAndUpdateTests
     {
         var network = new Regex(@"System\.Net\.Http|HttpClient|HttpWebRequest|WebRequest|WebClient|System\.Net\.Sockets|TcpClient|UdpClient|api\.github\.com|NetworkInformation\.Ping", RegexOptions.CultureInvariant);
         var offenders = new List<string>();
-        foreach (var file in Directory.EnumerateFiles(Path.Combine(Repo(), "src"), "*.cs", SearchOption.AllDirectories).Where(f => !f.Contains("/obj/") && !f.Contains("/bin/")))
+        foreach (var file in Directory.EnumerateFiles(Path.Combine(Repo(), "src"), "*.cs", SearchOption.AllDirectories).Where(f => !IsBuildOutput(f)))
         {
             var name = Path.GetRelativePath(Repo(), file).Replace('\\', '/');
             var text = File.ReadAllText(file);
