@@ -156,4 +156,18 @@ The Windows smoke test (published EXE, `--smoke-test`) checks the following:
 The other existing sections still run: recording, history, incident markers, exports, background monitoring and the layout
 matrix in both themes.
 
+## Release-candidate validation and known limitations
+
+What the automated validation covers: the unit and regression tests on Windows, the WPF design contract, the published EXE's
+smoke test (pages, layout matrix, themes, recording, history interaction, typography, background monitoring), a normal launch
+check, the EXE version/size/SHA-256 check and a credential scan. The whole-process memory tests run in one serial collection
+so that parallel tests cannot distort a measurement; their limits are unchanged.
+
+What it does not cover, and must be checked by a person:
+
+* A real multi-hour Windows soak test. The automated memory tests are bounded stress tests, not proof that no leak exists.
+* Real display scaling. The 125 % and 150 % cases simulate the available space; they do not change the Windows DPI.
+* The Segoe UI fallback on a machine without Segoe UI Variable, and any screen reader.
+* Windows *Text size* (not honoured by WPF) and real Horizon Blast counters, GPU counters and recordings from a Horizon desktop.
+
 CI results, the tested commit and the EXE SHA-256 are in the release-candidate report.

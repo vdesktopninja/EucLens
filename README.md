@@ -58,8 +58,8 @@ availability (Horizon Blast counters + Windows metrics, or Windows metrics only)
 
 - **Intelligent findings (0.5.0)**: when a saved recording is opened in Session History, a deterministic, offline analysis lists what the recording shows:
   sustained and short-lived RTT, packet-loss, frame-rate, queueing, CPU, memory, GPU and disk observations, each with its UTC interval, the measured values, the threshold
-  or baseline used, the data coverage and what is not known, plus conservative "correlated timing" links between observations. Selecting a finding opens the synchronized
-  charts at its evidence window and marks the peak. Missing measurements are never treated as zero. Findings can be exported to CSV or JSON (`euclens.findings/1`) with
+  or baseline used, the data coverage and what is not known, plus conservative "correlated timing" links between observations. Selecting a finding only selects it (since 0.5.1 it never moves the charts or the page); the explicit
+  *Show in charts* action opens the synchronized charts at its evidence window and marks the peak. Missing measurements are never treated as zero. Findings can be exported to CSV or JSON (`euclens.findings/1`) with
   spreadsheet formula protection. The findings do not name a root cause. See the [changelog](CHANGELOG.md), [the analysis rules](docs/M1_ANOMALY_ENGINE.md) and
   [the roadmap and known limitations](docs/ROADMAP_0.5.md).
 

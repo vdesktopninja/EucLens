@@ -49,7 +49,7 @@ Status: release candidate. The recording format is unchanged (`euclens.recording
 
 ### Chart navigation and peak highlighting
 
-- Selecting a finding opens the existing synchronized charts at its evidence window, marks the interval and the worst value, and emphasizes the metric's chart. *Show full recording* (or Escape) returns to the whole recording.
+- Showing a finding in the charts opens the existing synchronized charts at its evidence window, marks the interval and the worst value, and emphasizes the metric's chart. *Show full recording* returns to the whole recording. (In 0.5.0 selecting a finding did this; since 0.5.1 only the explicit *Show in charts* action does, see above.)
 
 ### Data coverage and missing measurements
 

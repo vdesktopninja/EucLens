@@ -54,7 +54,7 @@ Showing a finding in the charts (the button; in 0.5.0 selecting it, with the mou
 1. The shared range goes to the finding's real interval (recorded UTC instants) with context on both sides: half the finding's length, at least 15 s, at most the incident context the user chose (±1…10 min). The range is clamped into the session as before and all charts, the strip and the overlay follow the same `SetRange`.
 2. The chart whose id equals the primary `MetricEvidence.ChannelId` is **emphasized** (accent border and background, label "Evidence for the selected finding"); other metrics of the observation, such as the Dirty FPS that established display activity, are labelled "Supporting measurement". Only the chart rows' presentation changes; their data, range, LiveCharts objects and subscriptions are untouched (no animation, nothing is created per selection).
 3. The finding's interval is **shaded** on the charts overlay and the timeline strip (`HighlightStart/End`), and `MetricEvidence.WorstAt` is marked on both with a dotted line and a diamond (`PeakAt`). The pointer readouts show the recorded value of every chart at that instant.
-4. A click on a finding, or **Show in charts**, scrolls the page just far enough to show the emphasized chart. **Moving with the arrow keys never scrolls the page** (the list keeps the keyboard focus).
+4. **Show in charts** (and only it; a click on a finding just selects) scrolls the page just far enough to show the emphasized chart. **Moving with the arrow keys never scrolls the page** (the list keeps the keyboard focus).
 5. **Show full recording** (button, or Escape in a findings list) clears the selection, the emphasis and the highlight and shows the whole recording.
 
 Correlations:
@@ -95,11 +95,11 @@ A real Horizon recording listed `Omnissa Horizon Blast, Unknown protocol`.
 
 `HistoryFindingsPresentationTests` (35 tests, recordings through the real writer and loader): filters and counts, summary, row content, evidence detail, navigation to the real UTC interval (also in a DST zone: same instants, different presentation), emphasis, `WorstAt` equals the recorded extreme, shared chart ranges, correlation navigation (common, chained, tolerance, availability), qualified observations, missing counters never zero, snapshot of an in-progress recording, stale selection and stale analysis, release of the history, existing incident selection, repeated use, bounded lists, Unknown protocol.
 
-Windows smoke (`HistoryValidation.FindingsExperience`, in the CI evidence): summary and data coverage bound, collapsed sections, filters through the real controls, selecting a finding through the list, all charts on the same axis range, interval and peak marked on overlay and strip, emphasized chart background and label, key values visible, Show in charts scrolls the emphasized chart into the viewport, arrow keys do not scroll the page, Escape returns to the full recording, light and dark screenshots, no text leaving the panel at 520 and 760 DIPs (the width left by 150 % scaling on 1366×768 and 125 % on 1920×1080).
+Windows smoke (`HistoryValidation.FindingsExperience`, in the CI evidence): summary and data coverage bound, collapsed sections, filters through the real controls, selecting a finding through the list (nothing moves), then Show in charts: all charts on the same axis range, interval and peak marked on overlay and strip, emphasized chart background and label, key values visible, Show in charts scrolls the emphasized chart into the viewport, arrow keys do not scroll the page, Escape clears the selection (the full recording returns only if a finding was shown in the charts), light and dark screenshots, no text leaving the panel at 520 and 760 DIPs (the width left by 150 % scaling on 1366×768 and 125 % on 1920×1080).
 
 ## 9. Known limitations
 
-* A correlation component list is not itself a chart: selecting a correlation emphasizes every component's chart, and the highlighted interval exists only for a true common overlap.
+* A correlation component list is not itself a chart: showing a correlation in the charts (selecting it only selects) emphasizes every component's chart, and the highlighted interval exists only for a true common overlap.
 * The highlighted band and peak marker are drawn on the shared overlay (all charts), not per chart; the emphasized chart is identified by its border, background and label.
 * "Show in charts" uses the page scroll viewer's minimal scroll; with the findings list and the charts on different parts of a tall page, the list scrolls out of view (use Show full recording or scroll back).
 * Findings for a recording still being written are a snapshot: reopening the recording re-analyzes it.
@@ -109,7 +109,7 @@ Windows smoke (`HistoryValidation.FindingsExperience`, in the CI evidence): summ
 ## 10. Manual Horizon acceptance checklist
 
 1. Open a real multi-part Horizon recording (and one still being written): the summary line and data coverage match the recording; "in progress" is shown as a snapshot.
-2. Select each finding with the mouse and with the arrow keys: the charts move to the interval you expect, the right chart is emphasized, the extreme is where the chart shows it; the page does not jump with the keys.
+2. Select each finding with the mouse and with the arrow keys (the charts and the page stay still), then press *Show in charts*: the charts move to the interval you expect, the right chart is emphasized, the extreme is where the chart shows it.
 3. Check the values of two findings against the raw recording (peak and time).
 4. Select a chained and a common-overlap correlation: the text never claims a shared interval that the charts do not show.
 5. Open the availability section and the data-quality section: gaps, disconnects and unavailable counters are explained, nothing appears as zero.
