@@ -1,2 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <!-- The legal and release texts shown on the About page are the repository's own files, embedded so that the executable and the repository cannot disagree. -->
+    <EmbeddedResource Include="../../LICENSE" LogicalName="EucLens.LICENSE.txt" />
+    <EmbeddedResource Include="../../THIRD_PARTY_NOTICES.md" LogicalName="EucLens.THIRD_PARTY_NOTICES.md" />
+    <EmbeddedResource Include="../../CHANGELOG.md" LogicalName="EucLens.CHANGELOG.md" />
+  </ItemGroup>
 </Project>

@@ -11,5 +11,19 @@
     <!-- The one place the application version is set. Assemblies carry it and AppVersion reads it; recordings record it. -->
     <Version>0.5.1</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <!-- Application identity: written once here, carried by every assembly (Windows Explorer → Properties → Details) and read back by AppIdentity for the About page. -->
+    <Product>EUC Lens</Product>
+    <Description>Remote Session Performance Diagnostics</Description>
+    <Company>vdesktopninja</Company>
+    <Authors>vdesktopninja</Authors>
+    <Copyright>Copyright (c) 2026 EUC Lens contributors</Copyright>
+    <RepositoryUrl>https://github.com/vdesktopninja/RDA</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- RepositoryUrl is added to the assembly metadata by the SDK itself. -->
+    <AssemblyMetadata Include="License" Value="$(PackageLicenseExpression)" />
+    <!-- Set by the build (CI passes -p:EucLensCommit=<sha>); absent in a local build, which the About page then says. -->
+    <AssemblyMetadata Include="CommitSha" Value="$(EucLensCommit)" Condition="'$(EucLensCommit)' != ''" />
+  </ItemGroup>
 </Project>

@@ -17,6 +17,8 @@ public interface IDesktopServices
     string? SelectFolder(string? initialDirectory) => null;
     /// <summary>Opens a folder, or selects a file in its folder, in Windows Explorer. False when that is not possible.</summary>
     bool OpenPath(string path, bool selectFile = false) => false;
+    /// <summary>Opens a page of EUC Lens's own repository (HTTPS, github.com) in the system browser. False for any other address or when no browser can be started: nothing is ever opened for a reply from a server.</summary>
+    bool OpenUrl(Uri url) => false;
     /// <summary>Asked when the application is about to end while a recording is running.</summary>
     bool ConfirmStopRecordingAndExit() => true;
 }

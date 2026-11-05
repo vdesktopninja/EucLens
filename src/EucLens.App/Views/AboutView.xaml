@@ -1,0 +1,67 @@
+<UserControl x:Class="EucLens.App.Views.AboutView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+ <StackPanel>
+  <TextBlock Text="About" Style="{StaticResource Heading}" />
+  <TextBlock Text="What this application is, its licence, and an update check that only runs when you ask for it." Style="{StaticResource Muted}" Margin="0,0,0,12" />
+  <Border Style="{StaticResource Panel}" AutomationProperties.Name="Application identity">
+   <Grid>
+    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+    <Image Source="pack://application:,,,/Assets/EucLens-logo.png" Width="88" Height="88" Margin="0,0,20,0" VerticalAlignment="Top" RenderOptions.BitmapScalingMode="HighQuality" AutomationProperties.Name="EUC Lens logo" />
+    <StackPanel Grid.Column="1">
+     <TextBlock Text="{Binding About.Product}" Style="{StaticResource Section}" Margin="0" />
+     <TextBlock Text="{Binding About.Description}" Style="{StaticResource Reading}" Margin="0,2,0,12" />
+     <ItemsControl ItemsSource="{Binding About.Facts}" AutomationProperties.Name="Version and product details" IsTabStop="False">
+      <ItemsControl.ItemTemplate><DataTemplate>
+       <Grid Margin="0,0,0,4"><Grid.ColumnDefinitions><ColumnDefinition Width="112" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+        <TextBlock Text="{Binding Label}" Style="{StaticResource Muted}" />
+        <TextBlock Grid.Column="1" Text="{Binding Value}" TextWrapping="Wrap" FontWeight="SemiBold" />
+       </Grid>
+      </DataTemplate></ItemsControl.ItemTemplate>
+     </ItemsControl>
+     <WrapPanel Margin="0,8,0,0">
+      <Button Content="Copy version information" Command="{Binding About.CopyVersionCommand}" AutomationProperties.Name="Copy version and build information to the clipboard" />
+      <Button Content="Open GitHub repository" Command="{Binding About.OpenRepositoryCommand}" AutomationProperties.Name="Open the EUC Lens repository on GitHub in the browser" />
+     </WrapPanel>
+     <TextBlock Text="{Binding About.CopyStatus}" Style="{StaticResource Muted}" Margin="0,4,0,0" AutomationProperties.LiveSetting="Polite" />
+    </StackPanel>
+   </Grid>
+  </Border>
+  <Border Style="{StaticResource Panel}" AutomationProperties.Name="Updates">
+   <StackPanel>
+    <TextBlock Text="Updates" Style="{StaticResource Section}" />
+    <TextBlock Text="{Binding About.UpdateStatus}" Style="{StaticResource Reading}" Margin="0,0,0,8" AutomationProperties.Name="Update status" AutomationProperties.LiveSetting="Polite" />
+    <WrapPanel>
+     <Button Content="Check for updates" Command="{Binding About.CheckForUpdatesCommand}" Style="{StaticResource PrimaryButton}" AutomationProperties.Name="Check for updates" />
+     <CheckBox Content="Include pre-releases (for testing)" IsChecked="{Binding About.IncludePrereleases}" Margin="12,8,0,8" VerticalAlignment="Center" ToolTip="Off: pre-releases are never offered. This choice is not saved." />
+    </WrapPanel>
+    <StackPanel Visibility="{Binding About.HasUpdate, Converter={StaticResource BoolToVisibility}}" Margin="0,8,0,0" AutomationProperties.Name="Available update">
+     <TextBlock Text="{Binding About.InstalledVersionText}" TextWrapping="Wrap" />
+     <TextBlock Text="{Binding About.LatestVersionText}" FontWeight="SemiBold" TextWrapping="Wrap" />
+     <TextBlock Text="{Binding About.ReleaseDateText}" Style="{StaticResource Muted}" />
+     <TextBlock Text="{Binding About.ReleaseTitle}" Style="{StaticResource SubLabel}" Margin="0,8,0,0" TextWrapping="Wrap" />
+     <TextBlock Text="{Binding About.ReleaseSummary}" Style="{StaticResource Reading}" Margin="0,2,0,8" />
+     <WrapPanel>
+      <Button Content="View release notes" Command="{Binding About.OpenReleaseNotesCommand}" AutomationProperties.Name="View the release notes of the available update on GitHub" />
+      <Button Content="Download update" Command="{Binding About.DownloadUpdateCommand}" Style="{StaticResource PrimaryButton}" AutomationProperties.Name="Download update: opens the official release page in the browser" />
+     </WrapPanel>
+     <TextBlock Text="Download update opens the official release page in your browser. EUC Lens does not download, install or replace anything itself." Style="{StaticResource Muted}" Margin="0,4,0,0" />
+    </StackPanel>
+    <TextBlock Text="{Binding About.LinkStatus}" Style="{StaticResource Muted}" Margin="0,4,0,0" AutomationProperties.LiveSetting="Polite" />
+    <TextBlock Text="The check sends one request to GitHub's public release list: no account, no identifier, no computer or user name, and nothing about your session or recordings. Corporate proxy and certificate settings are respected. Monitoring and recording are not affected by the result." Style="{StaticResource Muted}" Margin="0,8,0,0" />
+   </StackPanel>
+  </Border>
+  <Border Style="{StaticResource Panel}" AutomationProperties.Name="Release notes, licence and acknowledgments">
+   <StackPanel>
+    <TextBlock Text="Release notes and legal" Style="{StaticResource Section}" />
+    <Expander Header="Release notes of this version" AutomationProperties.Name="Release notes of this version">
+     <TextBlock Text="{Binding About.ReleaseNotesText}" Style="{StaticResource Reading}" Margin="0,8,0,8" />
+    </Expander>
+    <Expander Header="MIT License" AutomationProperties.Name="MIT License text">
+     <TextBlock Text="{Binding About.LicenseText}" Style="{StaticResource Reading}" Margin="0,8,0,8" />
+    </Expander>
+    <Expander Header="Open-source acknowledgments" AutomationProperties.Name="Open-source third-party acknowledgments">
+     <TextBlock Text="{Binding About.ThirdPartyText}" Style="{StaticResource Reading}" Margin="0,8,0,8" />
+    </Expander>
+   </StackPanel>
+  </Border>
+ </StackPanel>
+</UserControl>

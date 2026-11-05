@@ -74,6 +74,8 @@ public sealed class MainViewModel : ObservableObject
     public BackgroundViewModel Background { get; }
     /// <summary>Session History: saved recordings, incident timeline and historical charts. Independent of the live view and of monitoring.</summary>
     public SessionHistoryViewModel History { get; }
+    /// <summary>The About page: identity, licence, release notes and the update check the user starts. It makes no network request until asked.</summary>
+    public AboutViewModel About { get; }
     public MonitoringService Monitoring => monitoring;
     private static readonly IReadOnlyDictionary<RemoteProtocol, string> ProtocolLabels = new Dictionary<RemoteProtocol, string>
     {
@@ -150,7 +152,7 @@ public sealed class MainViewModel : ObservableObject
     public AsyncCommand SavePreferencesCommand { get; }
     public MainViewModel(IMetricsProvider provider, IDiagnosticEngine diagnostics, ISessionRecorder recorder,
         IDesktopServices desktop, ILogger<MainViewModel> logger, IDiagnosticSettingsStore? diagnosticSettings = null,
-        MonitoringService? monitoring = null, BackgroundViewModel? background = null)
+        MonitoringService? monitoring = null, BackgroundViewModel? background = null, IUpdateChecker? updateChecker = null)
     {
         this.diagnosticSettings = diagnosticSettings;
         Diagnostics = new(desktop);
@@ -158,11 +160,12 @@ public sealed class MainViewModel : ObservableObject
         this.monitoring = monitoring ?? new MonitoringService(new MonitoringCoordinator(), recorder);
         Background = background ?? new BackgroundViewModel(this.monitoring, recorder, desktop, logger: logger);
         History = new SessionHistoryViewModel(Background, desktop, recorder, Background.Storage, logger: logger);
+        About = new AboutViewModel(desktop, updateChecker);
         recorder.Ended += reason => Post(() => OnRecordingEnded(reason));
         this.monitoring.StatusChanged += _ => Post(RefreshRecorder);
         Background.IncidentCompleted += result => Status = result.Message;
         selectedAdvancedCategory = AdvancedCategories[0];
-        Pages = [new DashboardPage(this), new DiagnosticsPage(this), new RecorderPage(this), new SessionHistoryPage(this), new SystemPage(this), new AdvancedPage(this), new SettingsPage(this)];
+        Pages = [new DashboardPage(this), new DiagnosticsPage(this), new RecorderPage(this), new SessionHistoryPage(this), new SystemPage(this), new AdvancedPage(this), new SettingsPage(this), new AboutPage(this)];
         selectedPage = Pages[0];
         Background.AnalyzeRequested += summary =>
         {

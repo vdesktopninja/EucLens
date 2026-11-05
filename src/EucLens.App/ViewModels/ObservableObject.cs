@@ -80,3 +80,7 @@ public sealed class SessionHistoryPage(MainViewModel monitor) : PageViewModel(mo
 public sealed class SystemPage(MainViewModel monitor) : PageViewModel(monitor, "System Information", "\uE770");
 public sealed class AdvancedPage(MainViewModel monitor) : PageViewModel(monitor, "Advanced Metrics", "\uE9F9");
 public sealed class SettingsPage(MainViewModel monitor) : PageViewModel(monitor, "Settings", "\uE713");
+public sealed class AboutPage(MainViewModel monitor) : PageViewModel(monitor, "About", "\uE946")
+{
+    public AboutViewModel About => Monitor.About;
+}

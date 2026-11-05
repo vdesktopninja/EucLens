@@ -67,6 +67,9 @@ availability (Horizon Blast counters + Windows metrics, or Windows metrics only)
   RTT chart (latest 600 samples). JSON and CSV export to a chosen local file.
 - Local preferences, bounded application logs, no authentication, telemetry,
   service, database, cloud dependency or runtime internet requirement.
+- **About EUC Lens** (0.5.1): product identity, version and build, MIT license, open-source acknowledgments and release notes. An explicit **Check for updates**
+  button asks GitHub's public release list (nothing is requested unless you press it; no identifiers or session data are sent; nothing is downloaded or installed, *Download
+  update* opens the release page in your browser). See [About and updates](docs/ABOUT_AND_UPDATES.md) and the [self-update design](docs/SELF_UPDATE_DESIGN.md) (not implemented).
 
 **Citrix HDX and Microsoft RDP protocol metrics are not implemented.** Host
 CPU, memory, disk, GPU and display metrics work in those sessions too, but the

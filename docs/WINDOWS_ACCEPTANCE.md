@@ -76,6 +76,15 @@ CI cannot judge these; please check them once on a real Windows 11 VDI session:
 5. Tab through a page and the navigation: the focus is always visible (ring or accent border) and moves in reading order; a screen reader announces headings, tiles, lines, groups and the preview.
 6. Windows *Settings → Accessibility → Text size* is not applied by WPF applications (display scaling is). Confirm that is acceptable, or ask for it.
 
+## About and update checking (0.5.1) — manual acceptance
+
+1. Explorer → right-click `EucLens.exe` → Properties → Details: Product name *EUC Lens*, File description *EUC Lens - Remote Session Performance Diagnostics*, Product version *0.5.1*, File version *0.5.1.0*, Copyright *Copyright (c) 2026 EUC Lens contributors*. Confirm the publisher name *vdesktopninja* is the public identity you want (it is pending your confirmation).
+2. Navigation → About: logo, name, description, version, build (a commit id for a CI build), platform, maintainer, copyright and MIT; the navigation footer shows the same version; no "Stable" label. *Copy version information* then paste: product, version, build, platform, runtime, no computer or user name.
+3. Disclosures: release notes of this version, the MIT license and the acknowledgments open and read; both themes, 100 %, 125 % and 150 % display scaling.
+4. With a network monitor (or with the network cable out): open About and Settings, switch pages, wait: **no** connection is made by EUC Lens. Press *Check for updates* once: one HTTPS request to `api.github.com`. Offline or with the host blocked: a plain message, the app stays responsive, monitoring and recording continue.
+5. While the repository is private or has no release: the message reads "No public release has been published yet." After a release exists with an `EucLens.exe` asset: the check shows installed and latest version, date and summary, and *Download update* opens the release page in the browser (nothing is downloaded by EUC Lens). A pre-release is only offered with *Include pre-releases* ticked.
+6. Behind a corporate proxy with authentication, and with TLS inspection, if available: the check either works through the proxy or reports that GitHub could not be reached or the secure connection could not be verified; nothing is bypassed.
+
 ## Session history and incident timeline (0.4.4) — manual acceptance
 
 1. Start a recording, minimize EUC Lens to the tray, right-click the tray icon: *Mark Performance Issue* is enabled. Click it; a short notification confirms the time. Without a recording the item is disabled and says so. Unplug or fill the recordings location and mark again: the notification says the marker could not be saved (it never says saved).

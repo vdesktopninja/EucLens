@@ -156,6 +156,12 @@ The Windows smoke test (published EXE, `--smoke-test`) checks the following:
 The other existing sections still run: recording, history, incident markers, exports, background monitoring and the layout
 matrix in both themes.
 
+## Privacy: one optional network request
+
+EUC Lens needs no network. The About page has a **Check for updates** button that asks GitHub's public release list when, and only when, the user presses it
+(details and security limits in [ABOUT_AND_UPDATES.md](ABOUT_AND_UPDATES.md)). Nothing is sent about the computer, the user, the session or the recordings, nothing is downloaded or replaced,
+and monitoring and recording never depend on it.
+
 ## Release-candidate validation and known limitations
 
 What the automated validation covers: the unit and regression tests on Windows, the WPF design contract, the published EXE's

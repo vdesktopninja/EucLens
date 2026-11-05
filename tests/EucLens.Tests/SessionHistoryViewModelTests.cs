@@ -547,8 +547,8 @@ public sealed class SessionHistoryViewModelTests
             await background.LoadAsync();
             await background.RefreshRecordingsAsync();
 
-            Assert.Equal(7, vm.Pages.Count);
-            Assert.Equal(["Dashboard", "Diagnostics", "Session Recorder", "Session History", "System Information", "Advanced Metrics", "Settings"], vm.Pages.Select(p => p.Name));
+            Assert.Equal(8, vm.Pages.Count);
+            Assert.Equal(["Dashboard", "Diagnostics", "Session Recorder", "Session History", "System Information", "Advanced Metrics", "Settings", "About"], vm.Pages.Select(p => p.Name));
             var item = Assert.Single(background.Recordings);
             Assert.Contains("1 marked incident", item.Events, StringComparison.Ordinal);
 

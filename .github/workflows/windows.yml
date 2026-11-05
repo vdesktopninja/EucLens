@@ -35,11 +35,11 @@ jobs:
       - name: Restore
         run: dotnet restore EucLens.sln
       - name: Build
-        run: dotnet build EucLens.sln -c Release --no-restore
+        run: dotnet build EucLens.sln -c Release --no-restore -p:EucLensCommit=${{ github.sha }}
       - name: Test
         run: dotnet test tests/EucLens.Tests/EucLens.Tests.csproj -c Release --no-build --logger "trx;LogFileName=tests.trx" --results-directory TestResults
       - name: Publish portable EXE
-        run: dotnet publish src/EucLens.App/EucLens.App.csproj -p:PublishProfile=Portable -o artifacts/win-x64
+        run: dotnet publish src/EucLens.App/EucLens.App.csproj -p:PublishProfile=Portable -p:EucLensCommit=${{ github.sha }} -o artifacts/win-x64
       - name: Verify the executable carries the EUC Lens icon
         shell: pwsh
         run: |
@@ -72,12 +72,26 @@ jobs:
             "ProductVersion: $($info.ProductVersion)"
             "Size: $($exe.Length) bytes"
             "SHA-256: $hash"
+            "ProductName: $($info.ProductName)"
+            "FileDescription: $($info.FileDescription)"
+            "Comments: $($info.Comments)"
+            "CompanyName: $($info.CompanyName)"
+            "LegalCopyright: $($info.LegalCopyright)"
+            "OriginalFilename: $($info.OriginalFilename)"
+            "Commit recorded by the build: $env:GITHUB_SHA"
           )
           $report | Set-Content artifacts/win-x64/visual-evidence/exe-version.txt
           $report
           if (-not $expected) { throw 'Directory.Build.props has no Version' }
           if ($info.FileVersion -ne "$expected.0") { throw "FileVersion $($info.FileVersion) does not match $expected" }
           if (-not $info.ProductVersion.StartsWith($expected)) { throw "ProductVersion $($info.ProductVersion) does not match $expected" }
+          # The identity Explorer shows (Properties -> Details) is the owner-approved one; the About page reads the same metadata.
+          if ($info.ProductVersion -ne $expected) { throw "ProductVersion $($info.ProductVersion) must be exactly $expected" }
+          if ($info.ProductName -ne 'EUC Lens') { throw "ProductName is '$($info.ProductName)'" }
+          if ($info.FileDescription -ne 'EUC Lens - Remote Session Performance Diagnostics') { throw "FileDescription is '$($info.FileDescription)'" }
+          if ($info.Comments -ne 'Remote Session Performance Diagnostics') { throw "Comments (description) is '$($info.Comments)'" }
+          if ($info.CompanyName -ne 'vdesktopninja') { throw "CompanyName is '$($info.CompanyName)'" }
+          if ($info.LegalCopyright -ne 'Copyright (c) 2026 EUC Lens contributors') { throw "LegalCopyright is '$($info.LegalCopyright)'" }
       - name: Verify single EXE and run Windows smoke test
         shell: pwsh
         run: |
@@ -109,8 +123,17 @@ jobs:
           if (Test-Path artifacts/win-x64/visual-evidence/history-validation.txt) {
             Get-Content artifacts/win-x64/visual-evidence/history-validation.txt
           }
+          if (Test-Path artifacts/win-x64/visual-evidence/about-validation.txt) {
+            Get-Content artifacts/win-x64/visual-evidence/about-validation.txt
+          }
           foreach ($result in 'history-events-result.txt', 'history-navigation-result.txt', 'history-6h-result.txt') {
             if (Test-Path "artifacts/win-x64/visual-evidence/$result") { Get-Content "artifacts/win-x64/visual-evidence/$result" }
+          }
+          if (-not (Test-Path artifacts/win-x64/visual-evidence/about-validation.txt)) { $problems += 'Missing About validation result' }
+          else {
+            $aboutCheck = Get-Content artifacts/win-x64/visual-evidence/about-validation.txt -Raw
+            if ($aboutCheck -notmatch 'PASS: about validation complete') { $problems += 'About validation did not complete' }
+            if ($aboutCheck -match 'FAIL:') { $problems += 'About validation reported a failure' }
           }
           if (-not (Test-Path artifacts/win-x64/visual-evidence/history-validation.txt)) { $problems += 'Missing history validation result' }
           else {
@@ -198,7 +221,7 @@ jobs:
               Get-Content artifacts/win-x64/smoke-progress.txt -Tail 80
               Write-Host '::endgroup::'
             }
-            foreach ($result in 'smoke-result.txt', 'visual-evidence/background-validation.txt', 'visual-evidence/history-validation.txt') {
+            foreach ($result in 'smoke-result.txt', 'visual-evidence/background-validation.txt', 'visual-evidence/history-validation.txt', 'visual-evidence/about-validation.txt') {
               $file = Join-Path artifacts/win-x64 $result
               if (Test-Path $file) {
                 Write-Host "::group::$result"
@@ -216,7 +239,7 @@ jobs:
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.Drawing
-          $files = @(Get-ChildItem 'artifacts/win-x64/visual-evidence/*' -Include '*-100pct-*Page.png', 'FAILED-*.png' -ErrorAction SilentlyContinue | Sort-Object Name)
+          $files = @(Get-ChildItem 'artifacts/win-x64/visual-evidence/*' -Include '*-100pct-*Page.png', 'about-*.png', 'FAILED-*.png' -ErrorAction SilentlyContinue | Sort-Object Name)
           # The Session History workspace: every scenario in both themes at 100 % and, at the narrowest size, with the space of 150 % (simulated space, not a Windows DPI change).
           $files += @(Get-ChildItem 'artifacts/win-x64/visual-evidence/workspace/*.png' -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*-100pct.png' -or $_.Name -like '*-1366x768-150pct.png' } | Sort-Object Name)
           Write-Host "Page screenshots: $($files.Count)"

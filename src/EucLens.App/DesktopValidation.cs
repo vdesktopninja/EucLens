@@ -102,6 +102,9 @@ internal static class DesktopValidation
                             await ScrollPageAsync(window, home: true);
                         }
                     }
+                    // Informational: with eight pages the navigation list needs more height than a 1366×768 window at 150 % leaves; it then scrolls inside its own column (nothing is clipped without a way to reach it).
+                    if (page == vm.Pages[0] && Descendants<ScrollViewer>(navigation).FirstOrDefault() is { ScrollableHeight: > 1 } navScroll)
+                        report.AppendLine($"    INFO: {(dark ? "dark" : "light")} | {width}×{height} | {scale:P0}: the navigation list ({vm.Pages.Count} pages) scrolls by {navScroll.ScrollableHeight:0} DIPs inside its column (viewport {navScroll.ViewportHeight:0}, content {navScroll.ExtentHeight:0}).");
                     report.AppendLine($"PASS: {(dark ? "dark" : "light")} | {width}×{height} | {scale:P0} available-space simulation | {page.Name} | client viewport {client.ActualWidth:0}×{client.ActualHeight:0} DIP; host window {window.ActualWidth:0}×{window.ActualHeight:0} DIP");
                     // Diagnostics is also captured at 125 % and 150 %, where the evidence panel moves below the list.
                     if ((scale == 1 && (width == 1366 || width == 1920)) || (page is DiagnosticsPage && width == 1366))

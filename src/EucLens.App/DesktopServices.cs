@@ -63,6 +63,16 @@ public sealed class DesktopServices : IDesktopServices
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException) { return false; }
     }
+    public bool OpenUrl(Uri url)
+    {
+        if (!SafeLinks.IsOfficial(url)) return false;
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url.AbsoluteUri) { UseShellExecute = true })?.Dispose();
+            return true;
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException) { return false; }
+    }
     public bool ConfirmStopRecordingAndExit() => AutoConfirmExit || MessageBox.Show(Application.Current.MainWindow,
         "A recording is running. Stop it, save the file and exit EUC Lens?\n\nChoose No to keep EUC Lens and the recording running.",
         "Exit EUC Lens", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
