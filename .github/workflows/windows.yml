@@ -90,7 +90,7 @@ jobs:
           if ($info.ProductName -ne 'EUC Lens') { throw "ProductName is '$($info.ProductName)'" }
           if ($info.FileDescription -ne 'EUC Lens - Remote Session Performance Diagnostics') { throw "FileDescription is '$($info.FileDescription)'" }
           if ($info.Comments -ne 'Remote Session Performance Diagnostics') { throw "Comments (description) is '$($info.Comments)'" }
-          if ($info.CompanyName -ne 'vdesktopninja') { throw "CompanyName is '$($info.CompanyName)'" }
+          if ($info.CompanyName -ne 'VDI Ninja') { throw "CompanyName is '$($info.CompanyName)'" }
           if ($info.LegalCopyright -ne 'Copyright (c) 2026 EUC Lens contributors') { throw "LegalCopyright is '$($info.LegalCopyright)'" }
       - name: Verify single EXE and run Windows smoke test
         shell: pwsh

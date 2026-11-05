@@ -41,12 +41,12 @@ public sealed class AboutViewModel : ObservableObject
             new("Version", this.identity.Version),
             new("Build", BuildText),
             new("Platform", this.identity.Platform),
-            new("Maintainer", this.identity.Maintainer),
             new("Copyright", this.identity.Copyright),
             new("License", this.identity.License),
         ];
         CopyVersionCommand = new(CopyVersion);
         OpenRepositoryCommand = new(() => Open(new Uri(this.identity.RepositoryUrl)));
+        OpenWebsiteCommand = new(() => Open(new Uri(this.identity.Website)));
         OpenReleaseNotesCommand = new(() => Open(release?.PageUri ?? new Uri(this.identity.RepositoryUrl.TrimEnd('/') + "/releases")));
         DownloadUpdateCommand = new(() => { if (release is { } r) Open(r.PageUri); }, () => HasUpdate);
         CheckForUpdatesCommand = new(CheckAsync);
@@ -56,6 +56,10 @@ public sealed class AboutViewModel : ObservableObject
     public string Product => identity.Product;
     public string Description => identity.Description;
     public string Version => identity.Version;
+    /// <summary>The author, the professional brand and the website, as confirmed by the owner: shown together under the product name.</summary>
+    public string Author => identity.Author;
+    public string Publisher => identity.Publisher;
+    public string Website => identity.Website;
     /// <summary>The discreet line in the navigation footer.</summary>
     public string FooterVersion => $"Version {identity.Version}";
     /// <summary>The abbreviated commit the build recorded, or a plain statement that it recorded none (a local build).</summary>
@@ -64,10 +68,14 @@ public sealed class AboutViewModel : ObservableObject
     public string RepositoryAddress => identity.RepositoryUrl;
     public string LicenseText { get; } = LegalTexts.License;
     public string ThirdPartyText { get; } = LegalTexts.ThirdPartyNotices;
+    private string? fullThirdPartyTexts;
+    /// <summary>The verbatim license texts and notices of the redistributed components (about 300 KB): read when the page first needs them.</summary>
+    public string FullThirdPartyText => fullThirdPartyTexts ??= LegalTexts.FullThirdPartyTexts();
     public string ReleaseNotesText => LegalTexts.ReleaseNotesFor(identity.Version);
 
     public RelayCommand CopyVersionCommand { get; }
     public RelayCommand OpenRepositoryCommand { get; }
+    public RelayCommand OpenWebsiteCommand { get; }
     public RelayCommand OpenReleaseNotesCommand { get; }
     public RelayCommand DownloadUpdateCommand { get; }
     public AsyncCommand CheckForUpdatesCommand { get; }
@@ -91,7 +99,7 @@ public sealed class AboutViewModel : ObservableObject
 
     /// <summary>The system information a person pastes into a support request: product, version, build, platform and runtime. No computer name, user name or address.</summary>
     public string VersionInformation =>
-        $"{identity.Product} {identity.Version}{Environment.NewLine}Build: {BuildText}{Environment.NewLine}Platform: Windows {IdentityPlatform}{Environment.NewLine}Runtime: {RuntimeInformation.FrameworkDescription}{Environment.NewLine}Windows: {RuntimeInformation.OSDescription}";
+        $"{identity.Product} {identity.Version}{Environment.NewLine}Build: {BuildText}{Environment.NewLine}Author: {identity.AuthorLine}{Environment.NewLine}Website: {identity.Website}{Environment.NewLine}Platform: Windows {IdentityPlatform}{Environment.NewLine}Runtime: {RuntimeInformation.FrameworkDescription}{Environment.NewLine}Windows: {RuntimeInformation.OSDescription}";
 
     private static string IdentityPlatform => AppIdentity.ArchitectureName(RuntimeInformation.ProcessArchitecture);
 

@@ -61,7 +61,11 @@ public sealed class AboutAndUpdateTests
         var identity = AppIdentity.Current;
         Assert.Equal("EUC Lens", identity.Product);
         Assert.Equal("Remote Session Performance Diagnostics", identity.Description);
-        Assert.Equal("vdesktopninja", identity.Maintainer);
+        // The owner-confirmed public identity: author, professional brand (the publisher Windows shows) and website.
+        Assert.Equal("Dominik Jakubowski", identity.Author);
+        Assert.Equal("VDI Ninja", identity.Publisher);
+        Assert.Equal("Dominik Jakubowski, VDI Ninja", identity.AuthorLine);
+        Assert.Equal("https://vdesktop.ninja", identity.Website);
         Assert.Equal("MIT", identity.License);
         Assert.Equal("https://github.com/vdesktopninja/RDA", identity.RepositoryUrl);
         // The copyright is the repository's own: the first copyright line of LICENSE, unchanged.
@@ -69,8 +73,10 @@ public sealed class AboutAndUpdateTests
         Assert.StartsWith("MIT License", license, StringComparison.Ordinal);
         Assert.Contains(identity.Copyright, license, StringComparison.Ordinal);
         Assert.Equal("Copyright (c) 2026 EUC Lens contributors", identity.Copyright);
-        // No company or legal entity: the maintainer is the repository owner's account name, nothing more.
-        Assert.DoesNotMatch(@"(?i)\b(inc|ltd|llc|gmbh|corp|corporation|sp\. ?z o\.o)\b", identity.Maintainer + identity.Copyright);
+        // The brand is not a legal entity and the copyright line was not rewritten: the existing contributors stay named in it, and LICENSE is exactly the MIT text with that line.
+        Assert.DoesNotContain("Jakubowski", license, StringComparison.Ordinal);
+        Assert.DoesNotContain("VDI Ninja", license, StringComparison.Ordinal);
+        Assert.Contains("Permission is hereby granted, free of charge", license, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -79,12 +85,16 @@ public sealed class AboutAndUpdateTests
         var project = Source("src/EucLens.App/EucLens.App.csproj");
         Assert.Contains("<AssemblyTitle>EUC Lens - Remote Session Performance Diagnostics</AssemblyTitle>", project, StringComparison.Ordinal);
         var props = Source("Directory.Build.props");
-        foreach (var expected in new[] { "<Product>EUC Lens</Product>", "<Description>Remote Session Performance Diagnostics</Description>", "<Company>vdesktopninja</Company>", "<Copyright>Copyright (c) 2026 EUC Lens contributors</Copyright>", "<PackageLicenseExpression>MIT</PackageLicenseExpression>" })
+        foreach (var expected in new[] { "<Product>EUC Lens</Product>", "<Description>Remote Session Performance Diagnostics</Description>", "<Authors>Dominik Jakubowski</Authors>", "<Company>VDI Ninja</Company>", "<EucLensWebsite>https://vdesktop.ninja</EucLensWebsite>", "<Copyright>Copyright (c) 2026 EUC Lens contributors</Copyright>", "<PackageLicenseExpression>MIT</PackageLicenseExpression>" })
             Assert.Contains(expected, props, StringComparison.Ordinal);
         var core = typeof(AppVersion).Assembly;
         Assert.Equal("EUC Lens", core.GetCustomAttribute<AssemblyProductAttribute>()!.Product);
         Assert.Equal("Remote Session Performance Diagnostics", core.GetCustomAttribute<AssemblyDescriptionAttribute>()!.Description);
-        Assert.Equal("vdesktopninja", core.GetCustomAttribute<AssemblyCompanyAttribute>()!.Company);
+        Assert.Equal("VDI Ninja", core.GetCustomAttribute<AssemblyCompanyAttribute>()!.Company);
+        var metadata = core.GetCustomAttributes<AssemblyMetadataAttribute>().ToDictionary(a => a.Key, a => a.Value);
+        Assert.Equal("Dominik Jakubowski", metadata["Author"]);
+        Assert.Equal("https://vdesktop.ninja", metadata["Website"]);
+        Assert.Equal("https://github.com/vdesktopninja/RDA", metadata["RepositoryUrl"]);        // the repository address is unchanged
     }
 
     [Theory]
@@ -130,6 +140,50 @@ public sealed class AboutAndUpdateTests
         Assert.Equal(Normalize(Source("THIRD_PARTY_NOTICES.md")), Normalize(LegalTexts.ThirdPartyNotices));
         Assert.Equal(Normalize(Source("CHANGELOG.md")), Normalize(LegalTexts.Changelog));
         Assert.StartsWith("MIT License", LegalTexts.License, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EveryVerbatimLicenseFileIsEmbeddedUnchangedAndNamedInTheNotices()
+    {
+        var folder = Path.Combine(Repo(), "licenses");
+        var files = Directory.GetFiles(folder).Select(Path.GetFileName).Order(StringComparer.Ordinal).ToList();
+        Assert.Equal(files!, LegalTexts.LicenseFileNames());
+        foreach (var required in new[] { "dotnet-runtime-LICENSE.TXT", "dotnet-runtime-THIRD-PARTY-NOTICES.TXT", "dotnet-windowsdesktop-LICENSE.txt", "skiasharp-LICENSE.txt", "skiasharp-native-THIRD-PARTY-NOTICES.txt", "glfw-COPYING.md", "opentk-LICENSE.md", "glwpfcontrol-LICENSE.md", "livecharts-LICENSE.txt", "README.md" })
+            Assert.Contains(required, files);
+        var full = LegalTexts.FullThirdPartyTexts();
+        foreach (var file in files)
+        {
+            Assert.Contains(Normalize(File.ReadAllText(Path.Combine(folder, file!))), full.Replace("\r\n", "\n", StringComparison.Ordinal), StringComparison.Ordinal);
+            // Every notice file (not the README) is referenced by name in the readable summary.
+            if (file != "README.md") Assert.Contains(file!, LegalTexts.ThirdPartyNotices, StringComparison.Ordinal);
+        }
+        Assert.Contains("THIRD-PARTY SOFTWARE NOTICES AND INFORMATION", full, StringComparison.Ordinal);
+        Assert.Contains("License notice for zlib-ng", full, StringComparison.Ordinal);
+        Assert.Contains("zlib/libpng", LegalTexts.ThirdPartyNotices, StringComparison.Ordinal);
+        Assert.True(full.Length > 200_000);
+    }
+
+    [Fact]
+    public void TheNoticesNameVerifiedLicensesAndNeverVagueOnes()
+    {
+        var notices = LegalTexts.ThirdPartyNotices;
+        Assert.DoesNotContain("MIT-style", notices, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("MIT style", notices, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("-like", notices, StringComparison.OrdinalIgnoreCase);
+        // The MIT components' verbatim texts really are MIT, and the GLFW file really is the zlib/libpng terms.
+        foreach (var file in new[] { "livecharts-LICENSE.txt", "opentk-LICENSE.md", "glwpfcontrol-LICENSE.md", "skiasharp-LICENSE.txt", "dotnet-runtime-LICENSE.TXT", "dotnet-windowsdesktop-LICENSE.txt" })
+            Assert.Contains("Permission is hereby granted, free of charge", Source("licenses/" + file), StringComparison.Ordinal);
+        Assert.Contains("must not be misrepresented", Source("licenses/glfw-COPYING.md"), StringComparison.Ordinal);
+        // The copyright holders named in the summary are the ones in the verbatim texts.
+        Assert.Contains("Alberto Rodriguez Orozco", Source("licenses/livecharts-LICENSE.txt"), StringComparison.Ordinal);
+        Assert.Contains("Alberto Rodriguez Orozco", notices, StringComparison.Ordinal);
+        Assert.Contains("Stefanos Apostolopoulos", Source("licenses/opentk-LICENSE.md"), StringComparison.Ordinal);
+        Assert.Contains("Stefanos Apostolopoulos", notices, StringComparison.Ordinal);
+        Assert.Contains("Xamarin", Source("licenses/skiasharp-LICENSE.txt"), StringComparison.Ordinal);
+        Assert.Contains("Xamarin", notices, StringComparison.Ordinal);
+        Assert.Contains("varon", notices, StringComparison.Ordinal);
+        // What a package does not state is said not to be stated.
+        Assert.Contains("state no license", notices, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -198,7 +252,10 @@ public sealed class AboutAndUpdateTests
         Assert.Equal(AppVersion.Current, facts["Version"]);
         Assert.Equal(AppIdentity.Current.Copyright, facts["Copyright"]);
         Assert.Equal("MIT", facts["License"]);
-        Assert.Equal("vdesktopninja", facts["Maintainer"]);
+        Assert.DoesNotContain("Maintainer", facts.Keys);
+        Assert.Equal("Dominik Jakubowski", about.Author);
+        Assert.Equal("VDI Ninja", about.Publisher);
+        Assert.Equal("https://vdesktop.ninja", about.Website);
         Assert.Equal(about.BuildText, facts["Build"]);
         Assert.Contains("x64", AppIdentity.ArchitectureName(System.Runtime.InteropServices.Architecture.X64));
         Assert.StartsWith("Windows 10", facts["Platform"], StringComparison.Ordinal);
@@ -257,12 +314,66 @@ public sealed class AboutAndUpdateTests
         Assert.StartsWith("EUC Lens " + AppVersion.Current, text, StringComparison.Ordinal);
         Assert.Contains("Build: ", text, StringComparison.Ordinal);
         Assert.Contains("Platform: Windows ", text, StringComparison.Ordinal);
+        Assert.Contains("Author: Dominik Jakubowski, VDI Ninja", text, StringComparison.Ordinal);
+        Assert.Contains("Website: https://vdesktop.ninja", text, StringComparison.Ordinal);
         Assert.Contains("Runtime: ", text, StringComparison.Ordinal);
-        Assert.DoesNotContain(Environment.MachineName, text, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain(Environment.UserName, text, StringComparison.OrdinalIgnoreCase);
+        // The author's own name is part of the text on purpose; everything else must hold nothing of this computer or its user (the developer's account name can equal the author's first name).
+        var withoutAuthor = string.Join('\n', text.Split('\n').Where(l => !l.StartsWith("Author: ", StringComparison.Ordinal)));
+        Assert.DoesNotContain(Environment.MachineName, withoutAuthor, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(Environment.UserName, withoutAuthor, StringComparison.OrdinalIgnoreCase);
         desktop.ClipboardWorks = false;
         about.CopyVersionCommand.Execute(null);
         Assert.Equal("The clipboard is not available right now.", about.CopyStatus);
+    }
+
+    [Fact]
+    public void TheWebsiteIsAClickableLinkThatOpensOnlyTheOfficialSiteInTheDefaultBrowser()
+    {
+        var desktop = new AboutDesktop();
+        var about = new AboutViewModel(desktop, new CountingChecker());
+        about.OpenWebsiteCommand.Execute(null);
+        Assert.Equal(["https://vdesktop.ninja/"], desktop.Opened.Select(u => u.AbsoluteUri));
+        Assert.StartsWith("Opened in your browser", about.LinkStatus, StringComparison.Ordinal);
+        // The identity block shows the author, the brand and the website as a named button, in that order, and the button is the website's link.
+        var xaml = Source("src/EucLens.App/Views/AboutView.xaml");
+        var block = Regex.Match(xaml, @"(?s)<StackPanel Margin=""0,0,0,12"" AutomationProperties\.Name=""Author and brand"">.*?</StackPanel>").Value;
+        Assert.True(block.Length > 0);
+        Assert.True(block.IndexOf("About.Author", StringComparison.Ordinal) < block.IndexOf("About.Publisher", StringComparison.Ordinal) && block.IndexOf("About.Publisher", StringComparison.Ordinal) < block.IndexOf("About.Website", StringComparison.Ordinal));
+        Assert.Contains("Command=\"{Binding About.OpenWebsiteCommand}\"", block, StringComparison.Ordinal);
+        Assert.Contains("AutomationProperties.Name=", block, StringComparison.Ordinal);
+        // The desktop service opens a link through the shell (the default browser) only after the allowlist; nothing else starts a process for a link.
+        var services = Source("src/EucLens.App/DesktopServices.cs");
+        Assert.Contains("if (!SafeLinks.IsOfficial(url)) return false;", services, StringComparison.Ordinal);
+        Assert.Contains("UseShellExecute = true", services, StringComparison.Ordinal);
+        // A browser that cannot be started is reported with the address.
+        desktop.BrowserWorks = false;
+        about.OpenWebsiteCommand.Execute(null);
+        Assert.Contains("https://vdesktop.ninja", about.LinkStatus, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EveryPlaceThatNamesTheAuthorAgrees()
+    {
+        var identity = AppIdentity.Current;
+        var about = new AboutViewModel(new AboutDesktop(), new CountingChecker());
+        // About, the copied version information, the shared build properties and the documentation use the same author, brand and website.
+        Assert.Equal(("Dominik Jakubowski", "VDI Ninja", "https://vdesktop.ninja"), (about.Author, about.Publisher, about.Website));
+        Assert.Contains($"Author: {identity.AuthorLine}", about.VersionInformation, StringComparison.Ordinal);
+        Assert.Contains($"Website: {identity.Website}", about.VersionInformation, StringComparison.Ordinal);
+        var props = Source("Directory.Build.props");
+        Assert.Contains("<Authors>Dominik Jakubowski</Authors>", props, StringComparison.Ordinal);
+        Assert.Contains("<Company>VDI Ninja</Company>", props, StringComparison.Ordinal);
+        foreach (var doc in new[] { "docs/ABOUT_AND_UPDATES.md", "README.md", "docs/WINDOWS_ACCEPTANCE.md" })
+        {
+            var text = Source(doc);
+            Assert.Contains("Dominik Jakubowski", text, StringComparison.Ordinal);
+            Assert.Contains("https://vdesktop.ninja", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("pending the owner", text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("pending your confirmation", text, StringComparison.OrdinalIgnoreCase);
+        }
+        // The old unconfirmed wording is gone everywhere.
+        foreach (var file in new[] { "CHANGELOG.md", "docs/ABOUT_AND_UPDATES.md", "docs/WINDOWS_ACCEPTANCE.md", "docs/SELF_UPDATE_DESIGN.md", "docs/STABLE_RELEASE_0.5.1.md" })
+            Assert.DoesNotContain("pending the owner", Source(file), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -474,10 +585,20 @@ public sealed class AboutAndUpdateTests
     [InlineData("https://github.com/vdesktopninja/other", false)]
     [InlineData("https://github.com/vdesktopninja", false)]
     [InlineData("https://github.com/", false)]
+    [InlineData("https://vdesktop.ninja", true)]
+    [InlineData("https://vdesktop.ninja/", true)]
+    [InlineData("https://VDesktop.Ninja/blog/euc-lens", true)]
+    [InlineData("http://vdesktop.ninja", false)]
+    [InlineData("https://www.vdesktop.ninja", false)]
+    [InlineData("https://vdesktop.ninja.evil.example", false)]
+    [InlineData("https://evilvdesktop.ninja", false)]
+    [InlineData("https://vdesktop.ninja@evil.example/", false)]
+    [InlineData("https://user:pw@vdesktop.ninja/", false)]
+    [InlineData("https://vdesktop.ninja:8443/", false)]
     [InlineData("file:///C:/Windows/System32/calc.exe", false)]
     [InlineData("javascript:alert(1)", false)]
     [InlineData("ms-settings:", false)]
-    public void OnlyPagesOfTheOwnRepositoryOnGitHubOverHttpsMayBeOpened(string address, bool official)
+    public void OnlyTheOwnRepositoryAndTheAuthorsWebsiteOverHttpsMayBeOpened(string address, bool official)
     {
         Assert.True(Uri.TryCreate(address, UriKind.Absolute, out var uri));
         Assert.Equal(official, SafeLinks.IsOfficial(uri));
@@ -513,7 +634,7 @@ public sealed class AboutAndUpdateTests
     private static string Assets(params string[] names) => "[" + string.Join(',', names.Select(n => $$"""{"name":"{{n}}","browser_download_url":"https://evil.example/{{n}}"}""")) + "]";
 
     private static string Rel(string tag, bool prerelease = false, bool draft = false, string? assets = null, string body = "Notes.", string name = "", string published = "2026-10-01T08:00:00Z", string html = "https://github.com/vdesktopninja/RDA/releases/tag/x") =>
-        $$"""{"tag_name":{{JsonSerializer.Serialize(tag)}},"name":{{JsonSerializer.Serialize(name)}},"draft":{{(draft ? "true" : "false")}},"prerelease":{{(prerelease ? "true" : "false")}},"published_at":{{JsonSerializer.Serialize(published)}},"html_url":{{JsonSerializer.Serialize(html)}},"body":{{JsonSerializer.Serialize(body)}},"assets":{{assets ?? Assets("EucLens.exe")}}}""";
+        $$"""{"tag_name":{{JsonSerializer.Serialize(tag)}},"name":{{JsonSerializer.Serialize(name)}},"draft":{{(draft ? "true" : "false")}},"prerelease":{{(prerelease ? "true" : "false")}},"published_at":{{JsonSerializer.Serialize(published)}},"html_url":{{JsonSerializer.Serialize(html)}},"body":{{JsonSerializer.Serialize(body)}},"assets":{{assets ?? Assets(GitHubUpdateChecker.WindowsAssetName)}}}""";
 
     private static string List(params string[] releases) => "[" + string.Join(',', releases) + "]";
 
@@ -620,9 +741,11 @@ public sealed class AboutAndUpdateTests
 
     [Theory]
     [InlineData("[]")]
-    [InlineData("""["EucLens.exe","other.zip"]""")]
-    [InlineData("""[{"name":"EucLens.exe.sha256"}]""")]
-    [InlineData("""[{"name":"source.zip"},{"name":"evil.exe"},{"name":"EucLens-0.6.0.tar.gz"},{"name":"../EucLens.exe"},{"name":"notEucLens.exe"}]""")]
+    [InlineData("""["EucLens-win-x64.exe","other.zip"]""")]
+    [InlineData("""[{"name":"EucLens-win-x64.exe.sha256"}]""")]
+    [InlineData("""[{"name":"source.zip"},{"name":"evil.exe"},{"name":"EucLens-0.6.0.tar.gz"},{"name":"../EucLens-win-x64.exe"},{"name":"notEucLens-win-x64.exe"}]""")]
+    [InlineData("""[{"name":"EucLens.exe"},{"name":"EucLens-0.6.0-win-x64.exe"},{"name":"EucLens-win-x64.zip"},{"name":"EucLens-win-arm64.exe"}]""")]
+    [InlineData("""[{"name":"eucLens-win-x64.exe"},{"name":"EUCLENS-WIN-X64.EXE"},{"name":"EucLens-win-x64.exe "},{"name":" EucLens-win-x64.exe"},{"name":"EucLens-win-x64.exe\n"}]""")]
     public async Task ANewerReleaseWithoutAWindowsBuildIsNotOfferedAndSaysSo(string assets)
     {
         var result = await CheckAsync(Replying(List(Rel("v0.6.0", assets: assets))));
@@ -632,22 +755,22 @@ public sealed class AboutAndUpdateTests
         Assert.Contains("no Windows download", result.Message, StringComparison.Ordinal);
     }
 
-    [Theory]
-    [InlineData("EucLens.exe")]
-    [InlineData("EucLens-0.6.0-win-x64.exe")]
-    [InlineData("EucLens-0.6.0-win-x64.zip")]
-    [InlineData("eucLens.EXE")]
-    public async Task AFileNamedLikeTheWindowsBuildCountsAsOne(string asset)
+    [Fact]
+    public async Task OnlyTheExactReleaseAssetNameIsAWindowsBuild()
     {
-        var result = await CheckAsync(Replying(List(Rel("v0.6.0", assets: Assets(asset)))));
+        Assert.Equal("EucLens-win-x64.exe", GitHubUpdateChecker.WindowsAssetName);
+        var result = await CheckAsync(Replying(List(Rel("v0.6.0", assets: Assets("EucLens-win-x64.exe")))));
         Assert.Equal(UpdateOutcome.UpdateAvailable, result.Outcome);
+        // The convention is documented where the next release will be made.
+        Assert.Contains("EucLens-win-x64.exe", Source("docs/ABOUT_AND_UPDATES.md"), StringComparison.Ordinal);
+        Assert.Contains("EucLens-win-x64.exe", Source("docs/STABLE_RELEASE_0.5.1.md"), StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task ATagThatIsNotAVersionIsIgnoredAndASourceArchiveIsNeverABinary()
     {
         // Tags such as "nightly" or "euc-lens-0.6" are not versions; the release that has a real tag decides.
-        var result = await CheckAsync(Replying(List(Rel("nightly"), Rel("euc-lens-0.6"), Rel("v0.6.0", assets: Assets("EucLens.exe")))));
+        var result = await CheckAsync(Replying(List(Rel("nightly"), Rel("euc-lens-0.6"), Rel("v0.6.0", assets: Assets("EucLens-win-x64.exe")))));
         Assert.Equal(V("0.6.0"), result.Release!.Version);
         // Only a source archive: GitHub lists none as an asset, so there is no build.
         var sourceOnly = await CheckAsync(Replying(List(Rel("v0.6.0", assets: "[]"))));

@@ -12,13 +12,17 @@ values back (`AppIdentity`), so the About page cannot disagree with Explorer.
 | Product | EUC Lens | Properties → Details → Product name |
 | Description | Remote Session Performance Diagnostics | Comments; the file description reads "EUC Lens - Remote Session Performance Diagnostics" (the name Task Manager shows) |
 | Version | 0.5.1 (`<Version>`; file version 0.5.1.0) | Product version, File version, About, navigation footer, recordings |
-| Maintainer / publisher | vdesktopninja | Company name. **Pending the owner's confirmation of the public identity.** No company or legal entity is named. |
-| Copyright | Copyright (c) 2026 EUC Lens contributors | The first copyright line of `LICENSE`, unchanged |
+| Author | Dominik Jakubowski (`<Authors>`) | About, copied version information, assembly metadata (`Author`) |
+| Publisher / professional brand | VDI Ninja (`<Company>`) | Company name in the executable's properties, About, copied version information |
+| Website | https://vdesktop.ninja (`<EucLensWebsite>`) | About (a button that opens it in the default browser), copied version information, assembly metadata (`Website`) |
+| Copyright | Copyright (c) 2026 EUC Lens contributors | The first copyright line of `LICENSE`, **unchanged**. It was not rewritten to name the author: whether to add Dominik Jakubowski to that line is a legal choice for the owner, and no existing contributor or attribution was removed. |
 | License | MIT (`LICENSE`) | About, assembly metadata |
-| Repository | https://github.com/vdesktopninja/RDA | About, update check |
+| Repository | https://github.com/vdesktopninja/RDA (unchanged) | About, update check |
 | Commit | the build's commit (`-p:EucLensCommit=<sha>`; the Windows workflow passes `github.sha`) | About ("Build"), as an abbreviated hexadecimal id. A local build says "not recorded (local build)". It is deliberately **not** appended to the product version, so Explorer shows exactly 0.5.1. |
 
-The version is not typed in any view; a test fails if a XAML file or the About code contains a version literal. `app.manifest` keeps its own, unrelated assembly identity.
+Windows has no standard field for an author in an executable's properties: Explorer → Properties → Details shows the *Company* (VDI Ninja) next to the product name, version, copyright and description; the author appears in About and the copied version information, and is carried in the assembly metadata.
+
+The author, brand and website are written once as well (`Directory.Build.props`); a test fails if About, the copied text, the properties or these documents disagree. The version is not typed in any view; a test fails if a XAML file or the About code contains a version literal. `app.manifest` keeps its own, unrelated assembly identity.
 
 CI verifies the published executable's product name, file description, comments, company, copyright, product version (exactly `0.5.1`) and file version (`0.5.1.0`),
 and prints them; the smoke test reads the same fields from the running process and compares them with the About page's source.
@@ -26,9 +30,9 @@ and prints them; the smoke test reads the same fields from the running process a
 ## 2. The About page
 
 Navigation → **About** (last item). It shows the logo, EUC Lens, the description, version, build, platform ("Windows 10 (version 2004) or later and Windows 11, x64" — the
-architecture is the running process's), maintainer, copyright and MIT license, a **Copy version information** button (product, version, build, platform, .NET runtime and Windows
+architecture is the running process's), copyright and MIT license, and under the product name the author **Dominik Jakubowski**, the brand **VDI Ninja** and the website **https://vdesktop.ninja** (a button that opens it in the default browser), a **Copy version information** button (product, version, build, platform, .NET runtime and Windows
 version; no computer name, user name or address), **Open GitHub repository**, the update area (section 3), and three disclosures: the release notes of this version (the
-`CHANGELOG.md` section of exactly this version), the MIT license text and the open-source acknowledgments (`THIRD_PARTY_NOTICES.md`). The legal texts are the repository's own files embedded
+`CHANGELOG.md` section of exactly this version), the MIT license text and the open-source acknowledgments (`THIRD_PARTY_NOTICES.md`) and the verbatim third-party license texts and notices that the redistributed components require (the `licenses` folder; about 300 KB, in a scrollable read-only box). The legal texts are the repository's own files embedded
 into the executable; a test compares them with the files and with the restored package list (every restored package must be acknowledged).
 
 The navigation footer shows "Version 0.5.1" discreetly. No release-channel label is shown: this build is an unpublished release candidate, so it is not called Stable.
@@ -50,13 +54,20 @@ What a check does:
   A date that is not plausible (before 2008 or in the future) is left out.
 * **Semantic versions are compared by number**, never as text: 0.10.0 is newer than 0.9.0; 1.0.0-rc.1 is older than 1.0.0. The newest release is chosen by version, not by list order or date.
 * **Pre-releases** (the flag or a pre-release tag) are never offered unless the user ticks *Include pre-releases (for testing)* on that visit; the choice is not saved.
-* **Windows builds only.** A release counts only if it has an asset named like the portable executable (`EucLens…exe`, or `EucLens…win….zip`). Tags and the source archives GitHub generates are not binaries and are never offered. A newer release without such an asset
+* **Windows builds only: the release asset convention.** A release counts only if it has an asset named exactly **`EucLens-win-x64.exe`** (case-sensitive, nothing before or after it). The checker offers no other name: not `EucLens.exe`, not a versioned name, not a zip, not a checksum file. Tags and the source archives GitHub generates are not binaries and are never offered. A newer release without that asset
   is reported as "listed on GitHub but has no Windows download attached yet".
+
+### Release asset convention (for every future release)
+
+1. Take the `EucLens.exe` that the validated Windows CI run published (the `EucLens-win-x64` workflow artifact) and verify its SHA-256 against that run.
+2. Upload it to the GitHub Release **renamed to `EucLens-win-x64.exe`** (same bytes), and optionally `EucLens-win-x64.exe.sha256` beside it. The About page's check finds the release by the first name only.
+3. The tag is a semantic version, `v0.5.1` (a pre-release tag such as `v0.6.0-rc.1`, and the pre-release flag, keep it out of the stable check).
+4. Do not attach a differently named copy of the executable to a release that should be offered: it would not be recognized, and the page would say there is no Windows download.
 * **Results are ordinary messages**: update available; latest version; no public release (also for a private repository, which answers 404 anonymously); newer release without a Windows build; offline/proxy/firewall; secure connection could not be verified; timeout; rate limit (with a reset time only when plausible); GitHub unavailable;
   unreadable answer; unsafe redirect; cancelled. A message never quotes the response or an exception. The UI thread is never blocked (the request is awaited, the button is disabled and the page says it is checking), and monitoring and recording are unaffected whatever happens.
 
 When a newer compatible release exists, the page shows the installed version, the latest version, the release date (UTC), a short plain summary, **View release notes** and **Download update**. **Download update opens the official release page in the system browser**
-(`SafeLinks` allows only pages of this repository on github.com over HTTPS; the same check runs again in the desktop service). EUC Lens does not download, save, open or run anything, and does not replace itself.
+(`SafeLinks` allows only pages of this repository on github.com and the author's website `https://vdesktop.ninja` (its exact host) over HTTPS; the same check runs again in the desktop service). EUC Lens does not download, save, open or run anything, and does not replace itself.
 
 ## 4. Privacy and enterprise behavior
 

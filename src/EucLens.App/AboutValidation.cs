@@ -73,10 +73,11 @@ internal static class AboutValidation
             Require(info.ProductName == identity.Product && info.ProductName == "EUC Lens", $"ProductName '{info.ProductName}'.");
             Require(info.Comments == identity.Description, $"Comments '{info.Comments}'.");
             Require(info.FileDescription == "EUC Lens - Remote Session Performance Diagnostics", $"FileDescription '{info.FileDescription}'.");
-            Require(info.CompanyName == identity.Maintainer, $"CompanyName '{info.CompanyName}'.");
+            Require(info.CompanyName == identity.Publisher && info.CompanyName == "VDI Ninja", $"CompanyName '{info.CompanyName}'.");
+            Require(identity.Author == "Dominik Jakubowski" && identity.Website == "https://vdesktop.ninja", $"Author '{identity.Author}' / website '{identity.Website}'.");
             Require(info.LegalCopyright == identity.Copyright, $"LegalCopyright '{info.LegalCopyright}'.");
             Require(info.ProductVersion == AppVersion.Current && info.FileVersion == AppVersion.Current + ".0", $"Version {info.ProductVersion} / {info.FileVersion}.");
-            Log(directory, $"PASS: executable metadata: product '{info.ProductName}', description '{info.FileDescription}', version {info.ProductVersion} (file {info.FileVersion}), company '{info.CompanyName}', copyright '{info.LegalCopyright}'; the commit recorded in the build is {identity.ShortCommit ?? "not recorded"}");
+            Log(directory, $"PASS: executable metadata: product '{info.ProductName}', description '{info.FileDescription}', version {info.ProductVersion} (file {info.FileVersion}), company/publisher '{info.CompanyName}', author '{identity.Author}', website {identity.Website}, copyright '{info.LegalCopyright}'; the commit recorded in the build is {identity.ShortCommit ?? "not recorded"}");
             return Task.CompletedTask;
         });
 
@@ -100,21 +101,21 @@ internal static class AboutValidation
                 vm.About.UseCheckerForValidation(new FakeChecker(_ => Task.FromResult(new UpdateCheckResult(UpdateOutcome.UpToDate, "You have the latest version.", ReleaseVersion.Zero))));
                 await Idle(window);
                 var texts = DesktopValidation.Descendants<TextBlock>(window).Where(t => t.IsVisible).Select(t => t.Text).ToList();
-                foreach (var expected in new[] { "About", "EUC Lens", "Remote Session Performance Diagnostics", AppVersion.Current, "MIT", "vdesktopninja", vm.About.Facts.First(f => f.Label == "Copyright").Value, "Version " + AppVersion.Current })
+                foreach (var expected in new[] { "About", "EUC Lens", "Remote Session Performance Diagnostics", AppVersion.Current, "MIT", "Dominik Jakubowski", "VDI Ninja", vm.About.Facts.First(f => f.Label == "Copyright").Value, "Version " + AppVersion.Current })
                     Require(texts.Any(t => t == expected), $"The visible text '{expected}' is missing.");
                 Require(!texts.Any(t => t.Contains("stable", StringComparison.OrdinalIgnoreCase)), "A visible text calls this candidate stable.");
                 var footer = DesktopValidation.Descendants<TextBlock>(window).Single(t => t.Text == "Version " + AppVersion.Current && System.Windows.Automation.AutomationProperties.GetName(t) == "Installed version");
                 Require(footer.IsVisible && footer.ActualHeight > 0, "The navigation footer does not show the installed version.");
                 var image = DesktopValidation.Descendants<Image>(window).Single(i => System.Windows.Automation.AutomationProperties.GetName(i) == "EUC Lens logo");
                 Require(image.Source is not null && image.ActualWidth >= 80, "The logo is not shown.");
-                foreach (var name in new[] { "Copy version information", "Open GitHub repository", "Check for updates" })
+                foreach (var name in new[] { "Copy version information", "Open GitHub repository", "https://vdesktop.ninja", "Check for updates" })
                 {
                     var button = ButtonNamed(window, name);
                     Require(button.IsEnabled && button.IsTabStop && button.Focusable && !string.IsNullOrEmpty(System.Windows.Automation.AutomationProperties.GetName(button)), $"'{name}' is not an enabled, focusable, named button.");
                 }
                 Require(!DesktopValidation.Descendants<Button>(window).Any(b => b.IsVisible && ((b.Content as string) is "Download update" or "View release notes")), "Update actions are shown before an update was found.");
                 Require(vm.About.CheckCount == checksBefore, "Showing the page started an update check.");
-                Log(directory, $"PASS: About page {theme}: identity, version, copyright, MIT, maintainer, platform, logo and the footer version are shown from the single source; the three actions are named, enabled and focusable; no update action before a result");
+                Log(directory, $"PASS: About page {theme}: identity (author, brand, website as a button), version, copyright, MIT, platform, logo and the footer version are shown from the single source; the four actions are named, enabled and focusable; no update action before a result");
                 DesktopValidation.Capture(window, client, Path.Combine(directory, $"about-idle-{theme}.png"));
             });
 
@@ -181,13 +182,15 @@ internal static class AboutValidation
             {
                 vm.About.UseCheckerForValidation(new FakeChecker(_ => Task.FromResult(new UpdateCheckResult(UpdateOutcome.UpToDate, "You have the latest version.", ReleaseVersion.Zero))));
                 var expanders = DesktopValidation.Descendants<Expander>(window).Where(e => e.IsVisible).ToList();
-                Require(expanders.Count == 3, $"{expanders.Count} disclosures instead of 3 (release notes, license, acknowledgments).");
+                Require(expanders.Count == 4, $"{expanders.Count} disclosures instead of 4 (release notes, license, acknowledgments, full texts).");
                 foreach (var expander in expanders) expander.IsExpanded = true;
                 await Idle(window); await Task.Delay(150);
                 var texts = DesktopValidation.Descendants<TextBlock>(window).Where(t => t.IsVisible).Select(t => t.Text).ToList();
                 Require(texts.Any(t => t.StartsWith("MIT License", StringComparison.Ordinal) && t.Contains("Permission is hereby granted", StringComparison.Ordinal)), "The license text is not shown.");
                 Require(texts.Any(t => t.Contains("LiveChartsCore", StringComparison.Ordinal) && t.Contains("SkiaSharp", StringComparison.Ordinal) || t.Contains("# Third-party notices", StringComparison.Ordinal)), "The acknowledgments are not shown.");
                 Require(texts.Any(t => t.StartsWith("## " + AppVersion.Current, StringComparison.Ordinal)), "The release notes of this version are not shown.");
+                var full = DesktopValidation.Descendants<TextBox>(window).Single(b => b.IsVisible && System.Windows.Automation.AutomationProperties.GetName(b).StartsWith("Verbatim license texts", StringComparison.Ordinal));
+                Require(full.IsReadOnly && full.Text.Contains("THIRD-PARTY SOFTWARE NOTICES AND INFORMATION", StringComparison.Ordinal) && full.Text.Contains("License notice for zlib-ng", StringComparison.Ordinal) && full.Text.Contains("GLFW", StringComparison.Ordinal) && full.ActualHeight > 100, "The full third-party license texts are not shown.");
                 TypographyValidation.Reset();
                 TypographyValidation.CheckPage(window, $"about legal {theme}");
                 Require(TypographyValidation.Problems.Count == 0, "Typography problems with the legal text open: " + string.Join(" || ", TypographyValidation.Problems.Take(10)));
@@ -197,7 +200,7 @@ internal static class AboutValidation
                 DesktopValidation.PageHost(window)?.ScrollToTop();
                 foreach (var expander in expanders) expander.IsExpanded = false;
                 await Idle(window);
-                Log(directory, $"PASS: legal text ({theme}): release notes of this version, the MIT license and the acknowledgments open and read in full; no text clipped, overlapping or outside its card with all three open");
+                Log(directory, $"PASS: legal text ({theme}): release notes of this version, the MIT license, the acknowledgments and the verbatim third-party license texts open; no text clipped, overlapping or outside its card with all four open");
             });
         }
 

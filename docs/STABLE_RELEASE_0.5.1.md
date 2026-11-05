@@ -162,6 +162,11 @@ EUC Lens needs no network. The About page has a **Check for updates** button tha
 (details and security limits in [ABOUT_AND_UPDATES.md](ABOUT_AND_UPDATES.md)). Nothing is sent about the computer, the user, the session or the recordings, nothing is downloaded or replaced,
 and monitoring and recording never depend on it.
 
+## Release asset convention
+
+The About page's update check offers a release only if it has an asset named exactly `EucLens-win-x64.exe` (the portable executable that the validated CI run
+built, uploaded under that name). Details and the steps for a release are in [ABOUT_AND_UPDATES.md](ABOUT_AND_UPDATES.md).
+
 ## Release-candidate validation and known limitations
 
 What the automated validation covers: the unit and regression tests on Windows, the WPF design contract, the published EXE's

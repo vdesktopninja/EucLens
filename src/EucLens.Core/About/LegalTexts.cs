@@ -9,6 +9,28 @@ public static class LegalTexts
     public static string ThirdPartyNotices => Read("EucLens.THIRD_PARTY_NOTICES.md");
     public static string Changelog => Read("EucLens.CHANGELOG.md");
 
+    /// <summary>
+    /// The verbatim license texts and notices the redistributed components require (the .NET runtime, SkiaSharp's native libraries, GLFW, OpenTK, GLWpfControl, LiveCharts, SkiaSharp), one after the other,
+    /// each under a heading with its file name. They are the files of the repository's licenses folder; its README says where each one came from.
+    /// </summary>
+    public static string FullThirdPartyTexts()
+    {
+        var assembly = typeof(LegalTexts).Assembly;
+        var names = assembly.GetManifestResourceNames().Where(n => n.StartsWith(LicensePrefix, StringComparison.Ordinal)).OrderBy(n => n.EndsWith("README.md", StringComparison.Ordinal) ? "" : n, StringComparer.Ordinal).ToList();
+        var text = new System.Text.StringBuilder();
+        foreach (var name in names)
+        {
+            if (text.Length > 0) text.Append("\n\n");
+            text.Append("================================================================================\n").Append(name[LicensePrefix.Length..]).Append("\n================================================================================\n\n").Append(Read(name).Replace("\r\n", "\n", StringComparison.Ordinal).Trim());
+        }
+        return text.ToString();
+    }
+
+    /// <summary>The names of the embedded license files (without the prefix).</summary>
+    public static IReadOnlyList<string> LicenseFileNames() => typeof(LegalTexts).Assembly.GetManifestResourceNames().Where(n => n.StartsWith(LicensePrefix, StringComparison.Ordinal)).Select(n => n[LicensePrefix.Length..]).Order(StringComparer.Ordinal).ToList();
+
+    private const string LicensePrefix = "EucLens.licenses.";
+
     /// <summary>The changelog section of a version ("## 0.5.1 — …" up to the next section), or a plain statement when this build has none.</summary>
     public static string ReleaseNotesFor(string version) => ReleaseNotesFor(Changelog, version);
 

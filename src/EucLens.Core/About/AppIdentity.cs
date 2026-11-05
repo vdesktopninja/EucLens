@@ -7,9 +7,12 @@ namespace EucLens.Core;
 /// Who the application is, read back from the metadata the build wrote into the assembly (Directory.Build.props): the same values Windows Explorer shows under
 /// Properties → Details, so the About page and the executable cannot disagree. Nothing here is typed a second time.
 /// </summary>
-public sealed record AppIdentity(string Product, string Description, string Maintainer, string Copyright, string License, string RepositoryUrl, string Version, string? Commit)
+public sealed record AppIdentity(string Product, string Description, string Author, string Publisher, string Copyright, string License, string RepositoryUrl, string Website, string Version, string? Commit)
 {
     /// <summary>The commit as shown to people: the first seven characters, or null when the build did not record one (a local build).</summary>
+    /// <summary>Author and brand as one line: "Dominik Jakubowski, VDI Ninja".</summary>
+    public string AuthorLine => $"{Author}, {Publisher}";
+
     public string? ShortCommit => Commit is null ? null : Commit[..7];
 
     /// <summary>The version, with the abbreviated commit when the build recorded one: "1.2.3 (727acd1)".</summary>
@@ -30,10 +33,12 @@ public sealed record AppIdentity(string Product, string Description, string Main
         return new(
             assembly.GetCustomAttribute<AssemblyProductAttribute>()?.Product ?? "EUC Lens",
             assembly.GetCustomAttribute<AssemblyDescriptionAttribute>()?.Description ?? "",
+            Metadata("Author"),
             assembly.GetCustomAttribute<AssemblyCompanyAttribute>()?.Company ?? "",
             assembly.GetCustomAttribute<AssemblyCopyrightAttribute>()?.Copyright ?? "",
             Metadata("License"),
             Metadata("RepositoryUrl"),
+            Metadata("Website"),
             AppVersion.Current,
             IsCommit(commit) ? commit.ToLowerInvariant() : null);
     }

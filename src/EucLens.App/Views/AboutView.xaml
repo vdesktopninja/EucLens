@@ -8,7 +8,12 @@
     <Image Source="pack://application:,,,/Assets/EucLens-logo.png" Width="88" Height="88" Margin="0,0,20,0" VerticalAlignment="Top" RenderOptions.BitmapScalingMode="HighQuality" AutomationProperties.Name="EUC Lens logo" />
     <StackPanel Grid.Column="1">
      <TextBlock Text="{Binding About.Product}" Style="{StaticResource Section}" Margin="0" />
-     <TextBlock Text="{Binding About.Description}" Style="{StaticResource Reading}" Margin="0,2,0,12" />
+     <TextBlock Text="{Binding About.Description}" Style="{StaticResource Reading}" Margin="0,2,0,8" />
+     <StackPanel Margin="0,0,0,12" AutomationProperties.Name="Author and brand">
+      <TextBlock Text="{Binding About.Author}" FontWeight="SemiBold" />
+      <TextBlock Text="{Binding About.Publisher}" />
+      <Button Content="{Binding About.Website}" Command="{Binding About.OpenWebsiteCommand}" HorizontalAlignment="Left" Margin="0,4,0,0" AutomationProperties.Name="Open the VDI Ninja website in the browser" ToolTip="Opens the website in your default browser" />
+     </StackPanel>
      <ItemsControl ItemsSource="{Binding About.Facts}" AutomationProperties.Name="Version and product details" IsTabStop="False">
       <ItemsControl.ItemTemplate><DataTemplate>
        <Grid Margin="0,0,0,4"><Grid.ColumnDefinitions><ColumnDefinition Width="112" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
@@ -60,6 +65,9 @@
     </Expander>
     <Expander Header="Open-source acknowledgments" AutomationProperties.Name="Open-source third-party acknowledgments">
      <TextBlock Text="{Binding About.ThirdPartyText}" Style="{StaticResource Reading}" Margin="0,8,0,8" />
+    </Expander>
+    <Expander Header="Full third-party license texts" AutomationProperties.Name="Full third-party license texts and notices">
+     <TextBox Text="{Binding About.FullThirdPartyText, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" AcceptsReturn="True" MaxHeight="360" Margin="0,8,0,8" AutomationProperties.Name="Verbatim license texts and notices of the redistributed components" />
     </Expander>
    </StackPanel>
   </Border>

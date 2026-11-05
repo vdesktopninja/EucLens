@@ -4,5 +4,7 @@
     <EmbeddedResource Include="../../LICENSE" LogicalName="EucLens.LICENSE.txt" />
     <EmbeddedResource Include="../../THIRD_PARTY_NOTICES.md" LogicalName="EucLens.THIRD_PARTY_NOTICES.md" />
     <EmbeddedResource Include="../../CHANGELOG.md" LogicalName="EucLens.CHANGELOG.md" />
+    <!-- The verbatim texts and notices that the redistributed third-party components require (see licenses/README.md). -->
+    <EmbeddedResource Include="../../licenses/*" LogicalName="EucLens.licenses.%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

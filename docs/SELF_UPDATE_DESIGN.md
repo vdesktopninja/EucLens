@@ -49,6 +49,6 @@ This document records what a self-update would have to guarantee, so that it can
 ## Decisions needed from the owner before implementation
 
 1. Whether to obtain a code-signing certificate (and which publisher name); until then self-update is not recommended beyond testing.
-2. Asset naming and a `SHA256SUMS` convention for releases (the 0.5.1 check already requires an `EucLens…exe` or `EucLens…win….zip` asset).
+2. A `SHA256SUMS` convention for releases. The asset name is decided: the 0.5.1 check recognizes exactly `EucLens-win-x64.exe` (see the release asset convention in ABOUT_AND_UPDATES.md).
 3. Default state of the feature (off unless enabled in Settings is recommended) and whether an administrator policy is required for it to exist at all.
 4. Whether the optional *automatic check* preference (default off, disclosed in Settings) is wanted at all, separately from self-update.

@@ -39,9 +39,11 @@ public sealed partial class GitHubUpdateChecker : IUpdateChecker, IDisposable
     [GeneratedRegex(@"\A[A-Za-z0-9_.-]{1,100}\z", RegexOptions.CultureInvariant)]
     private static partial Regex NamePattern();
 
-    // A Windows build is a file named like the portable executable (EucLens.exe, EucLens-0.6.0-win-x64.exe) or a zip that says win. Source archives are not assets and never match.
-    [GeneratedRegex(@"\AEucLens[A-Za-z0-9._-]{0,60}(?:\.exe|win[A-Za-z0-9._-]{0,40}\.zip)\z", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 250)]
-    private static partial Regex WindowsAssetPattern();
+    /// <summary>
+    /// The release asset convention: the portable Windows x64 executable of a release is published under exactly this name (case-sensitive, nothing before or after it).
+    /// Tags, source archives, checksum files and every other name are not Windows builds and are never offered. Documented in docs/ABOUT_AND_UPDATES.md.
+    /// </summary>
+    public const string WindowsAssetName = "EucLens-win-x64.exe";
 
     [GeneratedRegex(@"\[([^\]]{1,200})\]\([^)]{0,500}\)", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 250)]
     private static partial Regex MarkdownLink();
@@ -217,7 +219,7 @@ public sealed partial class GitHubUpdateChecker : IUpdateChecker, IDisposable
             foreach (var asset in assets.EnumerateArray())
             {
                 if (++seen > 100) break;
-                if (asset.ValueKind == JsonValueKind.Object && String(asset, "name", 120) is { } assetName && WindowsAssetPattern().IsMatch(assetName)) { hasBuild = true; break; }
+                if (asset.ValueKind == JsonValueKind.Object && String(asset, "name", 120) is { } assetName && string.Equals(assetName, WindowsAssetName, StringComparison.Ordinal)) { hasBuild = true; break; }
             }
         }
         return new(version, tag, title, published, summary, prerelease, hasBuild);
