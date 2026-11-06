@@ -19,7 +19,7 @@ Portable · no installer · no server · no cloud · no telemetry
 
 EUC Lens runs **inside** the Windows session you want to investigate and shows how that session is really performing: connection quality, display delivery and the health of the guest system. It combines live monitoring, evidence-based diagnostics, session recording and historical analysis, so an administrator can reproduce a problem, record it, and then see what the measurements actually show.
 
-Everything happens locally on the machine where EUC Lens runs. There is nothing to deploy on a server, no account to create and no data leaves the computer.
+Everything happens locally on the machine where EUC Lens runs. There is nothing to deploy on a server and no account to create. Nothing leaves the computer unless you press *Check for updates*, which asks GitHub's public release list whether a newer version exists and sends no session data.
 
 > **Not code-signed yet.** The executable is not digitally signed, so Windows SmartScreen may show an *unknown publisher* warning the first time you start it. Compare the file's SHA-256 with the value on the release page before you run it. See [Privacy and security](#privacy-and-security).
 
@@ -41,7 +41,7 @@ When the four sanitized screenshots exist in docs/images/, replace this comment 
 
 ### Live session monitoring
 
-- Omnissa Horizon **Blast** session and imaging metrics where the session provides them: round-trip time, packet loss, frame rate, dropped frames, output queueing and bandwidth.
+- Omnissa Horizon **Blast** session and imaging metrics where the session provides them: round-trip time, packet loss, frame rate, output queueing and bandwidth.
 - Windows metrics in **every** session: CPU, memory, disk, GPU and display.
 - An honest distinction between what was measured and what is not available. A missing value is shown as unavailable, never as zero, and the page says why.
 

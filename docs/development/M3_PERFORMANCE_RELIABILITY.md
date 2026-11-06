@@ -225,4 +225,4 @@ No Critical findings. Thread affinity: the export builds on the pool from immuta
 * **Timing numbers** depend on the runner; the limits catch order-of-magnitude regressions only.
 * The Unknown-protocol note and the availability notes depend on what real recordings contain.
 
-The owner has since accepted M4 (see `docs/history/ROADMAP_0.5.md`); that acceptance does not remove the risks above.
+The owner has since accepted M4 (see [the 0.5 roadmap](../history/ROADMAP_0.5.md)); that acceptance does not remove the risks above.

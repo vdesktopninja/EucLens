@@ -37,13 +37,13 @@ EUC Lens remains offline, portable, service-free, and usable without any AI mode
 - Explicit rules, baselines, quality gates, evidence model and deterministic output ordering.
 - Fixture tests for normal/idle/disconnected recordings, DST changes, missing counters, synthetic spikes, mixed events and no-data cases.
 
-### M2: Session History integration — implemented (`docs/development/M2_FINDINGS_UX.md`)
+### M2: Session History integration — implemented ([findings UX](../development/M2_FINDINGS_UX.md))
 
 - Small findings panel and selection synchronization with existing charts/timeline.
 - Reuse current immutable history data and windowing/downsampling.
 - Keyboard, screen-reader labels, 100/125/150% DPI and dark/light theme coverage.
 
-### M3: Performance, regression and CI — implemented (`docs/development/M3_PERFORMANCE_RELIABILITY.md`)
+### M3: Performance, regression and CI — implemented ([performance and reliability](../development/M3_PERFORMANCE_RELIABILITY.md))
 
 Status: benchmarks of the analyzer up to 250,000 samples, a retention probe with leak-sensitivity tests, lifetime and stress tests of Session History, the optional findings export (CSV and JSON, formula-injection protection, atomic output) and Windows smoke sections for export, layout and lifetime. Item 6 of the scope ("Safe exports") is delivered here. Not yet done: anything in M4.
 
@@ -80,7 +80,7 @@ Only after deterministic findings are reliable and manually accepted: assess an 
 |---|---|
 | Unit tests | Passing (see the release candidate report; Windows CI is the record) |
 | Windows CI and WPF smoke | Passing on the release candidate commit |
-| Performance and memory checks | Done in M3 (`docs/development/M3_PERFORMANCE_RELIABILITY.md`) |
+| Performance and memory checks | Done in M3 ([performance and reliability](../development/M3_PERFORMANCE_RELIABILITY.md)) |
 | Independent code review | Done in M3; no Critical findings, High findings fixed |
 | Manual Horizon acceptance | **Accepted by the project owner**; not independently verified (see M4) |
 | Merge, tag and release | **Not done.** Requires explicit owner authorization. |

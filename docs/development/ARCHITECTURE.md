@@ -24,7 +24,7 @@ The composition root registers one `IMetricsProvider`, the real session. There i
 
 ## Collection and UI lifecycle
 
-Startup validates dependency injection, restores local preferences, initializes the provider off the UI thread and starts one cancellable `PeriodicTimer` loop that samples once per second. Collection runs on a worker thread; only the WPF dispatcher thread updates bound properties, chart series and recorder state. Calls never overlap, and a configuration change discards results collected during the change.
+Startup validates dependency injection, restores local preferences, initializes the provider and starts one cancellable loop that samples once per second. Each sample is collected on a worker thread; its result is applied on the WPF dispatcher thread, which updates bound properties and chart series. Collections never overlap, and a configuration change discards results collected during the change. Recording files are written by a bounded background writer, not by the UI thread.
 
 A collection failure is logged locally, shown as stale or unavailable values and retried. Shutdown cancels and awaits the loop, finalizes a running recording, then disposes the provider and services. Timestamps are UTC `DateTimeOffset`; elapsed time uses a monotonic stopwatch; chart labels use local time.
 
@@ -32,7 +32,7 @@ Monitoring and recording are separate state machines owned by `MonitoringCoordin
 
 ## Recording and history
 
-A running recording is streamed to disk by `RecordingWriter` as JSON Lines parts (`euclens.recording/1`) with rotation, compression of closed parts, a storage quota and age-based retention. The writer is bounded: when disk or queue limits are hit, samples are counted as lost and the loss is written into the recording, never hidden. A recording without a footer (crash, power loss) is readable up to its last flushed line and listed as *Interrupted*.
+A running recording is streamed to disk by `RecordingWriter` as JSON Lines parts (`euclens.recording/1`) with rotation, compression of closed parts, a storage quota and age-based retention. The writer is bounded: when the disk or the queue cannot keep up, samples are counted as lost, shown on the Session Recorder page and written into the recording as soon as writing works again. If writing keeps failing, the recording ends with the reason *storage error* and what was saved stays readable. A recording without a footer (crash, power loss) is readable up to its last flushed line and listed as *Interrupted*.
 
 Session History reads recordings through `HistoryReader` and `HistoryLoader` (multi-part, compressed, de-duplicated, damaged-line tolerant) with a sample limit and peak-preserving downsampling for charts. The findings analysis in `Core/Anomalies` runs over the loaded recording: fixed rules with versions, thresholds and minimum durations, a per-recording robust baseline, episode detection and cross-metric timing correlations. It is deterministic, independent of the UI and cancellable. JSON and CSV exports of recordings, timelines and findings write to a temporary file and move it into place atomically; text from recordings is treated as untrusted, and CSV cells are protected against spreadsheet formula injection.
 

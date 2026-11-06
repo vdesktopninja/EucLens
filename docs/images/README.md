@@ -1,6 +1,6 @@
 # Documentation screenshots
 
-The main README shows four screenshots of the real application. They are **not added yet**: they must come from a real EUC Lens v0.5.1 running in a real session, and the automated test harness cannot supply them (its screenshots carry a *SYNTHETIC TEST DATA* banner). This page says what is needed.
+The main README is prepared to show four screenshots of the real application, but they are **not added yet** (the gallery is still an HTML comment, so the README shows none): they must come from a real EUC Lens v0.5.1 running in a real session, and the automated test harness cannot supply them (its screenshots carry a *SYNTHETIC TEST DATA* banner). This page says what is needed.
 
 ## Files to add
 
