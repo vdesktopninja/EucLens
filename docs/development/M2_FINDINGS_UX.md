@@ -104,7 +104,7 @@ Windows smoke (`HistoryValidation.FindingsExperience`, in the CI evidence): summ
 * "Show in charts" uses the page scroll viewer's minimal scroll; with the findings list and the charts on different parts of a tall page, the list scrolls out of view (use Show full recording or scroll back).
 * Findings for a recording still being written are a snapshot: reopening the recording re-analyzes it.
 * The DPI behaviour is verified at the widths that 125 % and 150 % scaling produce, not by switching the process DPI.
-* CSV/JSON export of findings was not part of this iteration; it was added in M3 (`docs/M3_PERFORMANCE_RELIABILITY.md`).
+* CSV/JSON export of findings was not part of this iteration; it was added in M3 (`docs/development/M3_PERFORMANCE_RELIABILITY.md`).
 
 ## 10. Manual Horizon acceptance checklist
 

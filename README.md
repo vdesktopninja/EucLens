@@ -1,98 +1,155 @@
+<div align="center">
+
 # EUC Lens
 
-A free, MIT-licensed portable Windows desktop workspace for understanding remote
-desktop session performance. EUC Lens uses original code and design; it does not
-include Remote Display Analyzer code. **Real Session** mode combines Omnissa Horizon
-Blast counters (0.2) with protocol-independent Windows CPU, memory, disk, GPU and
-display measurements (0.3). Since 0.5.1 it monitors only the real session it runs in:
-there is no Demo Mode and no workload selection. The header banner shows the data
-availability (Horizon Blast counters + Windows metrics, or Windows metrics only).
+**See what's really happening inside your remote desktop session.**
 
-## Current functionality
+Open-source Windows diagnostics for EUC and VDI environments.
 
-- Five working WPF pages: Dashboard, Diagnostics, Session Recorder, System
-  Information and Settings, with a navigation sidebar and dark/light themes.
-- **Real Session** mode (default): reads the `Horizon Blast Session Counters` and
-  `Horizon Blast Imaging Counters` instances that belong to the Windows session
-  EUC Lens runs in. See [Horizon Blast monitoring](docs/HORIZON_BLAST.md).
-- Protocol-independent host monitoring in Real Session mode: machine-wide CPU
-  (with history chart), physical RAM, disk throughput, GPU adapters (DXGI) with
-  utilization, encode/decode and dedicated/shared memory from Windows GPU
-  counters, optional NVIDIA NVML, and the session's display topology. See
-  [System, GPU and display monitoring](docs/SYSTEM_GPU_MONITORING.md).
-- The detected protocol is shown on Dashboard and Settings ("Not detected" with the
-  reason when no Blast session exists), next to the data availability.
-- **Advanced Metrics** page: every raw measurement with category filter, search,
-  value, unit, scope (machine-wide or this session), status, source and sample time.
-- Frame-rate rules follow the measured screen activity (Blast dirty frames); there is
-  nothing to select. Synthetic data exists only in the automated tests and the
-  `--smoke-test` harness, and real monitoring rejects synthetic samples.
-- One-second asynchronous collection, metric cards, session health and LiveCharts2
-  RTT/FPS charts with a rolling 120-sample window.
-- Offline, rule-based **diagnostic intelligence** with independent **Connection**,
-  **Graphics** and **VDI Guest** health (Healthy, Warning, Critical or Insufficient Data,
-  each with coverage). Findings carry evidence, the observation window, the decision rule,
-  possible causes, recommended actions and limitations. Sustained conditions use
-  monotonic-time windows with hysteresis and recovery; brief spikes, idle desktops and
-  software rendering do not raise warnings. Thresholds are configurable and validated.
-  The Diagnostics page (0.4.1) shows:
-  * a status line and health overview with key measurements and thresholds;
-  * an evidence-coverage indicator;
-  * RTT, FPS, CPU and packet-loss trends for 30/60/120 s;
-  * a sortable, filterable findings table beside a resizable evidence and recommendations panel (copyable), each pane scrolling on its own.
+## [⬇ Download EUC Lens v0.5.1](https://github.com/vdesktopninja/EucLens/releases/tag/v0.5.1)
 
-  0.4.2 refines readability only: a typography hierarchy, a compact status line, taller trend charts, low-FPS thresholds drawn only while the engine verifies they apply, and one vector severity icon (information, warning, critical, healthy, recovered) beside every severity text.
+Portable · no installer · no server · no cloud · no telemetry
 
-  0.4.3 adds background operation: a notification-area icon showing what EUC Lens is really doing (idle, monitoring, recording, warning, paused),
-  optional minimize/close to tray, monitoring and recording that continue while the window is hidden, long recordings streamed to disk with rotation,
-  quota and retention, a single instance per user session, optional privacy-safe notifications and the new application icon. See
-  [Background monitoring](docs/BACKGROUND_MONITORING.md).
+[![Latest release](https://img.shields.io/github/v/release/vdesktopninja/EucLens?label=release&color=2b6cb0)](https://github.com/vdesktopninja/EucLens/releases/latest)
+![Platform: Windows x64](https://img.shields.io/badge/platform-Windows%20x64-0078d4)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+![Status: stable](https://img.shields.io/badge/status-stable-2f855a)
 
-  See [Diagnostic intelligence](docs/DIAGNOSTICS.md).
-- **Session history and incident timeline (0.4.4)**: *Mark Performance Issue* in the tray menu (one click, no window needed) or on the Session Recorder page saves a
-  timestamped incident marker into the running recording, confirmed only once it is on disk. Later, *Analyze recording* opens the saved session on the new
-  **Session History** page: overview (complete, interrupted or in progress), a timeline of every recorded event with its own icon and label, synchronized charts of
-  connection, graphics and guest metrics on one time axis (zoom, ranges, previous/next incident, P50/P95/maximum, valid and missing counts), peak-preserving
-  reduction for multi-hour recordings, and for each incident what the recording shows around it, described deterministically and without naming a cause.
-  Administrators can annotate incidents (stored beside the recording; the recording is never rewritten). See [Session history](docs/SESSION_HISTORY.md).
+</div>
 
-- **Intelligent findings (0.5.0)**: when a saved recording is opened in Session History, a deterministic, offline analysis lists what the recording shows:
-  sustained and short-lived RTT, packet-loss, frame-rate, queueing, CPU, memory, GPU and disk observations, each with its UTC interval, the measured values, the threshold
-  or baseline used, the data coverage and what is not known, plus conservative "correlated timing" links between observations. Selecting a finding only selects it (since 0.5.1 it never moves the charts or the page); the explicit
-  *Show in charts* action opens the synchronized charts at its evidence window and marks the peak. Missing measurements are never treated as zero. Findings can be exported to CSV or JSON (`euclens.findings/1`) with
-  spreadsheet formula protection. The findings do not name a root cause. See the [changelog](CHANGELOG.md), [the analysis rules](docs/M1_ANOMALY_ENGINE.md) and
-  [the roadmap and known limitations](docs/ROADMAP_0.5.md).
+EUC Lens runs **inside** the Windows session you want to investigate and shows how that session is really performing: connection quality, display delivery and the health of the guest system. It combines live monitoring, evidence-based diagnostics, session recording and historical analysis, so an administrator can reproduce a problem, record it, and then see what the measurements actually show.
 
-- Start/stop timestamped recording, elapsed time, sample count and a historical
-  RTT chart (latest 600 samples). JSON and CSV export to a chosen local file.
-- Local preferences, bounded application logs, no authentication, telemetry,
-  service, database, cloud dependency or runtime internet requirement.
-- **Session Recorder** (0.5.1 layout): one status for monitoring and recording, a compact live latency chart, and a table of saved recordings with one action bar. See [Session Recorder](docs/SESSION_RECORDER.md).
-- **About EUC Lens** (0.5.1): by Dominik Jakubowski, VDI Ninja (https://vdesktop.ninja), with version and build, MIT license, open-source acknowledgments (and the verbatim third-party license texts) and release notes. An explicit **Check for updates**
-  button asks GitHub's public release list (nothing is requested unless you press it; no identifiers or session data are sent; nothing is downloaded or installed, *Download
-  update* opens the release page in your browser). See [About and updates](docs/ABOUT_AND_UPDATES.md) and the [self-update design](docs/SELF_UPDATE_DESIGN.md) (not implemented).
+Everything happens locally on the machine where EUC Lens runs. There is nothing to deploy on a server, no account to create and no data leaves the computer.
 
-**Citrix HDX and Microsoft RDP protocol metrics are not implemented.** Host
-CPU, memory, disk, GPU and display metrics work in those sessions too, but the
-protocol is reported as "Not detected". See [ARCHITECTURE.md](ARCHITECTURE.md)
-for integration research requirements.
+> **Not code-signed yet.** The executable is not digitally signed, so Windows SmartScreen may show an *unknown publisher* warning the first time you start it. Compare the file's SHA-256 with the value on the release page before you run it. See [Privacy and security](#privacy-and-security).
 
-## Platforms
+<!--
+SCREENSHOTS (pending real captures, see docs/images/README.md).
+When the four sanitized screenshots exist in docs/images/, replace this comment with the block below.
 
-Windows x64 with a graphical desktop: Windows 11, Windows 10 Enterprise/LTSC
-build 19041 or later, and Windows Server 2022/2025 with Desktop Experience are the
-intended targets. The chart dependencies require the Windows 10 19041 targeting
-pack. Earlier Windows builds, Server Core, ARM64 and x86 are outside this MVP.
-Actual compatibility and graphics behavior require Windows acceptance testing;
-compilation alone is not a certification for all these environments.
+## Screenshots
 
-Development uses .NET 10 and WPF, MVVM, Microsoft dependency injection/logging,
-LiveCharts2 and xUnit. Linux/macOS can run business tests and cross-compile; WPF
-execution requires Windows.
+| | |
+|---|---|
+| ![EUC Lens Dashboard showing live round-trip time, frame rate, CPU, memory and session health](docs/images/dashboard.png) | ![EUC Lens Diagnostics page with Connection, Graphics and VDI Guest health and a findings list](docs/images/diagnostics.png) |
+| **Dashboard.** Live session health at a glance. | **Diagnostics.** Findings with the evidence behind them. |
+| ![EUC Lens Session Recorder with recording status, a latency chart and a table of saved recordings](docs/images/session-recorder.png) | ![EUC Lens Session History with synchronized charts, an incident timeline and grouped findings](docs/images/session-history.png) |
+| **Session Recorder.** Record while you reproduce an issue. | **Session History.** Analyze a recording afterwards. |
+-->
 
-## Build and run
+## Key features
 
-Install the .NET 10 SDK. The SDK selection is in `global.json`.
+### Live session monitoring
+
+- Omnissa Horizon **Blast** session and imaging metrics where the session provides them: round-trip time, packet loss, frame rate, dropped frames, output queueing and bandwidth.
+- Windows metrics in **every** session: CPU, memory, disk, GPU and display.
+- An honest distinction between what was measured and what is not available. A missing value is shown as unavailable, never as zero, and the page says why.
+
+### Evidence-based diagnostics
+
+- Independent health for **Connection**, **Graphics** and **VDI Guest**, each with its data coverage.
+- Findings backed by the actual measurements, with the observation window, the rule and its threshold, what is not known, and possible causes to check.
+- Thresholds are visible and configurable. Short spikes, idle screens and missing data do not raise false alarms, and EUC Lens does not claim a root cause it cannot show.
+
+### Session recording
+
+- Record performance data while you reproduce an issue, and **mark incidents** the moment they happen, from the app or the tray menu.
+- Optionally keep EUC Lens in the **system tray**: monitoring and recording continue while the window is hidden, and the tray icon always shows what the application is doing. Tray options are off by default.
+- Recordings are streamed to disk as the session runs, with a bounded storage quota and retention. After a crash, a recording stays readable up to its last flushed second (flushes happen every few seconds).
+
+### Session history and analysis
+
+- Open any saved recording, including an interrupted one.
+- Synchronized charts for connection, graphics and guest metrics on one time axis, with zoom, ranges and previous/next incident.
+- An incident timeline and a performance timeline, with findings grouped by rule and each occurrence backed by its measured evidence.
+- Export recordings and findings as **JSON** or **CSV**.
+
+### Portable and privacy-conscious
+
+- One self-contained Windows x64 executable. No installer and no separate .NET runtime.
+- No administrator rights in normal supported use.
+- No account, no telemetry and no cloud service. No AI.
+- Update checking is manual and opt-in.
+
+## How it works
+
+1. **Start EUC Lens in the session you want to examine** (for example the Horizon virtual desktop). It samples once per second.
+2. **Watch the Dashboard and Diagnostics.** Blast counters appear when the Horizon Agent publishes them for your session; Windows metrics are always available.
+3. **Record while you reproduce the problem.** Press *Start recording*, use *Mark performance issue* when it happens, then stop.
+4. **Analyze the recording in Session History.** Open it from the Session Recorder page and look at the findings, the timelines and the synchronized charts. Export what you need.
+
+The application has these pages:
+
+| Page | What it is for |
+|---|---|
+| **Dashboard** | Session health, the detected protocol and data availability, key measurements and live trends. |
+| **Diagnostics** | Connection, Graphics and VDI Guest health, findings with evidence and recommended checks. |
+| **Session Recorder** | Start and stop recording, mark incidents, and manage saved recordings. |
+| **Session History** | Analyze a saved recording: charts, timelines, findings and exports. |
+| **System Information** | The session, its graphics and display, system resources and the data sources in use. |
+| **Advanced Metrics** | Every raw measurement with its unit, scope, status and source. |
+| **Settings** | Theme, diagnostic thresholds, tray behavior, notifications, and recording folder, quota and retention. |
+| **About** | Version, license, acknowledgments and the optional update check. |
+
+## Quick start
+
+1. Download `EucLens-win-x64.exe` from the [latest release](https://github.com/vdesktopninja/EucLens/releases/latest).
+2. Verify it. In PowerShell: `Get-FileHash .\EucLens-win-x64.exe -Algorithm SHA256`, and compare the result with `SHA256SUMS.txt` on the release page.
+3. Copy it to a writable folder in the session you want to monitor and run it as a **standard user**. If Windows warns about an unknown publisher, that is the missing code signature mentioned above.
+4. Open **Session Recorder**, press **Start recording**, reproduce the problem, press **Mark performance issue** when it happens, and **Stop recording**.
+5. Choose the recording in *Saved recordings* and press **Analyze recording**.
+
+The first start unpacks its native libraries into the user's temporary .NET directory, so the executable is portable but not a zero-write program. Settings, logs and recordings are stored under `%LOCALAPPDATA%\EucLens`.
+
+## Supported environments and known limitations
+
+**Supported**
+
+- **Windows x64 with a graphical desktop**: Windows 11, Windows 10 version 2004 (build 19041) or later, and Windows Server 2022/2025 with Desktop Experience are the intended targets.
+- **Omnissa Horizon (Blast)** sessions: metrics come from the performance counters that the Horizon Agent publishes inside the virtual desktop.
+- **Any other Windows session**: CPU, memory, disk, GPU and display metrics work, and the protocol is reported as *Not detected*.
+
+**What has been tested.** Every release is built and tested on Windows Server 2025 in CI (automated tests plus a launch-and-drive test of the published executable). The Horizon Blast behavior has been checked by the maintainer on real Horizon sessions; Horizon Agent and client versions were not recorded, so no version matrix is claimed. Real per-monitor display scaling at 125% and 150% and screen readers have not been tested on real hardware.
+
+**Known limitations**
+
+- **Native Citrix HDX and Microsoft RDP protocol counters are not supported.** In those sessions EUC Lens shows Windows metrics only. It has not been validated in Citrix or RDP environments.
+- No Windows ARM64, x86 or Server Core build.
+- Thresholds are engineering defaults, not calibrated on fleet data. Slowly changing content that is also delivered slowly is not reported.
+- Findings show what a recording measured and when. They do not identify a root cause.
+- Some Blast counters have no documented unit and are shown as raw values (labelled *unverified*). Findings that need a counter the Horizon Agent does not publish report *Insufficient Data*.
+- The executable is not code-signed.
+
+See the [Horizon Blast notes](docs/HORIZON_BLAST.md) for the exact counters and their status, and the [release notes](https://github.com/vdesktopninja/EucLens/releases/latest) for what was and was not verified.
+
+## Privacy and security
+
+- **Local only.** Monitoring, recording and analysis run on your computer. EUC Lens has no server component, no account and no telemetry.
+- **No network requests unless you ask.** The only network code is the *Check for updates* button on the About page. It makes one HTTPS request to GitHub's public release list, sends no identifier and nothing from your session, downloads nothing and replaces nothing. *Download update* opens the release page in your browser.
+- **Your data stays with you.** Recordings, settings and logs are files in `%LOCALAPPDATA%\EucLens` (recordings can be moved to another folder in Settings). Recordings contain performance measurements and the session identifiers Windows and Horizon report, so treat them as diagnostic data before sharing them.
+- **No elevation.** EUC Lens runs as a standard user. Windows lets local users read performance counters by default; if your environment restricts them, add the user to *Performance Monitor Users*.
+- **Verify your download.** Each release lists the SHA-256 of the executable. A checksum proves the file is the one that was published; it does not prove who published it, because the executable is not yet code-signed.
+- To report a security concern, open a GitHub issue that does not include sensitive details, or get in touch through [vdesktop.ninja](https://vdesktop.ninja).
+
+## Documentation
+
+| Topic | Document |
+|---|---|
+| All documentation | [docs/README.md](docs/README.md) |
+| Session Recorder | [docs/SESSION_RECORDER.md](docs/SESSION_RECORDER.md) |
+| Session History and incident timeline | [docs/SESSION_HISTORY.md](docs/SESSION_HISTORY.md) |
+| Background monitoring, tray and recording files | [docs/BACKGROUND_MONITORING.md](docs/BACKGROUND_MONITORING.md) |
+| Diagnostics and findings | [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md) and [analysis rules](docs/M1_ANOMALY_ENGINE.md) |
+| Horizon Blast metrics | [docs/HORIZON_BLAST.md](docs/HORIZON_BLAST.md) |
+| System, GPU and display monitoring | [docs/SYSTEM_GPU_MONITORING.md](docs/SYSTEM_GPU_MONITORING.md) |
+| About, updates and release naming | [docs/ABOUT_AND_UPDATES.md](docs/ABOUT_AND_UPDATES.md) |
+| Architecture | [docs/development/ARCHITECTURE.md](docs/development/ARCHITECTURE.md) |
+| Validation and manual acceptance | [docs/validation/](docs/validation/) |
+| Changelog | [CHANGELOG.md](CHANGELOG.md) |
+
+## Building from source
+
+Install the [.NET 10 SDK](https://dotnet.microsoft.com/download) (the version is pinned in `global.json`). The application is WPF, so running it requires Windows; building and the platform-neutral tests also work on Linux and macOS.
 
 ```sh
 dotnet restore EucLens.sln
@@ -100,82 +157,28 @@ dotnet build EucLens.sln -c Release
 dotnet test tests/EucLens.Tests/EucLens.Tests.csproj -c Release
 ```
 
-On Windows, run the source application:
+Run from source on Windows:
 
 ```sh
 dotnet run --project src/EucLens.App/EucLens.App.csproj
 ```
 
-Publish the portable Windows x64 application (also works as a Linux cross-publish):
+Publish the portable Windows x64 executable (this also works as a cross-publish from Linux or macOS):
 
 ```sh
 dotnet publish src/EucLens.App/EucLens.App.csproj -p:PublishProfile=Portable -o artifacts/win-x64
 ```
 
-Copy `artifacts/win-x64/EucLens.exe` to a writable folder on the target Windows
-computer and launch it inside the VDI session as a standard user. No installer
-or separately installed .NET runtime is needed. The self-contained EXE bundles
-WPF and native chart libraries; native files extract to the user's temporary
-.NET bundle directory on first launch. It is portable distribution, not a
-zero-write executable. Trimming is disabled for WPF/reflection compatibility.
-See Microsoft's [single-file deployment documentation](https://learn.microsoft.com/en-us/dotnet/core/deploying/single-file/overview)
-and the [LiveCharts2 WPF installation guide](https://livecharts.dev/docs/wpf/2.0.0/overview.installation).
+The result is `artifacts/win-x64/EucLens.exe`: self-contained, single file, trimming disabled for WPF compatibility. A local build records no commit in its About page, and builds are not byte-for-byte reproducible, so your executable's hash will differ from the release's. The Windows [GitHub Actions workflow](.github/workflows/windows.yml) builds with warnings as errors, runs the tests, publishes, and launches the published executable through every page, both themes, recording, export, tray and Session History checks.
 
-The Windows GitHub Actions workflow restores, builds with warnings as errors,
-tests, publishes, asserts a single EXE, runs a WPF startup/binding smoke test
-and uploads the application plus test evidence. A CI artifact is created only
-when the workflow runs; local cross-publishing cannot verify Windows execution. Windows CI has now
-validated startup, all five views, sampling, themes, recording and exports;
-see [validation evidence](docs/VALIDATION.md).
+## Contributing
 
-## Using EUC Lens
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) first, work on a branch and open a pull request. EUC Lens never invents measurements: new metrics need a documented source, a unit and an explicit way to say *unavailable*.
 
-1. Start EUC Lens in the session to monitor. Dashboard shows the detected protocol
-   and the data availability; updates continue once per second on every page.
-2. Open Diagnostics. Low FPS is judged only while Blast dirty frames show the content
-   changing at least 15 times per second, so an idle, static or slowly changing
-   screen never raises a low-FPS alert.
-3. Open Session Recorder, start recording, reproduce the problem, then stop and
-   export JSON or CSV. Each sample retains its timestamp, data source and protocol
-   (recordings of 0.5.0 and earlier also keep their demo scenario and workload). Real samples also carry every Blast counter's
-   value, unit, status, raw value and counter path. Export during recording saves a stable snapshot of samples so far.
-4. Use Settings to change the theme immediately and save it for the next launch.
-   Settings saved by earlier versions (data source, demo protocol, scenario, workload)
-   are ignored.
+## License and credits
 
-## Storage and limitations
+EUC Lens is released under the [MIT License](LICENSE) and uses original code and design.
 
-- Recording samples are in memory until exported; closing discards them, with a
-  confirmation when there are unexported samples. A new recording requires
-  confirmation before replacing previous samples. No automatic disk journal or
-  recording import/playback exists in this milestone.
-- Recording stops at 86,400 samples (24 hours at nominal 1 Hz). Export contains
-  all samples; the historical chart shows only the latest 600.
-- Preferences and capped logs live under `%LOCALAPPDATA%\EucLens`. Logs use one
-  approximately 1 MB file plus a previous file. Export paths are user-selected.
-- JSON retains complete snapshots and metric status/reasons, plus per-counter
-  source, timestamp, raw value and error for real samples. CSV exports all
-  numeric metrics, a `data_source` column and `blast_*` value/unit/status/raw/source
-  columns, uses invariant decimal formatting and explicit
-  `Unavailable`/`Stale`/`Failed` cells, and escapes string fields. It is not a JSON
-  round-trip format.
-- Diagnostics are single-sample illustrative thresholds, not vendor guidance or
-  definitive root-cause analysis. CPU/encoding/network-instability rules and
-  sustained-window evaluation remain planned. Without the Blast dirty-frame counter,
-  low FPS is not judged (see [Diagnostics](docs/DIAGNOSTICS.md)).
-- Published builds are unsigned. DPI, chart rendering, file dialogs and remote
-  GPU behavior need the [Windows acceptance checklist](docs/WINDOWS_ACCEPTANCE.md).
+Created and maintained by **Dominik Jakubowski**, [VDI Ninja](https://vdesktop.ninja).
 
-## Roadmap
-
-1. Validate the EXE/UI in Windows VDI sessions, including 100–200% DPI,
-   software rendering, theme contrast, exports and accessibility.
-2. Add recording import/playback and optional streaming storage for long captures.
-3. Research each remaining vendor's (Citrix, RDP, NVIDIA) documented, supported,
-   non-admin measurement sources; implement one adapter at a time.
-4. Add configurable, time-window diagnostics for CPU, encoding, dropped frames
-   and network instability with measured screen activity.
-5. Expand packaging/platform coverage, performance benchmarks and release signing.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md), [ARCHITECTURE.md](ARCHITECTURE.md) and
-[VALIDATION.md](docs/VALIDATION.md) for development and validation details.
+The executable bundles the .NET runtime and open-source libraries (LiveCharts2, SkiaSharp, HarfBuzzSharp, OpenTK and others), each under its own license. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); the verbatim license texts are in [`licenses/`](licenses/) and in the application's About page. Omnissa and Horizon are trademarks of their respective owners; EUC Lens is an independent project and is not affiliated with or endorsed by them.

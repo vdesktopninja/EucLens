@@ -1,4 +1,6 @@
-# EUC Lens 0.5 — Intelligent Diagnostics
+# EUC Lens 0.5 — Intelligent Diagnostics (historical roadmap)
+
+> **Historical document.** This is the plan and acceptance record of version 0.5.0, which has been released. It is kept for the project's engineering history; later versions may differ. For what EUC Lens does today, see the [README](../../README.md) and the [documentation index](../README.md).
 
 Status: **released as 0.5.0.** M1, M2 and M3 are implemented and independently verified by automated tests and Windows CI; M4 (manual Horizon acceptance) is **accepted by the project owner** (see "M4 acceptance" below). Published as v0.5.0.  
 Branch: `feature/euc-lens-0.5-intelligent-diagnostics`  
@@ -30,18 +32,21 @@ EUC Lens remains offline, portable, service-free, and usable without any AI mode
 ## Implementation order
 
 ### M1: Analysis core — implemented (`docs/M1_ANOMALY_ENGINE.md`)
+
 - Pure, testable, cancellation-aware analyzer independent of WPF.
 - Explicit rules, baselines, quality gates, evidence model and deterministic output ordering.
 - Fixture tests for normal/idle/disconnected recordings, DST changes, missing counters, synthetic spikes, mixed events and no-data cases.
 
-### M2: Session History integration — implemented (`docs/M2_FINDINGS_UX.md`)
+### M2: Session History integration — implemented (`docs/development/M2_FINDINGS_UX.md`)
+
 - Small findings panel and selection synchronization with existing charts/timeline.
 - Reuse current immutable history data and windowing/downsampling.
 - Keyboard, screen-reader labels, 100/125/150% DPI and dark/light theme coverage.
 
-### M3: Performance, regression and CI — implemented (`docs/M3_PERFORMANCE_RELIABILITY.md`)
+### M3: Performance, regression and CI — implemented (`docs/development/M3_PERFORMANCE_RELIABILITY.md`)
 
 Status: benchmarks of the analyzer up to 250,000 samples, a retention probe with leak-sensitivity tests, lifetime and stress tests of Session History, the optional findings export (CSV and JSON, formula-injection protection, atomic output) and Windows smoke sections for export, layout and lifetime. Item 6 of the scope ("Safe exports") is delivered here. Not yet done: anything in M4.
+
 - Analyze 21,300-sample and 250,000-sample cases with bounded allocations and no UI blocking.
 - Maintain existing 0.4.4 tests (463 passing), 5,005-event virtualization, 48-cycle Diagnostics soak, 12-cycle History retention and full Windows smoke.
 - Add adversarial and golden-fixture tests for every new rule, including false-positive suppression.
@@ -75,7 +80,7 @@ Only after deterministic findings are reliable and manually accepted: assess an 
 |---|---|
 | Unit tests | Passing (see the release candidate report; Windows CI is the record) |
 | Windows CI and WPF smoke | Passing on the release candidate commit |
-| Performance and memory checks | Done in M3 (`docs/M3_PERFORMANCE_RELIABILITY.md`) |
+| Performance and memory checks | Done in M3 (`docs/development/M3_PERFORMANCE_RELIABILITY.md`) |
 | Independent code review | Done in M3; no Critical findings, High findings fixed |
 | Manual Horizon acceptance | **Accepted by the project owner**; not independently verified (see M4) |
 | Merge, tag and release | **Not done.** Requires explicit owner authorization. |

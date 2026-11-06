@@ -378,7 +378,7 @@ public sealed class AboutAndUpdateTests
         var props = Source("Directory.Build.props");
         Assert.Contains("<Authors>Dominik Jakubowski</Authors>", props, StringComparison.Ordinal);
         Assert.Contains("<Company>VDI Ninja</Company>", props, StringComparison.Ordinal);
-        foreach (var doc in new[] { "docs/ABOUT_AND_UPDATES.md", "README.md", "docs/WINDOWS_ACCEPTANCE.md" })
+        foreach (var doc in new[] { "docs/ABOUT_AND_UPDATES.md", "README.md", "docs/validation/WINDOWS_ACCEPTANCE.md" })
         {
             var text = Source(doc);
             Assert.Contains("Dominik Jakubowski", text, StringComparison.Ordinal);
@@ -387,7 +387,7 @@ public sealed class AboutAndUpdateTests
             Assert.DoesNotContain("pending your confirmation", text, StringComparison.OrdinalIgnoreCase);
         }
         // The old unconfirmed wording is gone everywhere.
-        foreach (var file in new[] { "CHANGELOG.md", "docs/ABOUT_AND_UPDATES.md", "docs/WINDOWS_ACCEPTANCE.md", "docs/SELF_UPDATE_DESIGN.md", "docs/STABLE_RELEASE_0.5.1.md" })
+        foreach (var file in new[] { "CHANGELOG.md", "docs/ABOUT_AND_UPDATES.md", "docs/validation/WINDOWS_ACCEPTANCE.md", "docs/development/SELF_UPDATE_DESIGN.md", "docs/validation/STABLE_RELEASE_0.5.1.md" })
             Assert.DoesNotContain("pending the owner", Source(file), StringComparison.OrdinalIgnoreCase);
     }
 
@@ -778,7 +778,7 @@ public sealed class AboutAndUpdateTests
         Assert.Equal(UpdateOutcome.UpdateAvailable, result.Outcome);
         // The convention is documented where the next release will be made.
         Assert.Contains("EucLens-win-x64.exe", Source("docs/ABOUT_AND_UPDATES.md"), StringComparison.Ordinal);
-        Assert.Contains("EucLens-win-x64.exe", Source("docs/STABLE_RELEASE_0.5.1.md"), StringComparison.Ordinal);
+        Assert.Contains("EucLens-win-x64.exe", Source("docs/validation/STABLE_RELEASE_0.5.1.md"), StringComparison.Ordinal);
     }
 
     [Fact]
