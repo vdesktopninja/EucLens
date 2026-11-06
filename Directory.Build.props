@@ -19,7 +19,7 @@
     <Company>VDI Ninja</Company>
     <EucLensWebsite>https://vdesktop.ninja</EucLensWebsite>
     <Copyright>Copyright (c) 2026 EUC Lens contributors</Copyright>
-    <RepositoryUrl>https://github.com/vdesktopninja/RDA</RepositoryUrl>
+    <RepositoryUrl>https://github.com/vdesktopninja/EucLens</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
   <ItemGroup>

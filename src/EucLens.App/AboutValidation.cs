@@ -103,7 +103,7 @@ internal static class AboutValidation
                 var texts = DesktopValidation.Descendants<TextBlock>(window).Where(t => t.IsVisible).Select(t => t.Text).ToList();
                 foreach (var expected in new[] { "About", "EUC Lens", "Remote Session Performance Diagnostics", AppVersion.Current, "MIT", "Dominik Jakubowski", "VDI Ninja", vm.About.Facts.First(f => f.Label == "Copyright").Value, "Version " + AppVersion.Current })
                     Require(texts.Any(t => t == expected), $"The visible text '{expected}' is missing.");
-                Require(!texts.Any(t => t.Contains("stable", StringComparison.OrdinalIgnoreCase)), "A visible text calls this candidate stable.");
+                Require(!texts.Any(t => t.Contains("stable", StringComparison.OrdinalIgnoreCase)), "A visible text labels the release with a channel (stable).");
                 var footer = DesktopValidation.Descendants<TextBlock>(window).Single(t => t.Text == "Version " + AppVersion.Current && System.Windows.Automation.AutomationProperties.GetName(t) == "Installed version");
                 Require(footer.IsVisible && footer.ActualHeight > 0, "The navigation footer does not show the installed version.");
                 var image = DesktopValidation.Descendants<Image>(window).Single(i => System.Windows.Automation.AutomationProperties.GetName(i) == "EUC Lens logo");
@@ -122,7 +122,7 @@ internal static class AboutValidation
             await Section($"update available {theme}", async () =>
             {
                 var release = new AvailableRelease(ReleaseVersion.TryParse("0.9.0", out var v) ? v : ReleaseVersion.Zero, "v0.9.0", "EUC Lens 0.9.0", new DateTimeOffset(2026, 12, 1, 8, 0, 0, TimeSpan.Zero),
-                    "Test data from the validation, not a real release.\nA second line of the release summary.", new Uri("https://github.com/vdesktopninja/RDA/releases/tag/v0.9.0"), false);
+                    "Test data from the validation, not a real release.\nA second line of the release summary.", new Uri("https://github.com/vdesktopninja/EucLens/releases/tag/v0.9.0"), false);
                 var fake = new FakeChecker(_ => Task.FromResult(new UpdateCheckResult(UpdateOutcome.UpdateAvailable, "Version 0.9.0 is available.", ReleaseVersion.Zero, release)));
                 vm.About.UseCheckerForValidation(fake);
                 await Idle(window);

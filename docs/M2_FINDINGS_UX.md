@@ -1,6 +1,6 @@
 # EUC Lens 0.5 — M2: findings experience in Session History
 
-Status: implemented in 0.5.0 (release candidate on `feature/euc-lens-0.5-intelligent-diagnostics`; not yet published). Manual Horizon acceptance (roadmap M4) was accepted by the project owner; it was not independently verified by the project's own tests. CSV/JSON export of findings was added in M3.
+Status: implemented in 0.5.0 (released as v0.5.0). Manual Horizon acceptance (roadmap M4) was accepted by the project owner; it was not independently verified by the project's own tests. CSV/JSON export of findings was added in M3.
 
 This document describes the interface over the M1 deterministic anomaly engine (`docs/M1_ANOMALY_ENGINE.md`). The engine, its rules, thresholds and baselines are unchanged; nothing here interprets a measurement differently from M1. A finding is a **measured condition**, never a confirmed cause.
 

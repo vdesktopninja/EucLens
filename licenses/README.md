@@ -3,7 +3,7 @@ The EUC Lens license itself is `LICENSE` in the repository root; `THIRD_PARTY_NO
 
 | File | What it covers | Where it was taken from |
 |---|---|---|
-| `dotnet-runtime-LICENSE.TXT`, `dotnet-runtime-THIRD-PARTY-NOTICES.TXT` | The .NET runtime and base class libraries bundled by the self-contained build, and the third-party code in them | `LICENSE.TXT` and `THIRD-PARTY-NOTICES.TXT` of the NuGet package `Microsoft.NETCore.App.Runtime.win-x64` 10.0.13 (identical in 10.0.12) |
+| `dotnet-runtime-LICENSE.TXT`, `dotnet-runtime-THIRD-PARTY-NOTICES.TXT` | The .NET runtime and base class libraries bundled by the self-contained build, and the third-party code in them | `LICENSE.TXT` and `THIRD-PARTY-NOTICES.TXT` of the NuGet package `Microsoft.NETCore.App.Runtime.win-x64` 10.0.13 (byte-identical in 10.0.12 and 10.0.14, the version the published build bundles) |
 | `dotnet-windowsdesktop-LICENSE.txt` | The Windows Desktop runtime (WPF) | `LICENSE` of `Microsoft.WindowsDesktop.App.Runtime.win-x64` 10.0.13 |
 | `skiasharp-LICENSE.txt` | SkiaSharp, SkiaSharp.HarfBuzz, SkiaSharp.Views.*, HarfBuzzSharp (MIT; the packages carry the same file) | `LICENSE.txt` of the NuGet package `SkiaSharp` 3.119.0 |
 | `skiasharp-native-THIRD-PARTY-NOTICES.txt` | Native libraries inside `libSkiaSharp` and `libHarfBuzzSharp` (ANGLE, HarfBuzz, Skia, FreeType, libpng, zlib, expat, ICU, libjpeg-turbo, libwebp, …) | `THIRD-PARTY-NOTICES.txt` of `SkiaSharp.NativeAssets.Win32` 3.119.0 (byte-identical in `HarfBuzzSharp.NativeAssets.Win32` 8.3.1.1) |

@@ -61,7 +61,7 @@ the smoke-test window. No other confirmed blocker was reported.
 ## Windows CI verification
 
 On 2026-10-08 the branch was pushed, with user authorization, and
-[Windows CI run 37803672588](https://github.com/vdesktopninja/RDA/actions/runs/37803672588)
+[Windows CI run 37803672588](https://github.com/vdesktopninja/EucLens/actions/runs/37803672588)
 passed at commit `02c69b9`. Runner: Windows Server 2025 (10.0.26100), image
 `windows-2025-vs2026` 20260925.250.1, SDK 10.0.401.
 
@@ -89,7 +89,7 @@ The redesign at `8e20950` was preserved. The cockpit's final command failed with
 exit 127 because the manually installed SDK `/tmp/euclens-dotnet/dotnet` was
 invoked by absolute path during implementation and never registered on the fresh
 check shell's PATH. A user-owned launcher now exists at
-`/home/ziut/.nvm/versions/node/v24.21.0/bin/dotnet`, an existing PATH directory.
+`<home>/.nvm/versions/node/<version>/bin/dotnet`, an existing PATH directory.
 A fresh shell resolves .NET SDK 10.0.401 and `dotnet --info` succeeds. This host
 launcher points to a temporary SDK; it is not a replacement for installing the
 SDK in a new environment.
@@ -136,13 +136,13 @@ local and the operator's Guard requires approval before its remote push.
 ### Windows runtime follow-up
 
 With user authorization, `cez/30c36cd6` was pushed. The first redesign run,
-[37810980268](https://github.com/vdesktopninja/RDA/actions/runs/37810980268), passed
+[37810980268](https://github.com/vdesktopninja/EucLens/actions/runs/37810980268), passed
 build, 45 tests and publish, then detected a genuine startup exception:
 `NavigationWidth` was a Double used as `ColumnDefinition.Width` (GridLength).
 Commit `476cbfc` changes only that token's type and adds a contract gate rejecting
 wrong grid-sizing resource types. It preserves the 184-DIP navigation layout.
 
-[Windows run 37811451477](https://github.com/vdesktopninja/RDA/actions/runs/37811451477)
+[Windows run 37811451477](https://github.com/vdesktopninja/EucLens/actions/runs/37811451477)
 passed at `476cbfc`, including startup, sampling, navigation binding, both themes,
 all five views, chart paint assertions, adaptive-pane bounds/overlap, recording,
 JSON/CSV export and no WPF binding errors. Actual host DPI was 96×96. The EXE
@@ -167,7 +167,7 @@ DIP-space simulation at 100/125/150%.
 
 The viewport harness now hosts the same loaded client in a smoke-only Canvas
 so native desktop constraints cannot override its requested size. Run
-[37812865544](https://github.com/vdesktopninja/RDA/actions/runs/37812865544) passed
+[37812865544](https://github.com/vdesktopninja/EucLens/actions/runs/37812865544) passed
 at `5e6d1c1`: 45/45 Windows tests, published EXE smoke, all 120 layout cases and
 20 real WPF client renders. Dimensions verified from PNG headers are 1350×729
 and 1904×1041 pixels (requested 1366×768 and 1920×1080 minus native chrome).

@@ -1,6 +1,6 @@
 # EUC Lens 0.5 — Intelligent Diagnostics
 
-Status: **release candidate for 0.5.0.** M1, M2 and M3 are implemented and independently verified by automated tests and Windows CI; M4 (manual Horizon acceptance) is **accepted by the project owner** (see "M4 acceptance" below). Not merged, not tagged, not published.  
+Status: **released as 0.5.0.** M1, M2 and M3 are implemented and independently verified by automated tests and Windows CI; M4 (manual Horizon acceptance) is **accepted by the project owner** (see "M4 acceptance" below). Published as v0.5.0.  
 Branch: `feature/euc-lens-0.5-intelligent-diagnostics`  
 Starting point: merged EUC Lens 0.4.4 (`f13075ad28d18e2e4c432c39003dc5574e4c8031`)
 

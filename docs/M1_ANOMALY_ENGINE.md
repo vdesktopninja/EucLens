@@ -1,6 +1,6 @@
 # EUC Lens 0.5 — M1: deterministic anomaly detection engine
 
-Status: implemented in 0.5.0 (release candidate on `feature/euc-lens-0.5-intelligent-diagnostics`; not yet published). Manual Horizon acceptance (roadmap M4) was accepted by the project owner; it was not independently verified by the project's own tests.
+Status: implemented in 0.5.0 (released as v0.5.0). Manual Horizon acceptance (roadmap M4) was accepted by the project owner; it was not independently verified by the project's own tests.
 
 The engine turns a recorded session (`LoadedHistory`, or any equivalent arrays) into **observations**: bounded intervals in which a *measured* condition held, with the evidence needed to verify each one against the recorded samples, plus conservative **correlations** between observations. It is an analysis core only: no WPF, no LiveCharts, no Dispatcher, no network, no model, no randomness, no clock. The same input and options always give the same result in the same order with the same ids, on any machine and under any culture.
 

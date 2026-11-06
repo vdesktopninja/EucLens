@@ -1,7 +1,7 @@
 # EUC Lens 0.5.1 — stable non-AI release: real monitoring only
 
-Branch `release/euc-lens-0.5.1`, made from the `v0.5.0` commit `6e3ded2`. It contains none of the 0.6 AI work. Nothing is
-tagged or released; publishing needs the owner's approval.
+Branch `release/euc-lens-0.5.1`, made from the `v0.5.0` commit `6e3ded2`. It contains none of the 0.6 AI work. Published as v0.5.1
+(`EucLens-win-x64.exe`, with its SHA-256 on the release page).
 
 ## What changed
 

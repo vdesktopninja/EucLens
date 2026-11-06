@@ -17,7 +17,7 @@ values back (`AppIdentity`), so the About page cannot disagree with Explorer.
 | Website | https://vdesktop.ninja (`<EucLensWebsite>`) | About (a button that opens it in the default browser), copied version information, assembly metadata (`Website`) |
 | Copyright | Copyright (c) 2026 EUC Lens contributors | The first copyright line of `LICENSE`, **unchanged**. It was not rewritten to name the author: whether to add Dominik Jakubowski to that line is a legal choice for the owner, and no existing contributor or attribution was removed. |
 | License | MIT (`LICENSE`) | About, assembly metadata |
-| Repository | https://github.com/vdesktopninja/RDA (unchanged) | About, update check |
+| Repository | https://github.com/vdesktopninja/EucLens (the repository was formerly named RDA; the application uses the new address and does not rely on redirects) | About, update check |
 | Commit | the build's commit (`-p:EucLensCommit=<sha>`; the Windows workflow passes `github.sha`) | About ("Build"), as an abbreviated hexadecimal id. A local build says "not recorded (local build)". It is deliberately **not** appended to the product version, so Explorer shows exactly 0.5.1. |
 
 Windows has no standard field for an author in an executable's properties: Explorer → Properties → Details shows the *Company* (VDI Ninja) next to the product name, version, copyright and description; the author appears in About and the copied version information, and is carried in the assembly metadata.
@@ -35,7 +35,7 @@ version; no computer name, user name or address), **Open GitHub repository**, th
 `CHANGELOG.md` section of exactly this version), the MIT license text and the open-source acknowledgments (`THIRD_PARTY_NOTICES.md`) and the verbatim third-party license texts and notices that the redistributed components require (the `licenses` folder; about 300 KB, in a scrollable read-only box). The legal texts are the repository's own files embedded
 into the executable; a test compares them with the files and with the restored package list (every restored package must be acknowledged).
 
-The navigation footer shows "Version 0.5.1" discreetly. No release-channel label is shown: this build is an unpublished release candidate, so it is not called Stable.
+The navigation footer shows "Version 0.5.1" discreetly. No release-channel label is shown: the version and the build commit identify the release, and the release notes are those of this version.
 The page uses the shared typography tokens and both themes; the Windows smoke test checks it at every size, scale and theme, with all disclosures open, and writes screenshots.
 
 ## 3. Update checking
@@ -45,12 +45,12 @@ smoke test asserts that none was made before the button was pressed). There is n
 
 What a check does:
 
-* One HTTPS GET to `https://api.github.com/repos/vdesktopninja/RDA/releases?per_page=30`. Headers: `Accept`, `X-GitHub-Api-Version` and `User-Agent: EucLens/<version>` (the same for everyone). No credentials, cookies, identifiers, machine or user names; nothing about the session or recordings.
+* One HTTPS GET to `https://api.github.com/repos/vdesktopninja/EucLens/releases?per_page=30`. Headers: `Accept`, `X-GitHub-Api-Version` and `User-Agent: EucLens/<version>` (the same for everyone). No credentials, cookies, identifiers, machine or user names; nothing about the session or recordings.
 * **Redirects** are followed by hand, at most three, and only to the same API host (`api.github.com`) over HTTPS on the default port, without user information, under `/repos/` or `/repositories/`. Anything else ends the check ("unsafe redirect") before the target is contacted.
 * **Bounds**: 15 s overall timeout, 8 s connect timeout, 1 MiB response (counted after decompression, also when no length is announced), JSON depth 16, at most 50 releases read, bounded text lengths.
 * **Trust**: the operating system's certificate store and the system proxy (with the user's own Windows credentials for the proxy, as a browser does). A certificate error ends the check; it is never ignored. Nothing bypasses a corporate proxy, firewall or inspection policy.
 * **Parsing is defensive.** The reply is data. Only `tag_name`, `name`, `draft`, `prerelease`, `published_at`, `body` and the asset names are read, each validated. Drafts are skipped. A tag must be a strict semantic version (optional leading `v`); anything else is ignored. The release **page address is built from the validated tag**
-  (`https://github.com/vdesktopninja/RDA/releases/tag/<tag>`), never copied from the reply. The title and summary are reduced to plain text: markup and links removed, control, zero-width and direction-override characters removed, at most 4 lines / 320 characters.
+  (`https://github.com/vdesktopninja/EucLens/releases/tag/<tag>`), never copied from the reply. The title and summary are reduced to plain text: markup and links removed, control, zero-width and direction-override characters removed, at most 4 lines / 320 characters.
   A date that is not plausible (before 2008 or in the future) is left out.
 * **Semantic versions are compared by number**, never as text: 0.10.0 is newer than 0.9.0; 1.0.0-rc.1 is older than 1.0.0. The newest release is chosen by version, not by list order or date.
 * **Pre-releases** (the flag or a pre-release tag) are never offered unless the user ticks *Include pre-releases (for testing)* on that visit; the choice is not saved.

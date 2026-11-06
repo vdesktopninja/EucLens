@@ -67,7 +67,7 @@ public sealed class AboutAndUpdateTests
         Assert.Equal("Dominik Jakubowski, VDI Ninja", identity.AuthorLine);
         Assert.Equal("https://vdesktop.ninja", identity.Website);
         Assert.Equal("MIT", identity.License);
-        Assert.Equal("https://github.com/vdesktopninja/RDA", identity.RepositoryUrl);
+        Assert.Equal("https://github.com/vdesktopninja/EucLens", identity.RepositoryUrl);
         // The copyright is the repository's own: the first copyright line of LICENSE, unchanged.
         var license = Source("LICENSE");
         Assert.StartsWith("MIT License", license, StringComparison.Ordinal);
@@ -94,7 +94,7 @@ public sealed class AboutAndUpdateTests
         var metadata = core.GetCustomAttributes<AssemblyMetadataAttribute>().ToDictionary(a => a.Key, a => a.Value);
         Assert.Equal("Dominik Jakubowski", metadata["Author"]);
         Assert.Equal("https://vdesktop.ninja", metadata["Website"]);
-        Assert.Equal("https://github.com/vdesktopninja/RDA", metadata["RepositoryUrl"]);        // the repository address is unchanged
+        Assert.Equal("https://github.com/vdesktopninja/EucLens", metadata["RepositoryUrl"]);        // the repository address is unchanged
     }
 
     [Theory]
@@ -242,7 +242,7 @@ public sealed class AboutAndUpdateTests
     }
 
     private static AvailableRelease Release(string version = "0.6.0", bool pre = false) =>
-        new(V(version), "v" + version, "EUC Lens " + version, new DateTimeOffset(2026, 12, 1, 8, 0, 0, TimeSpan.Zero), "Faster history.\nBetter charts.", new Uri($"https://github.com/vdesktopninja/RDA/releases/tag/v{version}"), pre);
+        new(V(version), "v" + version, "EUC Lens " + version, new DateTimeOffset(2026, 12, 1, 8, 0, 0, TimeSpan.Zero), "Faster history.\nBetter charts.", new Uri($"https://github.com/vdesktopninja/EucLens/releases/tag/v{version}"), pre);
 
     [Fact]
     public void AboutShowsTheIdentityFromTheSingleSource()
@@ -262,12 +262,27 @@ public sealed class AboutAndUpdateTests
         Assert.Equal("EUC Lens", about.Product);
         Assert.Equal("Remote Session Performance Diagnostics", about.Description);
         Assert.Equal("Version " + AppVersion.Current, about.FooterVersion);
-        Assert.Equal("https://github.com/vdesktopninja/RDA", about.RepositoryAddress);
+        Assert.Equal("https://github.com/vdesktopninja/EucLens", about.RepositoryAddress);
         Assert.NotEmpty(about.LicenseText); Assert.NotEmpty(about.ThirdPartyText); Assert.StartsWith("## " + AppVersion.Current, about.ReleaseNotesText, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void ThisUnpublishedCandidateIsNotLabelledStableAndNoChannelIsShown()
+    public void NothingInTheRepositoryRefersToTheOldRepositoryName()
+    {
+        // The project was renamed; the application and the documents use the new address and do not rely on GitHub's redirect. The old name is assembled here so this file does not contain it.
+        var old = "vdesktopninja/" + "RDA";
+        var skipped = new[] { "/licenses/", "/docs/evidence/", "/.git/" };
+        var extensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".cs", ".xaml", ".md", ".yml", ".yaml", ".props", ".csproj", ".json", ".py", ".sh", ".txt", ".pubxml", ".manifest" };
+        var offenders = Directory.EnumerateFiles(Repo(), "*", SearchOption.AllDirectories)
+            .Where(f => !IsBuildOutput(f) && !skipped.Any(x => f.Replace('\\', '/').Contains(x, StringComparison.Ordinal)) && extensions.Contains(Path.GetExtension(f)))
+            .Where(f => File.ReadAllText(f).Contains(old, StringComparison.OrdinalIgnoreCase))
+            .Select(f => Path.GetRelativePath(Repo(), f)).ToList();
+        Assert.Empty(offenders);
+        Assert.Equal("https://github.com/vdesktopninja/EucLens", AppIdentity.Current.RepositoryUrl);
+    }
+
+    [Fact]
+    public void ThisReleaseIsNotLabelledStableAndNoChannelIsShown()
     {
         var about = new AboutViewModel(new AboutDesktop(), new CountingChecker());
         var everything = string.Join('\n', about.Facts.Select(f => f.Label + f.Value)) + about.FooterVersion + about.UpdateStatus + about.Product + about.Description;
@@ -442,16 +457,16 @@ public sealed class AboutAndUpdateTests
         about.DownloadUpdateCommand.Execute(null);
         about.OpenReleaseNotesCommand.Execute(null);
         about.OpenRepositoryCommand.Execute(null);
-        Assert.Equal(["https://github.com/vdesktopninja/RDA/releases/tag/v0.6.0", "https://github.com/vdesktopninja/RDA/releases/tag/v0.6.0", "https://github.com/vdesktopninja/RDA"], desktop.Opened.Select(u => u.AbsoluteUri));
+        Assert.Equal(["https://github.com/vdesktopninja/EucLens/releases/tag/v0.6.0", "https://github.com/vdesktopninja/EucLens/releases/tag/v0.6.0", "https://github.com/vdesktopninja/EucLens"], desktop.Opened.Select(u => u.AbsoluteUri));
         Assert.All(desktop.Opened, u => Assert.Equal(Uri.UriSchemeHttps, u.Scheme));
         // Without an update the release notes link goes to the repository's release list.
         var plain = new AboutViewModel(desktop, new CountingChecker());
         plain.OpenReleaseNotesCommand.Execute(null);
-        Assert.Equal("https://github.com/vdesktopninja/RDA/releases", desktop.Opened[^1].AbsoluteUri);
+        Assert.Equal("https://github.com/vdesktopninja/EucLens/releases", desktop.Opened[^1].AbsoluteUri);
         // A browser that cannot be started is reported with the address, not hidden.
         desktop.BrowserWorks = false;
         plain.OpenRepositoryCommand.Execute(null);
-        Assert.Contains("https://github.com/vdesktopninja/RDA", plain.LinkStatus, StringComparison.Ordinal);
+        Assert.Contains("https://github.com/vdesktopninja/EucLens", plain.LinkStatus, StringComparison.Ordinal);
         Assert.Contains("could not be opened", plain.LinkStatus, StringComparison.Ordinal);
         // The only code that starts a process for a link is the desktop service, behind the allowlist.
         var services = Source("src/EucLens.App/DesktopServices.cs");
@@ -570,18 +585,18 @@ public sealed class AboutAndUpdateTests
     // ---------- links ----------
 
     [Theory]
-    [InlineData("https://github.com/vdesktopninja/RDA", true)]
-    [InlineData("https://github.com/vdesktopninja/RDA/", true)]
-    [InlineData("https://github.com/vdesktopninja/RDA/releases", true)]
-    [InlineData("https://github.com/vdesktopninja/RDA/releases/tag/v0.6.0", true)]
-    [InlineData("https://GitHub.com/VDesktopNinja/rda/releases", true)]
-    [InlineData("http://github.com/vdesktopninja/RDA", false)]
-    [InlineData("https://github.com.evil.example/vdesktopninja/RDA", false)]
-    [InlineData("https://evil.example/vdesktopninja/RDA", false)]
-    [InlineData("https://github.com@evil.example/vdesktopninja/RDA", false)]
-    [InlineData("https://user:pw@github.com/vdesktopninja/RDA", false)]
-    [InlineData("https://github.com:8443/vdesktopninja/RDA", false)]
-    [InlineData("https://github.com/vdesktopninja/RDA-evil", false)]
+    [InlineData("https://github.com/vdesktopninja/EucLens", true)]
+    [InlineData("https://github.com/vdesktopninja/EucLens/", true)]
+    [InlineData("https://github.com/vdesktopninja/EucLens/releases", true)]
+    [InlineData("https://github.com/vdesktopninja/EucLens/releases/tag/v0.6.0", true)]
+    [InlineData("https://GitHub.com/VDesktopNinja/euclens/releases", true)]
+    [InlineData("http://github.com/vdesktopninja/EucLens", false)]
+    [InlineData("https://github.com.evil.example/vdesktopninja/EucLens", false)]
+    [InlineData("https://evil.example/vdesktopninja/EucLens", false)]
+    [InlineData("https://github.com@evil.example/vdesktopninja/EucLens", false)]
+    [InlineData("https://user:pw@github.com/vdesktopninja/EucLens", false)]
+    [InlineData("https://github.com:8443/vdesktopninja/EucLens", false)]
+    [InlineData("https://github.com/vdesktopninja/EucLens-evil", false)]
     [InlineData("https://github.com/vdesktopninja/other", false)]
     [InlineData("https://github.com/vdesktopninja", false)]
     [InlineData("https://github.com/", false)]
@@ -603,7 +618,7 @@ public sealed class AboutAndUpdateTests
         Assert.True(Uri.TryCreate(address, UriKind.Absolute, out var uri));
         Assert.Equal(official, SafeLinks.IsOfficial(uri));
         Assert.False(SafeLinks.IsOfficial(null));
-        Assert.False(SafeLinks.IsOfficial(new Uri("/vdesktopninja/RDA", UriKind.Relative)));
+        Assert.False(SafeLinks.IsOfficial(new Uri("/vdesktopninja/EucLens", UriKind.Relative)));
     }
 
     // ---------- the update checker, with mocked replies ----------
@@ -633,7 +648,7 @@ public sealed class AboutAndUpdateTests
 
     private static string Assets(params string[] names) => "[" + string.Join(',', names.Select(n => $$"""{"name":"{{n}}","browser_download_url":"https://evil.example/{{n}}"}""")) + "]";
 
-    private static string Rel(string tag, bool prerelease = false, bool draft = false, string? assets = null, string body = "Notes.", string name = "", string published = "2026-10-01T08:00:00Z", string html = "https://github.com/vdesktopninja/RDA/releases/tag/x") =>
+    private static string Rel(string tag, bool prerelease = false, bool draft = false, string? assets = null, string body = "Notes.", string name = "", string published = "2026-10-01T08:00:00Z", string html = "https://github.com/vdesktopninja/EucLens/releases/tag/x") =>
         $$"""{"tag_name":{{JsonSerializer.Serialize(tag)}},"name":{{JsonSerializer.Serialize(name)}},"draft":{{(draft ? "true" : "false")}},"prerelease":{{(prerelease ? "true" : "false")}},"published_at":{{JsonSerializer.Serialize(published)}},"html_url":{{JsonSerializer.Serialize(html)}},"body":{{JsonSerializer.Serialize(body)}},"assets":{{assets ?? Assets(GitHubUpdateChecker.WindowsAssetName)}}}""";
 
     private static string List(params string[] releases) => "[" + string.Join(',', releases) + "]";
@@ -657,7 +672,7 @@ public sealed class AboutAndUpdateTests
         Assert.Equal(new DateTimeOffset(2026, 10, 1, 8, 0, 0, TimeSpan.Zero), release.PublishedAt);
         Assert.Equal("What's new\n- Faster history\n- Better charts", release.Summary);
         // The page address is built from the validated tag: the reply's own html_url is never used.
-        Assert.Equal("https://github.com/vdesktopninja/RDA/releases/tag/v0.6.0", release.PageUri.AbsoluteUri);
+        Assert.Equal("https://github.com/vdesktopninja/EucLens/releases/tag/v0.6.0", release.PageUri.AbsoluteUri);
         Assert.Equal("Version 0.6.0 is available.", result.Message);
         Assert.False(release.IsPrerelease);
     }
@@ -668,7 +683,7 @@ public sealed class AboutAndUpdateTests
         var handler = Replying(List(Rel("v0.5.1")));
         await CheckAsync(handler);
         var request = Assert.Single(handler.Seen);
-        Assert.Equal("https://api.github.com/repos/vdesktopninja/RDA/releases?per_page=30", request.Url);
+        Assert.Equal("https://api.github.com/repos/vdesktopninja/EucLens/releases?per_page=30", request.Url);
         Assert.Equal("GET", request.Method);
         // Only these headers: no credentials, no cookies, no identifiers.
         Assert.Equal(["Accept", "User-Agent", "X-GitHub-Api-Version"], request.Headers.OrderBy(h => h));
@@ -896,18 +911,18 @@ public sealed class AboutAndUpdateTests
         Assert.Equal("https://api.github.com/repositories/123456/releases?per_page=30", handler.Seen[1].Url);
         Assert.Equal(handler.Seen[0].Headers, handler.Seen[1].Headers);
         // A relative redirect stays on the same host.
-        var relative = new FakeHandler((_, n) => Task.FromResult(n == 1 ? Redirect("/repos/vdesktopninja/RDA/releases?per_page=30", HttpStatusCode.TemporaryRedirect) : Json("[]")));
+        var relative = new FakeHandler((_, n) => Task.FromResult(n == 1 ? Redirect("/repos/vdesktopninja/EucLens/releases?per_page=30", HttpStatusCode.TemporaryRedirect) : Json("[]")));
         Assert.Equal(UpdateOutcome.NoPublicRelease, (await CheckAsync(relative)).Outcome);
     }
 
     [Theory]
-    [InlineData("http://api.github.com/repos/vdesktopninja/RDA/releases")]
-    [InlineData("https://evil.example/repos/vdesktopninja/RDA/releases")]
-    [InlineData("https://api.github.com.evil.example/repos/vdesktopninja/RDA/releases")]
-    [InlineData("https://api.github.com@evil.example/repos/vdesktopninja/RDA/releases")]
-    [InlineData("https://user:pw@api.github.com/repos/vdesktopninja/RDA/releases")]
-    [InlineData("https://api.github.com:8443/repos/vdesktopninja/RDA/releases")]
-    [InlineData("https://github.com/vdesktopninja/RDA/releases")]
+    [InlineData("http://api.github.com/repos/vdesktopninja/EucLens/releases")]
+    [InlineData("https://evil.example/repos/vdesktopninja/EucLens/releases")]
+    [InlineData("https://api.github.com.evil.example/repos/vdesktopninja/EucLens/releases")]
+    [InlineData("https://api.github.com@evil.example/repos/vdesktopninja/EucLens/releases")]
+    [InlineData("https://user:pw@api.github.com/repos/vdesktopninja/EucLens/releases")]
+    [InlineData("https://api.github.com:8443/repos/vdesktopninja/EucLens/releases")]
+    [InlineData("https://github.com/vdesktopninja/EucLens/releases")]
     [InlineData("https://api.github.com/user")]
     [InlineData("https://api.github.com/")]
     [InlineData("ftp://api.github.com/repos/x/y")]
@@ -924,7 +939,7 @@ public sealed class AboutAndUpdateTests
     [Fact]
     public async Task TooManyRedirectsAndARedirectWithoutATargetAreRefused()
     {
-        var loop = new FakeHandler((_, n) => Task.FromResult(Redirect($"https://api.github.com/repos/vdesktopninja/RDA/releases?hop={n}")));
+        var loop = new FakeHandler((_, n) => Task.FromResult(Redirect($"https://api.github.com/repos/vdesktopninja/EucLens/releases?hop={n}")));
         Assert.Equal(UpdateOutcome.UnsafeRedirect, (await CheckAsync(loop)).Outcome);
         Assert.Equal(GitHubUpdateChecker.MaximumRedirects + 1, loop.Seen.Count);
         var none = Replying(new HttpResponseMessage(HttpStatusCode.Found));
@@ -1058,10 +1073,10 @@ public sealed class AboutAndUpdateTests
     }
 
     [Theory]
-    [InlineData("http://github.com/vdesktopninja/RDA")]
-    [InlineData("https://evil.example/vdesktopninja/RDA")]
+    [InlineData("http://github.com/vdesktopninja/EucLens")]
+    [InlineData("https://evil.example/vdesktopninja/EucLens")]
     [InlineData("https://github.com/vdesktopninja")]
-    [InlineData("https://github.com/vdesktopninja/RDA/extra")]
+    [InlineData("https://github.com/vdesktopninja/EucLens/extra")]
     [InlineData("https://github.com/../etc")]
     [InlineData("not a url")]
     public void TheCheckerOnlyAcceptsAGitHubRepositoryOverHttps(string repository) =>
