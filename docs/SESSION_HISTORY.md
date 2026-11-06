@@ -100,7 +100,7 @@ Events (list, filter) │ Selected incident: description + category, recorded st
 A recording file is never trusted for how much it may cost: lines are read through a bounded reader (1 MiB per line), at most 1 GiB is read from a part and 4 GiB from a
 recording, at most 100,000 timeline entries and 5,000 incidents are kept, and problems are listed 50 per kind with one summary line carrying the true count. A limit ends
 the read; the page then shows **Partial analysis** and says which limit it was. Parts with a damaged header are skipped and reported; an unsupported schema is rejected. See
-`HARDENING_0.4.4.md` for the full list of fixes and what was deferred.
+[the 0.4.4 hardening record](history/HARDENING_0.4.4.md) for the full list of fixes and what was deferred.
 
 ## 7. Lifecycle, threading and memory
 

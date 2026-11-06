@@ -143,4 +143,4 @@ versus 40 s hidden comparison (CPU, working set, heap, lost samples, dispatcher 
 
 **Limits.** The accelerated simulation is not an eight-hour Windows soak; the CI comparison is 40 s on a shared runner. Tray menu and taskbar screenshots
 depend on the runner's shell. The tray menu uses the standard Windows menu (no dark theme). Real Horizon disconnect/reconnect, DPI scaling of the tray icon
-on a real display and a long unattended run on a VDI need manual acceptance (see WINDOWS_ACCEPTANCE.md).
+on a real display and a long unattended run on a VDI need manual acceptance (see [the Windows acceptance checklist](validation/WINDOWS_ACCEPTANCE.md)).

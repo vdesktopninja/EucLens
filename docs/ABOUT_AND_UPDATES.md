@@ -81,4 +81,4 @@ An administrator who does not want even the manual check can block `api.github.c
 * Windows smoke test (`AboutValidation`): the executable's metadata, no request before consent, the real controls (the button is pressed through UI Automation) with a fake checker for update available, no release, offline and a pending check (responsiveness), the legal text open with the typography checks, screenshots in both themes.
 * Not tested: a real request to GitHub's API (by design), real corporate proxies and TLS inspection, a real browser opening, a screen reader, and Windows 10 versus 11 font fallback (the CI runner has Segoe UI Variable).
 
-See [SELF_UPDATE_DESIGN.md](SELF_UPDATE_DESIGN.md) for the design of an optional self-update in a later version (not implemented).
+See [SELF_UPDATE_DESIGN.md](development/SELF_UPDATE_DESIGN.md) for the design of an optional self-update in a later version (not implemented).

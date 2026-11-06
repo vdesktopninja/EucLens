@@ -1,4 +1,6 @@
-# MVP implementation plan
+# MVP implementation plan (historical)
+
+> **Historical document.** This is the plan of the first MVP (October 2026): five pages, a synthetic demo mode and in-memory recording, all of which were replaced by later versions. It is kept for the project's engineering history and does not describe the current product. For what EUC Lens does today, see the [README](../../README.md) and the [documentation index](../README.md).
 
 1. Establish .NET 10 solution: platform-neutral Core, Providers and Diagnostics;
    Windows WPF App; cross-platform xUnit Tests. Keep vendor dependencies out of UI.
@@ -16,6 +18,7 @@
    manual Windows acceptance checklist, and review compilation/runtime risks.
 
 ## Validation boundaries
+
 Linux can execute business tests and compile Windows targeting packs, but cannot
 execute WPF. Windows CI and manual interactive checks must cover startup,
 rendering, navigation, theme changes, charts and file dialogs.
