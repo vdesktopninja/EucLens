@@ -29,6 +29,14 @@ public static class HistoryExport
         return text.ToString();
     }
 
+    /// <summary>
+    /// Writes <see cref="TimelineCsv"/> (UTF-8 without a byte-order mark, as always) through the same atomic writer as the findings export: a temporary file beside the target,
+    /// flushed, then moved into place. A failure or cancellation leaves the previous file (or none) untouched and no temporary file behind, and an existing recording is never overwritten.
+    /// </summary>
+    public static Task WriteTimelineCsvAsync(string path, LoadedHistory history, RecordingAnnotations? annotations, TimeZoneInfo? zone = null, bool incidentsOnly = false,
+        CancellationToken cancellationToken = default) =>
+        FindingsExport.WriteAsync(path, () => new UTF8Encoding(false).GetBytes(TimelineCsv(history, annotations, zone, incidentsOnly)), cancellationToken);
+
     internal static string Cell(string value)
     {
         if (value.Length == 0) return "";

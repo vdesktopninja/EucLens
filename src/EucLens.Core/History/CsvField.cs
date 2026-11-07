@@ -43,7 +43,10 @@ public static class CsvField
     public static string Guard(string value) => NeedsFormulaGuard(value) ? "'" + value : value;
 
     /// <summary>An untrusted text field, ready to place between delimiters: sanitized, protected against formulas, bounded, and quoted when its content requires it.</summary>
-    public static string Text(string? value)
+    public static string Text(string? value) => string.IsNullOrEmpty(value) ? "" : Quote(Protect(value));
+
+    /// <summary>The content of an untrusted text cell without any quoting: sanitized, protected against formulas and bounded. Callers that always quote their cells use this.</summary>
+    public static string Protect(string? value)
     {
         if (string.IsNullOrEmpty(value)) return "";
         var text = Sanitize(value);
@@ -54,7 +57,7 @@ public static class CsvField
             if (char.IsHighSurrogate(text[cut - 1])) cut--;
             text = text[..cut] + TruncationMarker;
         }
-        return Quote(text);
+        return text;
     }
 
     /// <summary>RFC 4180 quoting only; the caller has already protected the value.</summary>

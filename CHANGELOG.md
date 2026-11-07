@@ -2,6 +2,15 @@
 
 All notable changes to EUC Lens are listed here. The application version is set in one place, `Directory.Build.props`.
 
+## Unreleased
+
+Fixes to exports and to a test; no change to metrics, rules, thresholds, the recording format or the CSV and JSON columns.
+
+- **Recording CSV is protected against spreadsheet formulas.** Recorded text (units, sources, encoder, codec, graphics mode, GPU model, driver, resolution, protocol detection, collection status and finding text) now gets the same protection as the findings CSV: one leading apostrophe, control characters replaced, and a bound of 32,000 characters per cell (the timeline CSV keeps its formula guard and quoting). Counter names from a recording get the same treatment in the header and are quoted when they need it, so they cannot split or inject a header cell. Numbers are unchanged, and a negative number stays a number.
+- **Recording CSV header and rows come from one snapshot.** Exporting a recording that is still being written no longer lets a row carry columns the header does not have: the export fixes the number of samples in its first pass and writes exactly those.
+- **Timeline and incident CSV is written atomically.** It uses the same temporary-file-then-move writer as the other exports, so a failed or cancelled export leaves the previous file untouched. The encoding (UTF-8 without a byte-order mark) is unchanged.
+- **Flaky test fixed.** `APersistedRecordingContinuesWhileHiddenAndHoldsEverySample` drove the view model from two threads, which the application never does (the view model lives on the UI thread). It now runs on one UI-like thread like its neighbours, and a new test guards that charts are only updated on the UI thread.
+
 ## 0.5.1 — Real monitoring only
 
 Status: released. The stable non-AI line (from 0.5.0); none of the 0.6 work. The recording format is unchanged (`euclens.recording/1`). Details and the audit: [docs/validation/STABLE_RELEASE_0.5.1.md](docs/validation/STABLE_RELEASE_0.5.1.md).

@@ -1,7 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
-using System.Text;
 using EucLens.App.Presentation;
 using EucLens.Core;
 using Microsoft.Extensions.Logging;
@@ -982,8 +981,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
         if (path is null) return;
         try
         {
-            var csv = HistoryExport.TimelineCsv(h, annotations, zone, incidentsOnly);
-            await File.WriteAllTextAsync(path, csv, new UTF8Encoding(false));
+            await HistoryExport.WriteTimelineCsvAsync(path, h, annotations, zone, incidentsOnly);
             Message = $"{(incidentsOnly ? "Incidents" : "Timeline")} exported to {path}. The session CSV and JSON exports are unchanged.";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Message = $"The export failed: {ex.Message}"; }
