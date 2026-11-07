@@ -129,7 +129,7 @@ See the [Horizon Blast notes](docs/HORIZON_BLAST.md) for the exact counters and 
 - **Your data stays with you.** Recordings, settings and logs are files in `%LOCALAPPDATA%\EucLens` (recordings can be moved to another folder in Settings). Recordings contain performance measurements and the session identifiers Windows and Horizon report, so treat them as diagnostic data before sharing them.
 - **No elevation.** EUC Lens runs as a standard user. Windows lets local users read performance counters by default; if your environment restricts them, add the user to *Performance Monitor Users*.
 - **Verify your download.** Each release lists the SHA-256 of the executable. A checksum proves the file is the one that was published; it does not prove who published it, because the executable is not yet code-signed.
-- To report a security concern, open a GitHub issue that does not include sensitive details, or get in touch through [vdesktop.ninja](https://vdesktop.ninja).
+- **Report a vulnerability privately** through the repository's [Security tab](https://github.com/vdesktopninja/EucLens/security/advisories/new). See [SECURITY.md](SECURITY.md).
 
 ## Documentation
 
