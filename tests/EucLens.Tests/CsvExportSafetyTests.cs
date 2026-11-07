@@ -96,6 +96,31 @@ public sealed class CsvExportSafetyTests
         Assert.DoesNotContain(data, cell => cell.StartsWith('\''));
     }
 
+    [Fact]
+    public async Task ACounterNameFromTheRecordingCannotSplitOrInjectAHeaderCell()
+    {
+        var s = TestSamples.Make(0);
+        var hostile = "x,=HYPERLINK(\"http://evil.example\")";
+        s = s with { BlastMetrics = new Dictionary<string, Metric>(s.BlastMetrics!) { [hostile] = s.BlastMetrics!["rtt"] },
+            HostMetrics = [new("cpu,=1+1\"", MetricCategory.WindowsCpu, "CPU", s.BlastMetrics["rtt"])] };
+        var rows = await ExportAsync(() => [s]);
+        Assert.Equal(rows[0].Count, rows[1].Count);                                          // the name did not add columns
+        Assert.Contains("blast_" + hostile, rows[0]);                                        // and it is still there, exactly as recorded
+        Assert.DoesNotContain(rows[0], cell => CsvField.NeedsFormulaGuard(cell));
+    }
+
+    [Fact]
+    public async Task ControlCharactersAreReplacedAndAnOverlongTextCellIsBoundedLikeInTheFindingsExport()
+    {
+        var s = TestSamples.Make(0);
+        s = s with { Gpu = s.Gpu with { Model = "Adapter\u0001\u0007 X" }, CollectionStatus = new string('a', 40_000) };
+        var rows = await ExportAsync(() => [s]);
+        Assert.Equal("Adapter   X", rows[1][rows[0].IndexOf("gpu_model")]);
+        var status = rows[1][rows[0].IndexOf("collection_status")];
+        Assert.Equal(CsvField.MaximumTextLength, status.Length);
+        Assert.EndsWith(CsvField.TruncationMarker, status, StringComparison.Ordinal);
+    }
+
     // ---------- one snapshot for the header and the rows ----------
 
     [Fact]
@@ -139,7 +164,8 @@ public sealed class CsvExportSafetyTests
             Assert.True(rows.Count >= 21);
             Assert.All(rows, row => Assert.Equal(rows[0].Count, row.Count));
             var stamps = rows.Skip(1).Select(r => r[0]).ToArray();
-            Assert.Equal(stamps.Distinct().Count(), stamps.Length);                // in order, none twice
+            Assert.Equal(stamps.Distinct().Count(), stamps.Length);                // none twice
+            Assert.Equal(stamps.OrderBy(x => x, StringComparer.Ordinal), stamps);   // in order (ISO 8601 UTC sorts as text)
         }
         finally { Directory.Delete(directory, true); }
     }
