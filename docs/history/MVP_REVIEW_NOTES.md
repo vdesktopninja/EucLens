@@ -1,4 +1,6 @@
-# Proposed review
+# Proposed review of the MVP (historical)
+
+> **Historical document.** This is the review text of the first MVP, a synthetic demo workspace. Demo Mode no longer exists. It is kept for the project's engineering history and does not describe the current product. For what EUC Lens does today, see the [README](../../README.md) and the [documentation index](../README.md).
 
 Title: Build EUC Lens portable WPF demo MVP
 
@@ -16,4 +18,4 @@ build instructions, architecture, research gates and acceptance checks are inclu
 Validation: full solution cross-build with zero warnings/errors; 44 xUnit tests
 pass; single EXE cross-publish succeeds. Windows CI also passes all tests and the published WPF startup/binding smoke
 check. Interactive visual VDI acceptance remains pending. The feature branch
-is pushed; main has not been merged or modified. See VALIDATION.md.
+is pushed; main has not been merged or modified. See [the MVP validation record](../validation/VALIDATION.md).

@@ -118,7 +118,7 @@ none under 0.5.1.
   3 frames per second is a real degradation, but it is below the content-change gate. Reporting it would need a new ratio
   threshold between delivered and changed frames, which has not been validated, so none was added.
 * **Dirty frames count changes, not their size.** A small fast animation (a spinner, a ticker) can count as content change.
-  The interpretation of the counter rests on its name (see [DIAGNOSTICS.md](DIAGNOSTICS.md)).
+  The interpretation of the counter rests on its name (see [DIAGNOSTICS.md](../DIAGNOSTICS.md)).
 * **One threshold for every kind of content.** A declared *Video playback* used to say that 24–30 FPS mattered; now 15 FPS is
   the line for all content that changes at least that often.
 * **Slow delivery of slowly changing content is not reported in Session History either** (same gate, same reason).
@@ -159,13 +159,13 @@ matrix in both themes.
 ## Privacy: one optional network request
 
 EUC Lens needs no network. The About page has a **Check for updates** button that asks GitHub's public release list when, and only when, the user presses it
-(details and security limits in [ABOUT_AND_UPDATES.md](ABOUT_AND_UPDATES.md)). Nothing is sent about the computer, the user, the session or the recordings, nothing is downloaded or replaced,
+(details and security limits in [ABOUT_AND_UPDATES.md](../ABOUT_AND_UPDATES.md)). Nothing is sent about the computer, the user, the session or the recordings, nothing is downloaded or replaced,
 and monitoring and recording never depend on it.
 
 ## Release asset convention
 
 The About page's update check offers a release only if it has an asset named exactly `EucLens-win-x64.exe` (the portable executable that the validated CI run
-built, uploaded under that name). Details and the steps for a release are in [ABOUT_AND_UPDATES.md](ABOUT_AND_UPDATES.md).
+built, uploaded under that name). Details and the steps for a release are in [ABOUT_AND_UPDATES.md](../ABOUT_AND_UPDATES.md).
 
 ## Release-candidate validation and known limitations
 

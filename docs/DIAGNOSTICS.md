@@ -120,11 +120,11 @@ ran only for a declared active workload. 0.5.1 removes the selection. The frame-
 | No dirty-frame counter (or too few samples of it) | **Not judged**: nothing is claimed, an open finding closes, and the assessment says "Not judged — screen activity cannot be measured". |
 
 `graphics.fps.unstable` keeps its own condition (dirty FPS ≥ `ActivityDirtyFps`, steady content, fluctuating delivery).
-Session History's `gfx.fps.low` (rule version 2) uses the same gate on the recorded dirty FPS (±5 s mean ≥ 15), so a recording gets the same low-FPS conclusion in both places. The remaining differences (window, adaptive baseline, duration) are listed in [STABLE_RELEASE_0.5.1.md](STABLE_RELEASE_0.5.1.md).
+Session History's `gfx.fps.low` (rule version 2) uses the same gate on the recorded dirty FPS (±5 s mean ≥ 15), so a recording gets the same low-FPS conclusion in both places. The remaining differences (window, adaptive baseline, duration) are listed in [STABLE_RELEASE_0.5.1.md](validation/STABLE_RELEASE_0.5.1.md).
 No threshold value was added or changed: the existing `LowFps` threshold now also states how often the content must change for
 low FPS to be judged, which replaces the workload a user used to declare. The idle and static-screen handling stays conservative:
 low FPS on a static or slowly changing screen is never a finding, and without activity evidence nothing is concluded. Recordings made by 0.5.0 keep their workload value; it is shown
-in exports and never used by a rule. See [STABLE_RELEASE_0.5.1.md](STABLE_RELEASE_0.5.1.md) for the audit and the limitations.
+in exports and never used by a rule. See [STABLE_RELEASE_0.5.1.md](validation/STABLE_RELEASE_0.5.1.md) for the audit and the limitations.
 
 ## Assessments (hypotheses)
 

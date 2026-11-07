@@ -1,4 +1,6 @@
-# EUC Lens 0.4.4 — release hardening after the independent review
+# EUC Lens 0.4.4 — release hardening after the independent review (historical)
+
+> **Historical document.** This records the review of version 0.4.4 and the fixes made for it. It is kept for the project's engineering history; later versions may differ. For what EUC Lens does today, see the [README](../../README.md) and the [documentation index](../README.md).
 
 The review of commit `4df78ac` (see the comment on Draft PR #1) found defects that had to be fixed before release. This page maps each fix to its
 regression tests and records what was deliberately deferred. Nothing here changes the recording format: `euclens.recording/1` stays backward compatible
@@ -40,7 +42,7 @@ Also: the writer re-announces a data loss that failed to reach the file (`Reopen
 
 ## Still required before release approval
 
-Manual acceptance on a real Omnissa Horizon session (see `WINDOWS_ACCEPTANCE.md`), including the items the review added: Blast counters and raw units charted in history, a
+Manual acceptance on a real Omnissa Horizon session (see [the Windows acceptance checklist](../validation/WINDOWS_ACCEPTANCE.md)), including the items the review added: Blast counters and raw units charted in history, a
 multi-hour recording with several hidden-window marks, Focus Assist, a folder of 0.4.3 recordings (retention and quota with sidecars), SmartScreen and antivirus behaviour of
 the portable EXE, an offline/firewall check, high DPI across monitors, tray overflow and Explorer restart, a disconnected or read-only recordings folder, a non-UTC time zone and
 a DST change, opening the CSV exports in Excel, and keyboard-only use with a screen reader.

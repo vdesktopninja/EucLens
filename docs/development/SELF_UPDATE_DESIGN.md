@@ -1,6 +1,6 @@
 # Optional self-update — design for a later version (not implemented in 0.5.1)
 
-Status: proposal. 0.5.1 can only *tell* the user that a newer release exists and open its page ([ABOUT_AND_UPDATES.md](ABOUT_AND_UPDATES.md)). Nothing in 0.5.1 downloads or replaces an executable.
+Status: proposal. 0.5.1 can only *tell* the user that a newer release exists and open its page ([ABOUT_AND_UPDATES.md](../ABOUT_AND_UPDATES.md)). Nothing in 0.5.1 downloads or replaces an executable.
 This document records what a self-update would have to guarantee, so that it can be reviewed before any code is written.
 
 ## Principles

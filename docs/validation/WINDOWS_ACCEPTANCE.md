@@ -1,19 +1,21 @@
 # Windows acceptance checklist
 
 Record Windows build, VDI agent/protocol version, DPI, GPU/driver, artifact commit
-and results. Use a standard user. All metrics remain synthetic, even within VDI.
-These checks have not been performed on the Linux development host.
+and results. Use a standard user. EUC Lens monitors the real session it runs in (Horizon Blast
+counters where the session has them, Windows metrics everywhere). This is a manual checklist for
+real Windows machines and real VDI sessions. The Windows CI workflow tests the published
+executable automatically, but it has no Horizon session, no real display scaling and no screen reader.
 
 - [ ] Download/copy the self-contained EXE to a machine without .NET installed.
 - [ ] Run offline without elevation; verify startup, native extraction and charts.
 - [ ] Run `EucLens.exe --smoke-test`; check exit 0 and `smoke-result.txt` PASS.
-- [ ] Inspect all five views at 1366×768, 1536×864, 1920×1080 and
+- [ ] Inspect all eight pages at 1366×768, 1536×864, 1920×1080 and
       2560×1440 at 100%, 125% and 150% DPI. Capture actual application screenshots
       in both themes, including 1366×768 at 150% (about 911×512 DIPs before chrome).
       Verify equal charts at wide widths, one-column charts at narrow widths,
       reflowing technical sections, full text and operable selectors/recording actions.
       Extended detail may scroll; primary readouts and controls must remain accessible.
-- [ ] Navigate all five pages using mouse and keyboard; no blank/dead controls.
+- [ ] Navigate all eight pages using mouse and keyboard; no blank/dead controls.
 - [ ] No page offers a data-source, demo protocol, demo scenario or workload selection; Dashboard
       and Settings show the detected protocol and the data availability (0.5.1).
 - [ ] In a Horizon Blast session the banner reads "Horizon Blast counters + Windows metrics"; in an RDP
@@ -90,7 +92,7 @@ CI cannot judge these; please check them once on a real Windows 11 VDI session:
 ## About and update checking (0.5.1) — manual acceptance
 
 1. Explorer → right-click `EucLens.exe` → Properties → Details: Product name *EUC Lens*, File description *EUC Lens - Remote Session Performance Diagnostics*, Product version *0.5.1*, File version *0.5.1.0*, Copyright *Copyright (c) 2026 EUC Lens contributors* (the repository's existing line, unchanged). Windows shows the company, *VDI Ninja*, on the Details/Properties of the executable where it displays one; it has no author field.
-2. Navigation → About: logo, name, description, then **Dominik Jakubowski**, **VDI Ninja** and the button **https://vdesktop.ninja** (a click opens the site in the default browser); version, build (a commit id for a CI build), platform, copyright and MIT; the navigation footer shows the same version; no "Stable" label. *Copy version information* then paste: product, version, build, author and brand, website, platform, runtime, no computer or user name.
+2. Navigation → About: logo, name, description, then **Dominik Jakubowski**, **VDI Ninja** and the button **`https://vdesktop.ninja`** (a click opens the site in the default browser); version, build (a commit id for a CI build), platform, copyright and MIT; the navigation footer shows the same version; no "Stable" label. *Copy version information* then paste: product, version, build, author and brand, website, platform, runtime, no computer or user name.
 3. Disclosures: release notes of this version, the MIT license, the acknowledgments and the full third-party license texts (a scrollable box) open and read; both themes, 100 %, 125 % and 150 % display scaling.
 4. With a network monitor (or with the network cable out): open About and Settings, switch pages, wait: **no** connection is made by EUC Lens. Press *Check for updates* once: one HTTPS request to `api.github.com`. Offline or with the host blocked: a plain message, the app stays responsive, monitoring and recording continue.
 5. While the repository is private or has no release: the message reads "No public release has been published yet." After a release exists with an `EucLens.exe` asset: the check shows installed and latest version, date and summary, and *Download update* opens the release page in the browser (nothing is downloaded by EUC Lens). A pre-release is only offered with *Include pre-releases* ticked.

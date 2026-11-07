@@ -1,4 +1,6 @@
-# MVP validation evidence
+# MVP validation evidence (historical)
+
+> **Historical record.** This page documents the validation of the first MVP in October 2026. The Windows CI runs it names were made in the maintainers' private development repository and cannot be opened from here. The current validation is the Windows CI workflow ([`.github/workflows/windows.yml`](../../.github/workflows/windows.yml)), the [0.5.1 audit](STABLE_RELEASE_0.5.1.md) and the [Windows acceptance checklist](WINDOWS_ACCEPTANCE.md).
 
 Validated on 2026-10-08 on Linux x64, .NET SDK 10.0.401, branch
 `feature/euc-lens-mvp`. This is a cross-build, not execution of the Windows UI.
@@ -61,7 +63,7 @@ the smoke-test window. No other confirmed blocker was reported.
 ## Windows CI verification
 
 On 2026-10-08 the branch was pushed, with user authorization, and
-[Windows CI run 37803672588](https://github.com/vdesktopninja/EucLens/actions/runs/37803672588)
+Windows CI run 37803672588 (private development repository)
 passed at commit `02c69b9`. Runner: Windows Server 2025 (10.0.26100), image
 `windows-2025-vs2026` 20260925.250.1, SDK 10.0.401.
 
@@ -129,20 +131,20 @@ The layout matrix uses available DIP space equivalent to all four requested
 resolutions at 100/125/150% scaling. It records the host's actual DPI separately;
 it does **not** change Windows DPI or replace actual per-monitor acceptance.
 Manual DPI changes, keyboard/focus and pixel/text inspection remain in
-`WINDOWS_ACCEPTANCE.md`. At this point no Windows CI execution, runtime pass or
+[the Windows acceptance checklist](WINDOWS_ACCEPTANCE.md). At this point no Windows CI execution, runtime pass or
 actual PNG from the redesigned revision is claimed: the feature branch is still
 local and the operator's Guard requires approval before its remote push.
 
 ### Windows runtime follow-up
 
 With user authorization, `cez/30c36cd6` was pushed. The first redesign run,
-[37810980268](https://github.com/vdesktopninja/EucLens/actions/runs/37810980268), passed
+37810980268 (private development repository), passed
 build, 45 tests and publish, then detected a genuine startup exception:
 `NavigationWidth` was a Double used as `ColumnDefinition.Width` (GridLength).
 Commit `476cbfc` changes only that token's type and adds a contract gate rejecting
 wrong grid-sizing resource types. It preserves the 184-DIP navigation layout.
 
-[Windows run 37811451477](https://github.com/vdesktopninja/EucLens/actions/runs/37811451477)
+Windows run 37811451477 (private development repository)
 passed at `476cbfc`, including startup, sampling, navigation binding, both themes,
 all five views, chart paint assertions, adaptive-pane bounds/overlap, recording,
 JSON/CSV export and no WPF binding errors. Actual host DPI was 96×96. The EXE
@@ -167,7 +169,7 @@ DIP-space simulation at 100/125/150%.
 
 The viewport harness now hosts the same loaded client in a smoke-only Canvas
 so native desktop constraints cannot override its requested size. Run
-[37812865544](https://github.com/vdesktopninja/EucLens/actions/runs/37812865544) passed
+37812865544 (private development repository) passed
 at `5e6d1c1`: 45/45 Windows tests, published EXE smoke, all 120 layout cases and
 20 real WPF client renders. Dimensions verified from PNG headers are 1350×729
 and 1904×1041 pixels (requested 1366×768 and 1920×1080 minus native chrome).
