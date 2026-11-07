@@ -40,7 +40,7 @@ public sealed class BackgroundViewModelTests
         public CancellationTokenSource Cancel = new();
         public Task Loop = Task.CompletedTask;
 
-        public static async Task<Rig> CreateAsync(bool persistent = true, long quota = 512L << 20, MemoryStorage? storage = null, int intervalMilliseconds = 20)
+        public static async Task<Rig> CreateAsync(bool persistent = true, long quota = 512L << 20, MemoryStorage? storage = null)
         {
             var rig = new Rig();
             if (storage is not null) rig.Storage = storage;
@@ -51,7 +51,7 @@ public sealed class BackgroundViewModelTests
                 rig.Recorder = new SessionRecorder(rig.Writer);
             }
             else rig.Recorder = new SessionRecorder();
-            rig.Coordinator = new MonitoringCoordinator(interval: TimeSpan.FromMilliseconds(intervalMilliseconds));
+            rig.Coordinator = new MonitoringCoordinator(interval: TimeSpan.FromMilliseconds(20));
             rig.Monitoring = new MonitoringService(rig.Coordinator, rig.Recorder);
             rig.Vm = new MainViewModel(rig.Provider, new DiagnosticIntelligenceEngine(DiagnosticRuleSet.Default()), rig.Recorder, rig.Desktop, NullLogger<MainViewModel>.Instance,
                 monitoring: rig.Monitoring, background: new BackgroundViewModel(rig.Monitoring, rig.Recorder, rig.Desktop, storage: rig.Storage)).WithSynthetic(rig.Provider);
@@ -155,23 +155,24 @@ public sealed class BackgroundViewModelTests
     public Task ChartsAreOnlyUpdatedOnTheUiThreadWhileTheWindowIsHiddenAndRestoredRapidly() =>
         // Regression for a flaky CI failure (InvalidOperationException/IndexOutOfRange in TrendChart.Publish). A view model created on a UI thread
         // posts every collected sample back to it, so hiding and restoring the window never updates a chart from two threads at once. Without
-        // that thread the same loop throws within a second (verified), because Present then runs on the thread pool and on the caller.
+        // that thread Present runs on the thread pool for every sample and on the caller after a restore, which the thread check below sees
+        // at once (verified); it does not depend on timing, so the sampling interval stays at its normal value.
         SingleThreadContext.RunAsync(async () =>
         {
             var ui = Environment.CurrentManagedThreadId;
-            await using var rig = await Rig.CreateAsync(persistent: false, intervalMilliseconds: 1);
+            await using var rig = await Rig.CreateAsync(persistent: false);
             var foreign = new System.Collections.Concurrent.ConcurrentBag<int>();
             foreach (var chart in rig.Vm.Diagnostics.Trends)
                 chart.Data.Points.CollectionChanged += (_, _) => { if (Environment.CurrentManagedThreadId != ui) foreign.Add(Environment.CurrentManagedThreadId); };
             rig.Run();
             await WaitUntil(() => rig.Vm.NetworkReadout != "Unavailable");
-            var end = Environment.TickCount64 + 2_000;
+            var end = Environment.TickCount64 + 1_500;
             while (Environment.TickCount64 < end)
             {
                 rig.Vm.SetPresenting(false);
-                await Task.Delay(2);
+                await Task.Delay(25);
                 rig.Vm.SetPresenting(true);
-                await Task.Delay(1);
+                await Task.Delay(5);
                 Assert.False(rig.Loop.IsFaulted, rig.Loop.Exception?.GetBaseException().ToString());
             }
             Assert.Empty(foreign);

@@ -102,11 +102,12 @@ public sealed class CsvExportSafetyTests
         var s = TestSamples.Make(0);
         var hostile = "x,=HYPERLINK(\"http://evil.example\")";
         s = s with { BlastMetrics = new Dictionary<string, Metric>(s.BlastMetrics!) { [hostile] = s.BlastMetrics!["rtt"] },
-            HostMetrics = [new("cpu,=1+1\"", MetricCategory.WindowsCpu, "CPU", s.BlastMetrics["rtt"])] };
+            HostMetrics = [new("cpu,=1+1\"", MetricCategory.WindowsCpu, "CPU", s.BlastMetrics["rtt"]), new("bell\u0007name", MetricCategory.WindowsDisk, "Disk", s.BlastMetrics["rtt"])] };
         var rows = await ExportAsync(() => [s]);
         Assert.Equal(rows[0].Count, rows[1].Count);                                          // the name did not add columns
         Assert.Contains("blast_" + hostile, rows[0]);                                        // and it is still there, exactly as recorded
         Assert.DoesNotContain(rows[0], cell => CsvField.NeedsFormulaGuard(cell));
+        Assert.Contains("host_bell name", rows[0]);                                          // a control character in a name is replaced, as in the cells
     }
 
     [Fact]
