@@ -19,15 +19,24 @@ public static class RecordingExport
             await JsonSerializer.SerializeAsync(stream, samples(), options, cancellationToken);
         }, cancellationToken), cancellationToken);
 
-    /// <param name="samples">Called twice: the header is the union of all metric columns, so the data is read once to find them and once to write.</param>
+    /// <param name="samples">
+    /// Called twice: the header is the union of all metric columns, so the data is read once to find them and once to write. The first pass fixes how many samples the export
+    /// contains and the second writes exactly those, so a recording that is still growing (a source streamed from disk) cannot give the rows columns the header does not have.
+    /// </param>
+    /// <remarks>
+    /// Recorded text (units, sources, encoder, codec, graphics mode, GPU model, driver, resolution, protocol detection, collection status, finding text) is untrusted: every text cell is protected against spreadsheet formulas
+    /// with <see cref="CsvField.Guard"/> (one leading apostrophe). Numbers are written as numbers and are never prefixed.
+    /// </remarks>
     public static Task ExportCsvAsync(string path, Func<IEnumerable<SessionSnapshot>> samples, CancellationToken cancellationToken = default) =>
         Task.Run(() => WriteAtomicAsync(path, async stream =>
         {
             await using var writer = new StreamWriter(stream, new UTF8Encoding(true), leaveOpen: true);
             var blastSet = new List<string>(); var blastSeen = new HashSet<string>(StringComparer.Ordinal);
             var hostSet = new List<string>(); var hostSeen = new HashSet<string>(StringComparer.Ordinal);
+            var count = 0;
             foreach (var s in samples())
             {
+                count++;
                 foreach (var key in s.BlastMetrics?.Keys ?? Enumerable.Empty<string>()) if (blastSeen.Add(key)) blastSet.Add(key);
                 foreach (var entry in s.HostMetrics ?? []) if (hostSeen.Add(entry.Id)) hostSet.Add(entry.Id);
             }
@@ -38,12 +47,12 @@ public static class RecordingExport
             // Schema 0.3 appends columns only, so existing column positions are unchanged.
             var hostHeader = ",protocol_detection" + string.Concat(hostKeys.Select(k => $",host_{k},host_{k}_unit,host_{k}_status,host_{k}_raw,host_{k}_scope,host_{k}_source"));
             await writer.WriteLineAsync("timestamp,data_source,is_demo,protocol,session_id,workload,demo_scenario,rtt_ms,network_latency_ms,available_mbps,consumed_mbps,packet_loss_percent,fps,dropped_frames_percent,encoder,codec,graphics_mode,hardware_encoding,resolution,gpu_model,gpu_percent,vram_percent,encoder_percent,decoder_percent,driver,cpu_percent,ram_percent,disk_mbps,collection_status" + blastHeader + hostHeader + DiagnosticsHeader);
-            foreach (var s in samples())
+            foreach (var s in samples().Take(count))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 // Non-measurements are written as their status, never as zero.
                 string V(Metric m) => m.Value?.ToString("R", CultureInfo.InvariantCulture) ?? m.Status.ToString();
-                string Q(string? text) => "\"" + (text ?? "").Replace("\"", "\"\"") + "\"";
+                string Q(string? text) => "\"" + CsvField.Guard(text ?? "").Replace("\"", "\"\"") + "\"";
                 var blast = string.Concat(blastKeys.Select(k => s.BlastMetrics?.TryGetValue(k, out var m) == true
                     ? $",{V(m)},{Q(m.Unit)},{m.Status},{m.RawValue?.ToString(CultureInfo.InvariantCulture) ?? ""},{Q(m.Source)}"
                     : ",Unavailable,\"\",Unavailable,,\"\""));

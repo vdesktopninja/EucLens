@@ -287,7 +287,7 @@ public static class FindingsExport
     /// Builds the content off the calling thread, writes it to a temporary file beside the target, flushes it to disk, and only then replaces the target: a failure, a cancellation or
     /// a full disk leaves the previous file (or none) exactly as it was and no temporary file behind. An existing recording is never opened for writing.
     /// </summary>
-    private static Task WriteAsync(string path, Func<byte[]> content, CancellationToken cancellationToken) => Task.Run(async () =>
+    internal static Task WriteAsync(string path, Func<byte[]> content, CancellationToken cancellationToken) => Task.Run(async () =>
     {
         cancellationToken.ThrowIfCancellationRequested();
         var full = Path.GetFullPath(path);

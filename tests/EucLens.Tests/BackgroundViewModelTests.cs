@@ -40,7 +40,7 @@ public sealed class BackgroundViewModelTests
         public CancellationTokenSource Cancel = new();
         public Task Loop = Task.CompletedTask;
 
-        public static async Task<Rig> CreateAsync(bool persistent = true, long quota = 512L << 20, MemoryStorage? storage = null)
+        public static async Task<Rig> CreateAsync(bool persistent = true, long quota = 512L << 20, MemoryStorage? storage = null, int intervalMilliseconds = 20)
         {
             var rig = new Rig();
             if (storage is not null) rig.Storage = storage;
@@ -51,7 +51,7 @@ public sealed class BackgroundViewModelTests
                 rig.Recorder = new SessionRecorder(rig.Writer);
             }
             else rig.Recorder = new SessionRecorder();
-            rig.Coordinator = new MonitoringCoordinator(interval: TimeSpan.FromMilliseconds(20));
+            rig.Coordinator = new MonitoringCoordinator(interval: TimeSpan.FromMilliseconds(intervalMilliseconds));
             rig.Monitoring = new MonitoringService(rig.Coordinator, rig.Recorder);
             rig.Vm = new MainViewModel(rig.Provider, new DiagnosticIntelligenceEngine(DiagnosticRuleSet.Default()), rig.Recorder, rig.Desktop, NullLogger<MainViewModel>.Instance,
                 monitoring: rig.Monitoring, background: new BackgroundViewModel(rig.Monitoring, rig.Recorder, rig.Desktop, storage: rig.Storage)).WithSynthetic(rig.Provider);
@@ -125,28 +125,58 @@ public sealed class BackgroundViewModelTests
         });
 
     [Fact]
-    public async Task APersistedRecordingContinuesWhileHiddenAndHoldsEverySample()
-    {
-        await using var rig = await Rig.CreateAsync();
-        rig.Run();
-        await WaitUntil(() => rig.Vm.NetworkReadout != "Unavailable");
-        rig.Vm.StartRecordingCommand.Execute(null);
-        Assert.True(rig.Recorder.IsRecording);
-        Assert.True(rig.Recorder.IsPersistent);
-        rig.Vm.SetPresenting(false);
-        var hiddenFrom = rig.Recorder.SampleCount;
-        await WaitUntil(() => rig.Recorder.SampleCount >= hiddenFrom + 25);
-        rig.Vm.SetPresenting(true);
-        rig.Vm.StopRecordingCommand.Execute(null);
-        await rig.Recorder.StopAsync();
-        var summary = Assert.Single(RecordingCatalog.Scan(rig.Storage, Dir));
-        Assert.True(summary.IsComplete);
-        Assert.Equal(rig.Recorder.SampleCount, (int)summary.Samples);
-        Assert.True(summary.Samples >= 25);
-        Assert.Equal((int)summary.Samples, rig.Writer.ReadSamples().Count());                    // nothing is missing, including the hidden interval
-        Assert.False(rig.Vm.HasUnexportedSamples);                                              // it is saved: exiting loses nothing
-        Assert.Contains("Demo data", Assert.Single(await ListAsync(rig)).Source);
-    }
+    public Task APersistedRecordingContinuesWhileHiddenAndHoldsEverySample() =>
+        // As in the application, the view model lives on one UI thread: collection runs on the thread pool and posts its results back,
+        // and hide/restore comes from the UI thread. Driving it from two threads makes two threads update the same charts.
+        SingleThreadContext.RunAsync(async () =>
+        {
+            await using var rig = await Rig.CreateAsync();
+            rig.Run();
+            await WaitUntil(() => rig.Vm.NetworkReadout != "Unavailable");
+            rig.Vm.StartRecordingCommand.Execute(null);
+            Assert.True(rig.Recorder.IsRecording);
+            Assert.True(rig.Recorder.IsPersistent);
+            rig.Vm.SetPresenting(false);
+            var hiddenFrom = rig.Recorder.SampleCount;
+            await WaitUntil(() => rig.Recorder.SampleCount >= hiddenFrom + 25);
+            rig.Vm.SetPresenting(true);
+            rig.Vm.StopRecordingCommand.Execute(null);
+            await rig.Recorder.StopAsync();
+            var summary = Assert.Single(RecordingCatalog.Scan(rig.Storage, Dir));
+            Assert.True(summary.IsComplete);
+            Assert.Equal(rig.Recorder.SampleCount, (int)summary.Samples);
+            Assert.True(summary.Samples >= 25);
+            Assert.Equal((int)summary.Samples, rig.Writer.ReadSamples().Count());                    // nothing is missing, including the hidden interval
+            Assert.False(rig.Vm.HasUnexportedSamples);                                              // it is saved: exiting loses nothing
+            Assert.Contains("Demo data", Assert.Single(await ListAsync(rig)).Source);
+        });
+
+    [Fact]
+    public Task ChartsAreOnlyUpdatedOnTheUiThreadWhileTheWindowIsHiddenAndRestoredRapidly() =>
+        // Regression for a flaky CI failure (InvalidOperationException/IndexOutOfRange in TrendChart.Publish). A view model created on a UI thread
+        // posts every collected sample back to it, so hiding and restoring the window never updates a chart from two threads at once. Without
+        // that thread the same loop throws within a second (verified), because Present then runs on the thread pool and on the caller.
+        SingleThreadContext.RunAsync(async () =>
+        {
+            var ui = Environment.CurrentManagedThreadId;
+            await using var rig = await Rig.CreateAsync(persistent: false, intervalMilliseconds: 1);
+            var foreign = new System.Collections.Concurrent.ConcurrentBag<int>();
+            foreach (var chart in rig.Vm.Diagnostics.Trends)
+                chart.Data.Points.CollectionChanged += (_, _) => { if (Environment.CurrentManagedThreadId != ui) foreign.Add(Environment.CurrentManagedThreadId); };
+            rig.Run();
+            await WaitUntil(() => rig.Vm.NetworkReadout != "Unavailable");
+            var end = Environment.TickCount64 + 2_000;
+            while (Environment.TickCount64 < end)
+            {
+                rig.Vm.SetPresenting(false);
+                await Task.Delay(2);
+                rig.Vm.SetPresenting(true);
+                await Task.Delay(1);
+                Assert.False(rig.Loop.IsFaulted, rig.Loop.Exception?.GetBaseException().ToString());
+            }
+            Assert.Empty(foreign);
+            Assert.NotEmpty(rig.Vm.Diagnostics.Trends[0].Points);   // the charts were really fed, so the check above is not vacuous
+        });
 
     private static async Task<List<RecordingItem>> ListAsync(Rig rig)
     {

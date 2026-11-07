@@ -13,7 +13,7 @@ public sealed class FindingsExportTests
 
     // ---------- a small RFC 4180 reader: what a spreadsheet's CSV import would see ----------
 
-    private static List<List<string>> Parse(string csv)
+    internal static List<List<string>> Parse(string csv)
     {
         var rows = new List<List<string>>(); var row = new List<string>(); var field = new StringBuilder();
         var quoted = false; var i = 0; var wasQuoted = false;
